@@ -7,6 +7,10 @@ within a session hit the prompt cache (saving ~80% of input token cost).
 
 The user prompt is assembled fresh per submission via build_user_prompt().
 Claude is instructed to return ONLY valid JSON — no prose, no fences.
+
+NOTE: The CTA label used in app.py is "Run My Confidence Check" (not "Evaluate
+This Result"). This file drives the API path only — the current production
+path uses rule-based scoring in evaluator.py and does not call these prompts.
 """
 
 # ---------------------------------------------------------------------------
