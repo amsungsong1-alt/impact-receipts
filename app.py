@@ -68,6 +68,12 @@ CSS = """
   --border:      rgba(27,42,74,0.15);
   --text-muted:  #6B7280;
 }
+.is-col, .is-col li, .is-col ul, .is-col h4 {
+    color: #1B5E20 !important;
+}
+.isnot-col, .isnot-col li, .isnot-col ul, .isnot-col h4 {
+    color: #C62828 !important;
+}
 
 html, body, [class*="css"] {
   font-family: 'Inter', sans-serif;
