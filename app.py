@@ -303,8 +303,7 @@ def render_screen_0():
     st.markdown(
         """
         <div class="is-not-grid">
-          <div class="is-col">
-            <h4>✓ What this IS</h4>
+<div class="is-col" style="color: #1B5E20 !important;">            <h4>✓ What this IS</h4>
             <ul>
               <li>A quick confidence check for reported results before submission</li>
               <li>A guide that shows what to fix and why</li>
@@ -313,8 +312,7 @@ def render_screen_0():
             </ul>
           </div>
           <div class="isnot-col">
-            <h4>✗ What this is NOT</h4>
-            <ul>
+<div class="isnot-col" style="color: #991B1B !important;">            <ul>
               <li>A full reporting system, database, or audit tool</li>
               <li>A replacement for your M&amp;E framework</li>
               <li>An AI that invents or assumes missing data</li>
@@ -328,7 +326,7 @@ def render_screen_0():
 
     st.info(
         "Questions before you start? Chat with us on WhatsApp: "
-        "[+233 XX XXX XXXX](https://wa.me/233XXXXXXXXX)",
+        "[+233 50 364 8195](https://wa.me/233503648195)",
         icon="💬",
     )
 
@@ -681,7 +679,7 @@ def render_screen_2():
     with col_wa:
         st.markdown(
             "<div class='cta-call-btn'>"
-            "<a href='https://wa.me/233XXXXXXXXX' target='_blank'>"
+            "<a href='https://wa.me/233503648195' target='_blank'>"
             "Book a 20-Minute Review Call"
             "</a></div>",
             unsafe_allow_html=True,
