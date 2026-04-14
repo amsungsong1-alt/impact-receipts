@@ -304,7 +304,7 @@ def render_screen_0():
         """
         <div class="is-not-grid">
 <div class="is-col" style="color: #1B5E20 !important;">            <h4>✓ What this IS</h4>
-            <ul>
+            <ul style="color: #1B5E20 !important;">
               <li>A quick confidence check for reported results before submission</li>
               <li>A guide that shows what to fix and why</li>
               <li>Fully local — runs on your device, no data sent anywhere</li>
@@ -312,7 +312,8 @@ def render_screen_0():
             </ul>
           </div>
           <div class="isnot-col">
-<div class="isnot-col" style="color: #991B1B !important;">            <ul>
+<div class="isnot-col" style="color: #991B1B !important;"><h4 style="color: #991B1B !important;">✗ What this is NOT</h4>
+<ul style="color: #C62828 !important;">
               <li>A full reporting system, database, or audit tool</li>
               <li>A replacement for your M&amp;E framework</li>
               <li>An AI that invents or assumes missing data</li>
