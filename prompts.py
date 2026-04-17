@@ -94,10 +94,10 @@ scrutinised by someone outside the team that generated it. Levels:
       functional team has reviewed and signed off.
   (d) EXTERNAL — A partner organisation, independent evaluator, or donor
       representative has reviewed the result.
-  (e) AUDITED — A formal third-party audit or evaluation has verified it.
+  (e) VERIFIED — A formal third-party verification or independent evaluation has confirmed it.
 
 Scoring rubric for Independent Review:
-  5 — External review or audit completed. The result has been validated by
+  5 — External review or third-party verification completed. The result has been validated by
       a party with no stake in the outcome.
   4 — Senior internal review AND at least one external review. Strong
       internal governance with some external assurance.

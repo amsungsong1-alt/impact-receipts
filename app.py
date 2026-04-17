@@ -15,6 +15,7 @@ No API calls. All data stays on device.
 import json
 import os
 import re
+import urllib.parse
 from datetime import datetime
 
 import streamlit as st
@@ -24,15 +25,16 @@ import streamlit as st
 # ---------------------------------------------------------------------------
 
 EVIDENCE_TYPES = [
-    "Attendance sheet / participant register",
-    "Project dataset / survey data",
-    "Partner organization report",
+    "Attendance sheets / participant registers",
+    "Raw datasets or survey exports",
+    "Partner verification letters or reports",
+    "Photos with metadata (timestamps, GPS)",
+    "Tracer survey results",
+    "Financial records / receipts",
+    "Third-party evaluation report",
     "Survey summary / assessment report",
     "Government / administrative records",
     "Field observation notes",
-    "Financial disbursement records",
-    "Third-party evaluation report",
-    "Photographs / visual documentation",
     "Other",
 ]
 
@@ -58,16 +60,18 @@ EXTERNAL_REVIEW_OPTIONS = [
 
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Inter:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=JetBrains+Mono:wght@400&display=swap');
 
 :root {
-  --navy:        #1B2A4A;
-  --emerald:     #2E7D5B;
   --brand-green: #1B5E20;
-  --bg-card:     #F8F9FB;
-  --border:      rgba(27,42,74,0.15);
-  --text-muted:  #6B7280;
+  --gold:        #B8860B;
+  --body-text:   #212121;
+  --muted:       #616161;
+  --bg-card:     #F5F5F5;
+  --border:      rgba(27,90,32,0.15);
 }
+
+/* Dark mode card text — keep with !important */
 .is-col, .is-col li, .is-col ul, .is-col h4 {
     color: #1B5E20 !important;
 }
@@ -77,30 +81,33 @@ CSS = """
 
 html, body, [class*="css"] {
   font-family: 'Inter', sans-serif;
+  color: var(--body-text);
 }
 
 h1, h2, h3, h4 {
-  font-family: 'DM Sans', sans-serif;
-  color: var(--navy);
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  color: var(--brand-green);
 }
 
-/* Primary button → emerald */
+/* Primary button → Impact Green */
 .stButton > button[kind="primary"],
 .stFormSubmitButton > button[kind="primary"] {
-  background-color: var(--emerald) !important;
-  border-color: var(--emerald) !important;
+  background-color: #1B5E20 !important;
+  border-color: #1B5E20 !important;
   color: white !important;
-  font-family: 'DM Sans', sans-serif;
-  font-weight: 600;
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
   border-radius: 8px;
 }
 
-/* Secondary button → navy outline */
+/* Secondary button → Trust Gold outline */
 .stButton > button[kind="secondary"],
 .stFormSubmitButton > button[kind="secondary"] {
-  border-color: var(--navy) !important;
-  color: var(--navy) !important;
-  font-family: 'DM Sans', sans-serif;
+  border-color: #B8860B !important;
+  color: #B8860B !important;
+  font-family: 'Inter', sans-serif;
+  background: transparent !important;
 }
 
 /* Card container */
@@ -117,8 +124,8 @@ h1, h2, h3, h4 {
   padding: 16px 24px;
   border-radius: 10px;
   text-align: center;
-  color: white;
-  font-family: 'DM Sans', sans-serif;
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
   margin-bottom: 8px;
 }
 
@@ -128,12 +135,12 @@ h1, h2, h3, h4 {
   align-items: center;
   gap: 8px;
   margin-bottom: 24px;
-  font-family: 'DM Sans', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 0.85rem;
-  color: var(--navy);
+  color: var(--body-text);
 }
 .progress-steps .step {
-  background: var(--emerald);
+  background: #1B5E20;
   color: white;
   border-radius: 50%;
   width: 26px;
@@ -147,7 +154,7 @@ h1, h2, h3, h4 {
 .progress-steps .connector {
   flex: 1;
   height: 2px;
-  background: var(--border);
+  background: #CCCCCC;
   max-width: 40px;
 }
 .progress-steps .step-label {
@@ -156,17 +163,32 @@ h1, h2, h3, h4 {
 
 /* Hero section */
 .hero-block {
-  padding: 12px 0 28px 0;
+  padding: 12px 0 20px 0;
+  border-bottom: 1px solid #B8860B;
+  margin-bottom: 20px;
 }
 .hero-block h1 {
   font-size: 1.85rem;
   line-height: 1.25;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
+}
+.hero-tagline {
+  font-style: italic;
+  color: #B8860B;
+  font-size: 1rem;
+  margin: 4px 0 14px 0;
 }
 .hero-sub {
   font-size: 1rem;
   color: #374151;
   line-height: 1.6;
+  margin-bottom: 6px;
+}
+.brand-promise {
+  color: #616161;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  margin-top: 6px;
   margin-bottom: 0;
 }
 
@@ -176,6 +198,7 @@ h1, h2, h3, h4 {
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   margin: 20px 0;
+  align-items: stretch;
 }
 .is-col, .isnot-col {
   padding: 16px 20px;
@@ -196,29 +219,91 @@ h1, h2, h3, h4 {
 /* CTA call button */
 .cta-call-btn a {
   display: inline-block;
-  background: var(--emerald);
+  background: #B8860B;
   color: white !important;
-  font-family: 'DM Sans', sans-serif;
-  font-weight: 600;
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
   padding: 10px 20px;
   border-radius: 8px;
   text-decoration: none;
   font-size: 0.95rem;
 }
 .cta-call-btn a:hover {
-  background: #245f46;
+  background: #9a6e09;
 }
 
 /* Results summary banner */
 .summary-banner {
-  background: var(--navy);
+  background: #1B5E20;
   color: white;
   border-radius: 10px;
   padding: 16px 22px;
-  font-family: 'DM Sans', sans-serif;
+  font-family: 'Inter', sans-serif;
   margin-bottom: 24px;
 }
 .summary-banner p { margin: 0; font-size: 0.95rem; }
+
+/* Trust Gold tagline footer */
+.trust-tagline {
+  font-style: italic;
+  color: #B8860B;
+  font-size: 0.82rem;
+  text-align: center;
+  padding: 12px 0 4px 0;
+  border-top: 1px solid rgba(184,134,11,0.2);
+  margin-top: 24px;
+}
+
+/* GTM conversion hook card */
+.gtm-card {
+  border: 1px solid #B8860B;
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin: 24px 0;
+  background: #FFFEF7;
+}
+.gtm-card p { color: #212121; font-size: 0.95rem; margin: 0 0 4px 0; }
+.gtm-card .gtm-sub { color: #616161; font-size: 0.85rem; margin-bottom: 14px; }
+
+/* GTM buttons */
+.gtm-btn-gold a {
+  display: inline-block;
+  border: 2px solid #B8860B;
+  color: #B8860B !important;
+  padding: 8px 18px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 0.9rem;
+  font-family: 'Inter', sans-serif;
+  margin-right: 10px;
+}
+.gtm-btn-green a {
+  display: inline-block;
+  border: 2px solid #1B5E20;
+  color: #1B5E20 !important;
+  padding: 8px 18px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 0.9rem;
+  font-family: 'Inter', sans-serif;
+}
+
+/* Gold info box (replaces st.info default blue) */
+.gold-info-box {
+  background: #FFFEF7;
+  border-left: 4px solid #B8860B;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: #212121;
+  margin: 12px 0;
+}
+.gold-info-box a { color: #1B5E20; }
+
+/* Score metric font */
+[data-testid="stMetricValue"] { font-family: 'JetBrains Mono', monospace; }
 </style>
 """
 
@@ -273,6 +358,18 @@ def _go_to_screen(screen: int, reset: bool = False):
 
 
 # ---------------------------------------------------------------------------
+# Shared UI helpers
+# ---------------------------------------------------------------------------
+
+def _render_tagline_footer():
+    """Trust Gold italic tagline — rendered at the bottom of every screen."""
+    st.markdown(
+        '<div class="trust-tagline">Stress-test a result before you submit it.</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Screen 0 — Landing & Onboarding
 # ---------------------------------------------------------------------------
 
@@ -281,11 +378,15 @@ def render_screen_0():
         """
         <div class="hero-block">
           <h1>Know which reported results are strong, weak, or need fixing — before submission.</h1>
+          <p class="hero-tagline">Stress-test a result before you submit it.</p>
           <p class="hero-sub">
             Impact-Receipts helps MEL and reporting teams check up to 3 reported results
             before submission, review the evidence behind them, and see what needs fixing
             before the report goes to donors, leadership, or partners.
           </p>
+          <p class="brand-promise">We help you submit with confidence. Not by judging your work,
+          but by showing you exactly where it&rsquo;s strong and where it needs strengthening &mdash;
+          before anyone else sees it.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -309,21 +410,22 @@ def render_screen_0():
     st.markdown(
         """
         <div class="is-not-grid">
-<div class="is-col" style="color: #1B5E20 !important;">            <h4>✓ What this IS</h4>
+          <div class="is-col" style="color: #1B5E20 !important;">
+            <h4>✓ What this IS</h4>
             <ul style="color: #1B5E20 !important;">
               <li style="color: #1B5E20 !important;">A quick confidence check for reported results before submission</li>
-<li style="color: #1B5E20 !important;">A guide that shows what to fix and why</li>
-<li style="color: #1B5E20 !important;">Fully local — runs on your device, no data sent anywhere</li>
-<li style="color: #1B5E20 !important;">Free and instant — no login, no API key</li>
+              <li style="color: #1B5E20 !important;">A transparent guide that shows what to fix and why</li>
+              <li style="color: #1B5E20 !important;">Fully local — runs on your device, no data sent anywhere</li>
+              <li style="color: #1B5E20 !important;">Free and instant — no login, no API key</li>
             </ul>
           </div>
-          <div class="isnot-col">
-<div class="isnot-col" style="color: #991B1B !important;"><h4 style="color: #991B1B !important;">✗ What this is NOT</h4>
-<ul style="color: #C62828 !important;">
+          <div class="isnot-col" style="color: #C62828 !important;">
+            <h4 style="color: #C62828 !important;">✗ What this is NOT</h4>
+            <ul style="color: #C62828 !important;">
               <li style="color: #C62828 !important;">A full reporting system, database, or audit tool</li>
-<li style="color: #C62828 !important;">A replacement for your M&amp;E framework</li>
-<li style="color: #C62828 !important;">An AI that invents or assumes missing data</li>
-<li style="color: #C62828 !important;">A publishing or submission platform</li>
+              <li style="color: #C62828 !important;">A replacement for your M&amp;E framework</li>
+              <li style="color: #C62828 !important;">An AI that invents or assumes missing data</li>
+              <li style="color: #C62828 !important;">A gatekeeper that decides who passes or fails</li>
             </ul>
           </div>
         </div>
@@ -331,13 +433,36 @@ def render_screen_0():
         unsafe_allow_html=True,
     )
 
-    st.info(
-        "Questions before you start? Chat with us on WhatsApp: "
-        "[+233 50 364 8195](https://wa.me/233503648195)",
-        icon="💬",
+    st.markdown(
+        """
+        <div class="gold-info-box">
+          💬 Questions before you start? Chat with us on WhatsApp:
+          <a href="https://wa.me/233503648195">+233 50 364 8195</a>
+        </div>
+        <p style="color:#616161;font-style:italic;font-size:0.85rem;margin:8px 0 4px 0;">
+          Built by a MEL practitioner in Accra who got tired of submitting results without a confidence check.
+        </p>
+        """,
+        unsafe_allow_html=True,
     )
 
     st.caption("Your data stays on your device. Nothing is stored or shared.")
+
+    st.markdown(
+        """
+        <div class="gtm-card">
+          <p><strong>Want a deeper check?</strong></p>
+          <p class="gtm-sub">I personally run free pilot verifications on 1&ndash;3 of your results
+          before your next submission. WhatsApp me to book a 20-minute session.</p>
+          <div class="gtm-btn-gold">
+            <a href="https://wa.me/233503648195" target="_blank">Book a Free Pilot Check</a>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    _render_tagline_footer()
 
 
 # ---------------------------------------------------------------------------
@@ -355,12 +480,12 @@ def _render_result_block(i: int):
 
     # Result statement
     block["result_statement"] = st.text_area(
-        "Result Statement *",
+        "Add your result statement *",
         value=block["result_statement"],
         height=110,
         placeholder=(
-            "e.g. 1,240 smallholder farmers in Kwara State, Nigeria adopted "
-            "improved seed varieties between January and June 2024."
+            "e.g., Trained 500 smallholder farmers in climate-smart agriculture across "
+            "3 districts in Northern Ghana between January and June 2025"
         ),
         help="What was achieved? Include a number, a group, a place, and a timeframe.",
         key=f"rs_{i}",
@@ -390,13 +515,12 @@ def _render_result_block(i: int):
         )
 
     block["evidence"][0]["description"] = st.text_area(
-        "Supporting Evidence",
+        "Describe your supporting evidence",
         value=block["evidence"][0]["description"],
         height=90,
         placeholder=(
-            "Describe your main evidence — what it is, how many people it covers, "
-            "when it was collected, and how it was gathered.\n\n"
-            "e.g. Attendance sheets, datasets, partner reports, photos, survey summaries."
+            "e.g., Signed attendance sheets from 12 training sessions across 3 districts, "
+            "verified by District Agriculture Officer"
         ),
         key=f"ev_desc_{i}",
     )
@@ -414,7 +538,7 @@ def _render_result_block(i: int):
         block["evidence"][0]["verified_by"] = st.text_input(
             "Who verified / collected this?",
             value=block["evidence"][0]["verified_by"],
-            placeholder="e.g. Field M&E Officer",
+            placeholder="e.g., District Agriculture Officer, partner org M&E lead, external evaluator",
             key=f"ev_ver_{i}",
         )
     with c6:
@@ -506,6 +630,9 @@ def render_screen_1():
         unsafe_allow_html=True,
     )
 
+    st.markdown("## Tell us about your result")
+    st.caption("You can check 1 to 3 reported results in this session.")
+
     count = st.session_state["active_result_count"]
 
     # Ensure results_data has enough blank blocks
@@ -544,16 +671,27 @@ def render_screen_1():
     if submit:
         _handle_submission_submit()
 
+    _render_tagline_footer()
+
 
 # ---------------------------------------------------------------------------
 # Screen 2 — Confidence Snapshot & Next Steps
 # ---------------------------------------------------------------------------
 
+_BRAND_BADGE = {
+    "Strong":     {"bg": "#C8E6C9", "text": "#1B5E20"},
+    "Moderate":   {"bg": "#FFF9C4", "text": "#F57F17"},
+    "Weak":       {"bg": "#FFE0B2", "text": "#E65100"},
+    "Incomplete": {"bg": "#FFCDD2", "text": "#B71C1C"},
+}
+
+
 def _render_result_card(i: int, block: dict, ev: dict):
     from evaluator import compute_confidence_label
 
     scores = ev.get("scores", {})
-    label, color = compute_confidence_label(scores)
+    label, _ = compute_confidence_label(scores)  # discard evaluator color; use brand spec
+    badge = _BRAND_BADGE.get(label, {"bg": "#F5F5F5", "text": "#212121"})
     count = st.session_state["active_result_count"]
 
     # Header: result snippet + confidence badge
@@ -566,8 +704,8 @@ def _render_result_card(i: int, block: dict, ev: dict):
         st.markdown(f"{prefix}{snippet}")
     with col_badge:
         st.markdown(
-            f"<div class='confidence-badge' style='background:{color};'>"
-            f"<strong>{label}</strong></div>",
+            f"<div class='confidence-badge' style='background:{badge['bg']};color:{badge['text']};'>"
+            f"<strong>{label.upper()}</strong></div>",
             unsafe_allow_html=True,
         )
 
@@ -600,7 +738,7 @@ def _render_result_card(i: int, block: dict, ev: dict):
     # What to Fix checklist
     fixes = ev.get("fixes", [])
     if fixes:
-        st.markdown("**What to Fix Before Submission:**")
+        st.markdown("**Here's how to strengthen your result before submission:**")
         for j, fix in enumerate(fixes):
             st.checkbox(fix, value=False, key=f"fix_{i}_{j}")
     else:
@@ -660,7 +798,9 @@ def render_screen_2():
 
     # Summary header
     st.markdown(
-        "<h2 style='color:var(--navy);margin-bottom:4px;'>Your Confidence Check Results</h2>",
+        "<h2 style='color:#1B5E20;margin-bottom:4px;'>Your Confidence Snapshot</h2>"
+        "<p style='color:#B8860B;font-style:italic;font-size:0.95rem;margin-bottom:16px;'>"
+        "Here&rsquo;s what would move your result from where it is now to where it needs to be.</p>",
         unsafe_allow_html=True,
     )
 
@@ -679,18 +819,44 @@ def render_screen_2():
     for i, ev in enumerate(evaluations):
         _render_result_card(i, results_data[i], ev)
 
-    # Action CTAs
-    st.markdown("### Next Steps")
-    col_wa, col_dl, col_restart = st.columns(3)
+    # GTM conversion hook card
+    st.markdown(
+        """
+        <div class="gtm-card">
+          <p><strong>Want me to run this check with you?</strong></p>
+          <p class="gtm-sub">I personally review 1&ndash;3 results for MEL professionals before their
+          submissions. 20 minutes, free for the first session.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <div class="gtm-btn-gold">
+              <a href="https://wa.me/233503648195" target="_blank">Book a Free Pilot with the Founder</a>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    with col_wa:
-        st.markdown(
-            "<div class='cta-call-btn'>"
-            "<a href='https://wa.me/233503648195' target='_blank'>"
-            "Book a 20-Minute Review Call"
-            "</a></div>",
-            unsafe_allow_html=True,
-        )
+    # LinkedIn share link
+    snippet = results_data[0]["result_statement"][:120] if results_data else ""
+    li_text = urllib.parse.quote(
+        f"I just stress-tested a result using Impact-Receipts before submitting. "
+        f"Here's what it caught: {snippet}. "
+        f"Try it: https://impact-receipts-fnxkamdve55429dk3bxmb9.streamlit.app"
+    )
+    li_url = (
+        "https://www.linkedin.com/shareArticle?mini=true"
+        "&url=https%3A%2F%2Fimpact-receipts-fnxkamdve55429dk3bxmb9.streamlit.app"
+        f"&summary={li_text}"
+    )
+    st.markdown(
+        f"Found this useful? "
+        f"<a href='{li_url}' target='_blank'>Share Impact-Receipts on LinkedIn</a>"
+        f" with a MEL colleague.",
+        unsafe_allow_html=True,
+    )
+
+    # Download + restart
+    col_dl, col_restart = st.columns([2, 1])
 
     with col_dl:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -698,7 +864,7 @@ def render_screen_2():
             results_data, evaluations, timestamp
         )
         st.download_button(
-            label="Download Summary (.md)",
+            label="Download Your Report (.md)",
             data=combined_report,
             file_name=f"impact_receipts_{timestamp}.md",
             mime="text/markdown",
@@ -708,6 +874,8 @@ def render_screen_2():
     with col_restart:
         if st.button("Check Another Result", use_container_width=True):
             _go_to_screen(0, reset=True)
+
+    _render_tagline_footer()
 
 
 # ---------------------------------------------------------------------------
@@ -801,7 +969,7 @@ def _build_markdown_report(
     for issue in evaluation.get("key_issues", []):
         lines.append(f"- {issue}")
 
-    lines += ["", "---", "", "## What to Fix Before Submission", ""]
+    lines += ["", "---", "", "## Here's How to Strengthen Your Result Before Submission", ""]
     for fix in evaluation.get("fixes", []):
         lines.append(f"- [ ] {fix}")
 
