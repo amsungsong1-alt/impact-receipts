@@ -3,9 +3,9 @@ app.py — Impact-Receipts: Pre-submission confidence check for MEL teams.
 
 Run with:  streamlit run app.py
 
-Three-screen flow driven by st.session_state["screen"] (0–2):
+Three-screen flow driven by st.session_state["screen"] (0-2):
   0  Landing & Onboarding
-  1  Reported Result Submission (1–3 results, combined form)
+  1  Reported Result Submission
   2  Confidence Snapshot & Next Steps
 
 Evaluation logic is fully local — see evaluator.py.
@@ -16,7 +16,7 @@ import json
 import os
 import re
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, date
 
 import streamlit as st
 
@@ -27,31 +27,26 @@ import streamlit as st
 EVIDENCE_TYPES = [
     "Attendance sheets / participant registers",
     "Raw datasets or survey exports",
-    "Partner verification letters or reports",
-    "Photos with metadata (timestamps, GPS)",
+    "Partner verification letters",
+    "Photos with metadata",
     "Tracer survey results",
-    "Financial records / receipts",
-    "Third-party evaluation report",
-    "Survey summary / assessment report",
-    "Government / administrative records",
-    "Field observation notes",
+    "Financial records",
+    "Third-party audits",
     "Other",
 ]
 
 INTERNAL_REVIEW_OPTIONS = [
+    "Reviewed by MEL Officer",
+    "Collected only (no review)",
     "Not reviewed",
-    "Reviewed by M&E Officer",
-    "Reviewed by Program Manager",
-    "Reviewed by senior leadership or board",
-    "Reviewed by multiple internal stakeholders",
+    "Other",
 ]
 
 EXTERNAL_REVIEW_OPTIONS = [
+    "Verified by independent third party",
+    "External partner review",
     "No external review",
-    "Reviewed by partner organisation",
-    "Reviewed by independent evaluator",
-    "Reviewed by donor representative",
-    "Third-party audit completed",
+    "Other",
 ]
 
 # ---------------------------------------------------------------------------
@@ -90,7 +85,7 @@ h1, h2, h3, h4 {
   color: var(--brand-green);
 }
 
-/* Primary button → Impact Green */
+/* Primary button -> Impact Green */
 .stButton > button[kind="primary"],
 .stFormSubmitButton > button[kind="primary"] {
   background-color: #1B5E20 !important;
@@ -101,7 +96,7 @@ h1, h2, h3, h4 {
   border-radius: 8px;
 }
 
-/* Secondary button → Trust Gold outline */
+/* Secondary button -> Trust Gold outline */
 .stButton > button[kind="secondary"],
 .stFormSubmitButton > button[kind="secondary"] {
   border-color: #B8860B !important;
@@ -119,15 +114,32 @@ h1, h2, h3, h4 {
   margin-bottom: 20px;
 }
 
-/* Confidence badge */
-.confidence-badge {
-  padding: 16px 24px;
-  border-radius: 10px;
+/* Axis score badge */
+.axis-badge {
+  padding: 10px 14px;
+  border-radius: 8px;
   text-align: center;
   font-family: 'Inter', sans-serif;
   font-weight: 700;
-  margin-bottom: 8px;
+  font-size: 0.85rem;
+  margin-bottom: 6px;
 }
+
+/* Verdict banner */
+.verdict-banner {
+  background: #1B5E20;
+  color: white;
+  border-radius: 10px;
+  padding: 14px 20px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  text-align: center;
+  margin: 16px 0;
+  font-size: 1rem;
+}
+.verdict-banner.misleading { background: #E65100; }
+.verdict-banner.weak-conf  { background: #F57F17; }
+.verdict-banner.high-risk  { background: #B71C1C; }
 
 /* Progress steps row */
 .progress-steps {
@@ -157,9 +169,7 @@ h1, h2, h3, h4 {
   background: #CCCCCC;
   max-width: 40px;
 }
-.progress-steps .step-label {
-  font-weight: 500;
-}
+.progress-steps .step-label { font-weight: 500; }
 
 /* Hero section */
 .hero-block {
@@ -200,19 +210,10 @@ h1, h2, h3, h4 {
   margin: 20px 0;
   align-items: stretch;
 }
-.is-col, .isnot-col {
-  padding: 16px 20px;
-  border-radius: 10px;
-}
-.is-col {
-  background: #EDF7F1;
-  border: 1px solid #A7D9BC;
-}
-.isnot-col {
-  background: #FEF3F2;
-  border: 1px solid #FCA5A5;
-}
-.is-col h4 { color: var(--brand-green); margin: 0 0 10px 0; }
+.is-col, .isnot-col { padding: 16px 20px; border-radius: 10px; }
+.is-col   { background: #EDF7F1; border: 1px solid #A7D9BC; }
+.isnot-col { background: #FEF3F2; border: 1px solid #FCA5A5; }
+.is-col h4   { color: var(--brand-green); margin: 0 0 10px 0; }
 .isnot-col h4 { color: #991B1B; margin: 0 0 10px 0; }
 .is-col li, .isnot-col li { margin-bottom: 6px; font-size: 0.9rem; }
 
@@ -228,20 +229,6 @@ h1, h2, h3, h4 {
   text-decoration: none;
   font-size: 0.95rem;
 }
-.cta-call-btn a:hover {
-  background: #9a6e09;
-}
-
-/* Results summary banner */
-.summary-banner {
-  background: #1B5E20;
-  color: white;
-  border-radius: 10px;
-  padding: 16px 22px;
-  font-family: 'Inter', sans-serif;
-  margin-bottom: 24px;
-}
-.summary-banner p { margin: 0; font-size: 0.95rem; }
 
 /* Trust Gold tagline footer */
 .trust-tagline {
@@ -278,19 +265,8 @@ h1, h2, h3, h4 {
   font-family: 'Inter', sans-serif;
   margin-right: 10px;
 }
-.gtm-btn-green a {
-  display: inline-block;
-  border: 2px solid #1B5E20;
-  color: #1B5E20 !important;
-  padding: 8px 18px;
-  border-radius: 8px;
-  text-decoration: none;
-  font-weight: 700;
-  font-size: 0.9rem;
-  font-family: 'Inter', sans-serif;
-}
 
-/* Gold info box (replaces st.info default blue) */
+/* Gold info box */
 .gold-info-box {
   background: #FFFEF7;
   border-left: 4px solid #B8860B;
@@ -311,35 +287,27 @@ h1, h2, h3, h4 {
 # Session state helpers
 # ---------------------------------------------------------------------------
 
-def _blank_result_block() -> dict:
-    """Return a fresh submission dict with all evaluator-required keys."""
-    return {
-        "result_statement": "",
-        "target_group": "",
-        "timeframe": "",
-        "geographic_scope": "",
-        "additional_context": "",
-        "internal_review": INTERNAL_REVIEW_OPTIONS[0],
-        "external_review": EXTERNAL_REVIEW_OPTIONS[0],
-        "evidence": [
-            {
-                "type": EVIDENCE_TYPES[0],
-                "description": "",
-                "recency": "",
-                "verified_by": "",
-            }
-        ],
-    }
-
-
 def _init_session_state():
     defaults = {
-        "screen": 0,
-        "results_data": [_blank_result_block()],
-        "evaluations": [],
-        "saved_paths": [],
-        "error_message": None,
-        "active_result_count": 1,
+        "screen":               0,
+        "error_message":        None,
+        "evaluation":           None,
+        "submission_snapshot":  None,
+        # Form widget keys — match key= params in render_screen_1
+        "result_statement":     "",
+        "target_group":         "",
+        "timeframe":            "",
+        "geographic_scope":     "",
+        "evidence_description": "",
+        "evidence_type":        EVIDENCE_TYPES[0],
+        "evidence_type_other":  "",
+        "internal_review":      INTERNAL_REVIEW_OPTIONS[0],
+        "internal_review_other": "",
+        "external_review":      EXTERNAL_REVIEW_OPTIONS[0],
+        "external_review_other": "",
+        "verifier":             "",
+        "evidence_date":        None,
+        "uploaded_files":       [],
     }
     for key, default in defaults.items():
         if key not in st.session_state:
@@ -348,11 +316,17 @@ def _init_session_state():
 
 def _go_to_screen(screen: int, reset: bool = False):
     if reset:
-        st.session_state["results_data"] = [_blank_result_block()]
-        st.session_state["evaluations"] = []
-        st.session_state["saved_paths"] = []
-        st.session_state["error_message"] = None
-        st.session_state["active_result_count"] = 1
+        for k in [
+            "result_statement", "target_group", "timeframe", "geographic_scope",
+            "evidence_description", "evidence_type", "evidence_type_other",
+            "internal_review", "internal_review_other",
+            "external_review", "external_review_other",
+            "verifier", "evidence_date", "uploaded_files",
+            "evaluation", "submission_snapshot", "error_message",
+        ]:
+            st.session_state.pop(k, None)
+    if screen == 1:
+        _load_draft()
     st.session_state["screen"] = screen
     st.rerun()
 
@@ -362,11 +336,95 @@ def _go_to_screen(screen: int, reset: bool = False):
 # ---------------------------------------------------------------------------
 
 def _render_tagline_footer():
-    """Trust Gold italic tagline — rendered at the bottom of every screen."""
     st.markdown(
         '<div class="trust-tagline">Stress-test a result before you submit it.</div>',
         unsafe_allow_html=True,
     )
+
+
+def _format_date(d) -> str:
+    """Convert date/datetime to 'Month YYYY' string for evaluator."""
+    if d is None:
+        return ""
+    if hasattr(d, "strftime"):
+        return d.strftime("%B %Y")
+    return str(d)
+
+
+_DRAFT_PATH = os.path.join("inputs", "draft.json")
+
+_DRAFT_TEXT_KEYS = [
+    "result_statement", "target_group", "timeframe", "geographic_scope",
+    "evidence_description", "evidence_type", "evidence_type_other",
+    "internal_review", "internal_review_other",
+    "external_review", "external_review_other",
+    "verifier",
+]
+
+
+def _save_draft():
+    draft = {k: st.session_state.get(k, "") for k in _DRAFT_TEXT_KEYS}
+    ed = st.session_state.get("evidence_date")
+    draft["evidence_date"] = ed.isoformat() if hasattr(ed, "isoformat") else ""
+    raw_files = st.session_state.get("uploaded_files_widget") or []
+    draft["uploaded_filenames"] = [f.name for f in raw_files if hasattr(f, "name")]
+    os.makedirs("inputs", exist_ok=True)
+    with open(_DRAFT_PATH, "w", encoding="utf-8") as f:
+        json.dump(draft, f, indent=2, ensure_ascii=False)
+
+
+def _load_draft():
+    if not os.path.exists(_DRAFT_PATH):
+        return
+    try:
+        with open(_DRAFT_PATH, encoding="utf-8") as f:
+            draft = json.load(f)
+    except Exception:
+        return
+    for k in _DRAFT_TEXT_KEYS:
+        if k in draft:
+            st.session_state[k] = draft[k]
+    raw_date = draft.get("evidence_date", "")
+    if raw_date:
+        try:
+            st.session_state["evidence_date"] = date.fromisoformat(raw_date)
+        except (ValueError, TypeError):
+            pass
+    st.session_state["draft_uploaded_filenames"] = draft.get("uploaded_filenames", [])
+
+
+def _build_submission_from_session() -> dict:
+    """Assemble evaluator-compatible submission dict from flat session_state."""
+    ev_type = st.session_state.get("evidence_type", "")
+    if ev_type == "Other":
+        ev_type = st.session_state.get("evidence_type_other", "") or "Other"
+
+    int_rev = st.session_state.get("internal_review", "Not reviewed")
+    if int_rev == "Other":
+        int_rev = st.session_state.get("internal_review_other", "") or "Other"
+
+    ext_rev = st.session_state.get("external_review", "No external review")
+    if ext_rev == "Other":
+        ext_rev = st.session_state.get("external_review_other", "") or "Other"
+
+    return {
+        "result_statement":  st.session_state.get("result_statement", ""),
+        "target_group":      st.session_state.get("target_group", ""),
+        "timeframe":         st.session_state.get("timeframe", ""),
+        "geographic_scope":  st.session_state.get("geographic_scope", ""),
+        "additional_context": "",
+        "internal_review":   int_rev,
+        "external_review":   ext_rev,
+        "attached_filenames": st.session_state.get("uploaded_files", []),
+        "evidence": [
+            {
+                "type":        ev_type,
+                "description": st.session_state.get("evidence_description", ""),
+                "recency":     _format_date(st.session_state.get("evidence_date")),
+                "verified_by": st.session_state.get("verifier", ""),
+            }
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +438,8 @@ def render_screen_0():
           <h1>Know which reported results are strong, weak, or need fixing — before submission.</h1>
           <p class="hero-tagline">Stress-test a result before you submit it.</p>
           <p class="hero-sub">
-            Impact-Receipts helps MEL and reporting teams check up to 3 reported results
+            Impact-Receipts helps Monitoring, Evaluation &amp; Learning (MEL) professionals
+            and reporting teams of developmental projects check reported results
             before submission, review the evidence behind them, and see what needs fixing
             before the report goes to donors, leadership, or partners.
           </p>
@@ -394,24 +453,17 @@ def render_screen_0():
 
     col_a, col_b = st.columns(2)
     with col_a:
-        if st.button(
-            "Review Results Before Submission",
-            type="primary",
-            use_container_width=True,
-        ):
+        if st.button("Review Results Before Submission", type="primary", use_container_width=True):
             _go_to_screen(1, reset=True)
     with col_b:
-        if st.button(
-            "Run My Confidence Check",
-            use_container_width=True,
-        ):
+        if st.button("Run My Confidence Check", use_container_width=True):
             _go_to_screen(1, reset=True)
 
     st.markdown(
         """
         <div class="is-not-grid">
           <div class="is-col" style="color: #1B5E20 !important;">
-            <h4>✓ What this IS</h4>
+            <h4>&#10003; What this IS</h4>
             <ul style="color: #1B5E20 !important;">
               <li style="color: #1B5E20 !important;">A quick confidence check for reported results before submission</li>
               <li style="color: #1B5E20 !important;">A transparent guide that shows what to fix and why</li>
@@ -420,10 +472,10 @@ def render_screen_0():
             </ul>
           </div>
           <div class="isnot-col" style="color: #C62828 !important;">
-            <h4 style="color: #C62828 !important;">✗ What this is NOT</h4>
+            <h4 style="color: #C62828 !important;">&#10007; What this is NOT</h4>
             <ul style="color: #C62828 !important;">
-              <li style="color: #C62828 !important;">A full reporting system, database, or audit tool</li>
-              <li style="color: #C62828 !important;">A replacement for your M&amp;E framework</li>
+              <li style="color: #C62828 !important;">A full reporting system, database, or tool</li>
+              <li style="color: #C62828 !important;">A replacement for your M&amp;E/MEL framework</li>
               <li style="color: #C62828 !important;">An AI that invents or assumes missing data</li>
               <li style="color: #C62828 !important;">A gatekeeper that decides who passes or fails</li>
             </ul>
@@ -436,7 +488,7 @@ def render_screen_0():
     st.markdown(
         """
         <div class="gold-info-box">
-          💬 Questions before you start? Chat with us on WhatsApp:
+          &#128172; Questions before you start? Chat with us on WhatsApp:
           <a href="https://wa.me/233503648195">+233 50 364 8195</a>
         </div>
         <p style="color:#616161;font-style:italic;font-size:0.85rem;margin:8px 0 4px 0;">
@@ -469,150 +521,6 @@ def render_screen_0():
 # Screen 1 — Submission Form
 # ---------------------------------------------------------------------------
 
-def _render_result_block(i: int):
-    """Render all form fields for result block i (must be called inside a st.form)."""
-    count = st.session_state["active_result_count"]
-    block = st.session_state["results_data"][i]
-    label = f"Result {i + 1}" if count > 1 else "Your Result"
-
-    st.markdown(f"<div class='result-card'>", unsafe_allow_html=True)
-    st.subheader(label)
-
-    # Result statement
-    block["result_statement"] = st.text_area(
-        "Add your result statement *",
-        value=block["result_statement"],
-        height=110,
-        placeholder=(
-            "e.g., Trained 500 smallholder farmers in climate-smart agriculture across "
-            "3 districts in Northern Ghana between January and June 2025"
-        ),
-        help="What was achieved? Include a number, a group, a place, and a timeframe.",
-        key=f"rs_{i}",
-    )
-
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        block["target_group"] = st.text_input(
-            "Target Group",
-            value=block["target_group"],
-            placeholder="e.g. Female smallholder farmers",
-            key=f"tg_{i}",
-        )
-    with c2:
-        block["timeframe"] = st.text_input(
-            "Timeframe",
-            value=block["timeframe"],
-            placeholder="e.g. January–June 2024",
-            key=f"tf_{i}",
-        )
-    with c3:
-        block["geographic_scope"] = st.text_input(
-            "Geographic Scope",
-            value=block["geographic_scope"],
-            placeholder="e.g. Kwara State, Nigeria",
-            key=f"gs_{i}",
-        )
-
-    block["evidence"][0]["description"] = st.text_area(
-        "Describe your supporting evidence",
-        value=block["evidence"][0]["description"],
-        height=90,
-        placeholder=(
-            "e.g., Signed attendance sheets from 12 training sessions across 3 districts, "
-            "verified by District Agriculture Officer"
-        ),
-        key=f"ev_desc_{i}",
-    )
-
-    c4, c5, c6 = st.columns([2, 2, 1])
-    with c4:
-        ev_type = block["evidence"][0]["type"]
-        block["evidence"][0]["type"] = st.selectbox(
-            "Evidence Type",
-            EVIDENCE_TYPES,
-            index=EVIDENCE_TYPES.index(ev_type) if ev_type in EVIDENCE_TYPES else 0,
-            key=f"ev_type_{i}",
-        )
-    with c5:
-        block["evidence"][0]["verified_by"] = st.text_input(
-            "Who verified / collected this?",
-            value=block["evidence"][0]["verified_by"],
-            placeholder="e.g., District Agriculture Officer, partner org M&E lead, external evaluator",
-            key=f"ev_ver_{i}",
-        )
-    with c6:
-        block["evidence"][0]["recency"] = st.text_input(
-            "Evidence Date",
-            value=block["evidence"][0]["recency"],
-            placeholder="e.g. June 2024",
-            key=f"ev_rec_{i}",
-        )
-
-    with st.expander("Review Status & Context (optional but recommended)"):
-        ir_idx = (
-            INTERNAL_REVIEW_OPTIONS.index(block["internal_review"])
-            if block["internal_review"] in INTERNAL_REVIEW_OPTIONS
-            else 0
-        )
-        er_idx = (
-            EXTERNAL_REVIEW_OPTIONS.index(block["external_review"])
-            if block["external_review"] in EXTERNAL_REVIEW_OPTIONS
-            else 0
-        )
-        rc1, rc2 = st.columns(2)
-        with rc1:
-            block["internal_review"] = st.selectbox(
-                "Internal Review",
-                INTERNAL_REVIEW_OPTIONS,
-                index=ir_idx,
-                key=f"ir_{i}",
-            )
-        with rc2:
-            block["external_review"] = st.selectbox(
-                "External Review",
-                EXTERNAL_REVIEW_OPTIONS,
-                index=er_idx,
-                key=f"er_{i}",
-            )
-        block["additional_context"] = st.text_area(
-            "Additional Context (optional)",
-            value=block["additional_context"],
-            height=70,
-            placeholder=(
-                "Any methodology notes, caveats, or context the evaluator should know."
-            ),
-            key=f"ctx_{i}",
-        )
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-def _handle_submission_submit():
-    count = st.session_state["active_result_count"]
-    errors = []
-    for i in range(count):
-        block = st.session_state["results_data"][i]
-        if not block["result_statement"].strip():
-            errors.append(f"Result {i + 1}: Result Statement is required.")
-
-    if errors:
-        for e in errors:
-            st.error(e)
-        return
-
-    # Normalise empty optional fields
-    for block in st.session_state["results_data"][:count]:
-        block["target_group"] = block["target_group"].strip() or "Not specified"
-        block["timeframe"] = block["timeframe"].strip() or "Not specified"
-        block["geographic_scope"] = block["geographic_scope"].strip() or "Not specified"
-        block["additional_context"] = block["additional_context"].strip() or None
-
-    st.session_state["evaluations"] = []
-    st.session_state["saved_paths"] = []
-    _go_to_screen(2)
-
-
 def render_screen_1():
     st.markdown(
         """
@@ -631,45 +539,114 @@ def render_screen_1():
     )
 
     st.markdown("## Tell us about your result")
-    st.caption("You can check 1 to 3 reported results in this session.")
 
-    count = st.session_state["active_result_count"]
+    # No st.form — plain widgets so selectbox changes rerun immediately,
+    # enabling the "Other → Specify" fields to appear without a submit first.
 
-    # Ensure results_data has enough blank blocks
-    while len(st.session_state["results_data"]) < count:
-        st.session_state["results_data"].append(_blank_result_block())
+    st.text_area(
+        "Result statement",
+        key="result_statement",
+        placeholder=(
+            "e.g., Trained 500 smallholder farmers in climate-smart agriculture across "
+            "3 districts in Northern Ghana between January and June 2025"
+        ),
+        height=100,
+        help="What is the specific result you're reporting?",
+    )
 
-    # Add/remove buttons sit outside the form so they trigger immediately
-    col_add, _ = st.columns([2, 5])
-    with col_add:
-        if count < 3:
-            if st.button("+ Add Another Result", use_container_width=True):
-                st.session_state["active_result_count"] += 1
-                if len(st.session_state["results_data"]) < st.session_state["active_result_count"]:
-                    st.session_state["results_data"].append(_blank_result_block())
-                st.rerun()
+    st.text_input(
+        "Target group",
+        key="target_group",
+        placeholder="e.g., Smallholder farmers, 18-60 years old, three districts in Northern Region",
+    )
 
-    with st.form("submission_form"):
-        for i in range(count):
-            _render_result_block(i)
-            if i < count - 1:
-                st.divider()
+    st.text_input(
+        "Timeframe",
+        key="timeframe",
+        placeholder="e.g., January - June 2025",
+    )
 
-        col_back, col_submit = st.columns([1, 3])
-        with col_back:
-            back = st.form_submit_button("← Back", use_container_width=True)
-        with col_submit:
-            submit = st.form_submit_button(
-                "Run My Confidence Check",
-                type="primary",
-                use_container_width=True,
-            )
+    st.text_input(
+        "Geographic scope",
+        key="geographic_scope",
+        placeholder="e.g., Tamale, Yendi, Savelugu districts",
+    )
 
-    if back:
+    st.text_area(
+        "Describe your supporting evidence",
+        key="evidence_description",
+        placeholder=(
+            "e.g., Signed attendance sheets from 12 training sessions across 3 districts, "
+            "verified by District Agriculture Officer."
+        ),
+        height=120,
+    )
+
+    # Evidence Type — "Other" reveal works because selectbox change triggers rerun
+    st.selectbox("Evidence type", key="evidence_type", options=EVIDENCE_TYPES)
+    if st.session_state.get("evidence_type") == "Other":
+        st.text_input("Specify evidence type", key="evidence_type_other")
+
+    # Internal Review
+    st.selectbox("Internal review", key="internal_review", options=INTERNAL_REVIEW_OPTIONS)
+    if st.session_state.get("internal_review") == "Other":
+        st.text_input("Specify internal reviewer", key="internal_review_other")
+
+    # External Review
+    st.selectbox("External review", key="external_review", options=EXTERNAL_REVIEW_OPTIONS)
+    if st.session_state.get("external_review") == "Other":
+        st.text_input("Specify external reviewer", key="external_review_other")
+
+    st.text_input(
+        "Who verified this?",
+        key="verifier",
+        placeholder="e.g., District Agriculture Officer, partner org M&E lead, external evaluator",
+    )
+
+    st.date_input("When was this evidence collected?", key="evidence_date")
+
+    prev_files = st.session_state.get("draft_uploaded_filenames", [])
+    if prev_files:
+        st.caption(f"Previously attached: {', '.join(prev_files)} — please re-attach below.")
+
+    st.file_uploader(
+        "Attach supporting documents (optional)",
+        key="uploaded_files_widget",
+        accept_multiple_files=True,
+        type=["pdf", "docx", "xlsx", "csv", "jpg", "jpeg", "png", "txt"],
+        help="Attach raw evidence files — datasets, signed sheets, photos with metadata, partner letters.",
+    )
+
+    # Auto-save on every rerun (every widget interaction)
+    _save_draft()
+
+    st.divider()
+
+    if st.button(
+        "Run My Confidence Check",
+        type="primary",
+        use_container_width=True,
+    ):
+        mandatory = [
+            st.session_state.get("result_statement", ""),
+            st.session_state.get("target_group", ""),
+            st.session_state.get("timeframe", ""),
+            st.session_state.get("geographic_scope", ""),
+            st.session_state.get("evidence_description", ""),
+        ]
+        if not all(mandatory):
+            st.warning("Add the missing details above to run your confidence check.")
+        else:
+            raw_files = st.session_state.get("uploaded_files_widget") or []
+            st.session_state["uploaded_files"]       = [f.name for f in raw_files]
+            st.session_state["evaluation"]           = None
+            st.session_state["submission_snapshot"]  = None
+            st.session_state["screen"] = 2
+            st.rerun()
+
+    st.caption("Your progress is auto-saved.")
+    if st.button("Back", use_container_width=False):
         _go_to_screen(0)
-
-    if submit:
-        _handle_submission_submit()
 
     _render_tagline_footer()
 
@@ -680,123 +657,198 @@ def render_screen_1():
 
 _BRAND_BADGE = {
     "Strong":     {"bg": "#C8E6C9", "text": "#1B5E20"},
-    "Moderate":   {"bg": "#FFF9C4", "text": "#F57F17"},
+    "Acceptable": {"bg": "#FFF9C4", "text": "#F57F17"},
     "Weak":       {"bg": "#FFE0B2", "text": "#E65100"},
-    "Incomplete": {"bg": "#FFCDD2", "text": "#B71C1C"},
+    "High Risk":  {"bg": "#FFCDD2", "text": "#B71C1C"},
+}
+
+_VERDICT_CSS = {
+    "Strong KPI — ready to submit":                                        "",
+    "Misleading KPI — sharpen the definition before submission":           "misleading",
+    "Well-defined but weak evidence — strengthen the verification chain":  "weak-conf",
+    "High risk — do not submit until both axes are addressed":             "high-risk",
 }
 
 
-def _render_result_card(i: int, block: dict, ev: dict):
-    from evaluator import compute_confidence_label
+_DIRECTNESS_TIPS = {
+    5: "Level 5 — Direct measurement: strongest possible evidence, fully traceable to the result.",
+    4: "Level 4 — Near-direct evidence with high traceability (e.g. attendance sheets, photos with metadata).",
+    3: "Level 3 — Moderately direct evidence; some verification gaps (e.g. partner letters, third-party audits).",
+    2: "Level 2 — Indirect evidence; limited ability to trace back to the result.",
+    1: "Level 1 — Very indirect evidence; cannot reliably attribute to this result.",
+}
 
-    scores = ev.get("scores", {})
-    label, _ = compute_confidence_label(scores)  # discard evaluator color; use brand spec
-    badge = _BRAND_BADGE.get(label, {"bg": "#F5F5F5", "text": "#212121"})
-    count = st.session_state["active_result_count"]
+_VERIFICATION_TIPS = {
+    5: "Level 5 — Verified by an independent third party: highest possible assurance.",
+    4: "Level 4 — External partner review conducted: strong external assurance.",
+    3: "Level 3 — Reviewed internally by a MEL Officer: adequate internal review.",
+    2: "Level 2 — Collected only, no formal review: evidence is unreviewed.",
+    1: "Level 1 — No review conducted: evidence is unverified.",
+    0: "Level 0 — No review conducted: evidence is unverified.",
+}
 
-    # Header: result snippet + confidence badge
-    col_txt, col_badge = st.columns([3, 1])
-    with col_txt:
-        prefix = f"**Result {i + 1}:**  " if count > 1 else ""
-        snippet = block["result_statement"]
-        if len(snippet) > 90:
-            snippet = snippet[:90] + "…"
-        st.markdown(f"{prefix}{snippet}")
-    with col_badge:
-        st.markdown(
-            f"<div class='confidence-badge' style='background:{badge['bg']};color:{badge['text']};'>"
-            f"<strong>{label.upper()}</strong></div>",
-            unsafe_allow_html=True,
-        )
+_RECENCY_TIPS = {
+    5: "Level 5 — Evidence collected within the same reporting month: highly current.",
+    4: "Level 4 — Evidence collected within 3 months: acceptably recent.",
+    3: "Level 3 — Evidence collected within 6 months: moderately recent.",
+    2: "Level 2 — Evidence collected within 12 months: aging — consider refreshing.",
+    1: "Level 1 — Evidence older than 12 months: recency is a significant concern.",
+}
 
-    # Plain-language WHY
-    st.caption(ev.get("label_rationale", ""))
+_CLARITY_TIPS = {
+    "definition":  "Definition (max 1.25) — how precisely the result states who, what, where, and by when.",
+    "measurement": "Measurement (max 1.25) — whether a clear indicator, baseline, and target are stated.",
+    "integrity":   "Integrity (max 1.0) — data completeness, audit trail, and absence of unexplained gaps.",
+    "scope":       "Scope (max 0.75) — whether geographic and demographic coverage matches the claim.",
+    "governance":  "Governance (max 0.75) — whether a named owner and a decision use for the result are stated.",
+}
 
-    # Dimension bars
-    dim_config = [
-        ("clarity_of_claim",     "Clarity",  "Is the unit, timeframe, and target group explicit?"),
-        ("strength_of_evidence", "Evidence", "Is the evidence direct, recent, and verified?"),
-        ("independent_review",   "Review",   "Has it been peer-reviewed?"),
-    ]
-    cols = st.columns(3)
-    for col, (dim_key, dim_label, dim_desc) in zip(cols, dim_config):
-        dim = scores.get(dim_key, {})
-        score = dim.get("score", 0)
-        with col:
-            st.metric(label=dim_label, value=f"{score} / 5")
-            st.progress(score / 5)
-            st.caption(dim_desc)
-            rationale = dim.get("rationale", "")
-            if rationale:
-                with st.expander("Why"):
-                    st.write(rationale)
-                    missing = dim.get("missing_elements", [])
-                    if missing:
-                        for m in missing:
-                            st.markdown(f"- {m}")
 
-    # What to Fix checklist
-    fixes = ev.get("fixes", [])
-    if fixes:
-        st.markdown("**Here's how to strengthen your result before submission:**")
-        for j, fix in enumerate(fixes):
-            st.checkbox(fix, value=False, key=f"fix_{i}_{j}")
+def _axis_badge_html(label: str, score: float, max_score: float) -> str:
+    b = _BRAND_BADGE.get(label, {"bg": "#F5F5F5", "text": "#212121"})
+    return (
+        f"<div class='axis-badge' style='background:{b['bg']};color:{b['text']};'>"
+        f"{score}/{max_score} &nbsp; <strong>{label.upper()}</strong>"
+        f"</div>"
+    )
+
+
+def _render_result_card(submission: dict, ev: dict):
+    conf_score   = ev.get("confidence_score", 0)
+    clar_score   = ev.get("clarity_score", 0)
+    conf_label   = ev.get("confidence_label", "High Risk")
+    clar_label   = ev.get("clarity_label",   "High Risk")
+    conf_meaning = ev.get("confidence_meaning", "")
+    clar_meaning = ev.get("clarity_meaning",    "")
+    verdict      = ev.get("verdict", "")
+    conf_comp    = ev.get("confidence_components", {})
+    clar_comp    = ev.get("clarity_components", {})
+
+    snippet = submission.get("result_statement", "")
+    if len(snippet) > 120:
+        snippet = snippet[:120] + "..."
+    st.markdown(f"**{snippet}**")
+    st.divider()
+
+    # Dual-axis columns
+    col_conf, col_clar = st.columns(2)
+
+    with col_conf:
+        st.markdown("#### Confidence Score")
+        st.markdown(_axis_badge_html(conf_label, conf_score, 5.0), unsafe_allow_html=True)
+        st.caption(conf_meaning)
+        dl = conf_comp.get("direct_level", 0)
+        vl = conf_comp.get("verify_level", 0)
+        rl = conf_comp.get("recency_level", 0)
+        ds = conf_comp.get("direct_score", 0)
+        vs = conf_comp.get("verify_score", 0)
+        rs = conf_comp.get("recency_score", 0)
+        st.metric("Directness", f"{ds}/2.0", help=_DIRECTNESS_TIPS.get(dl, ""))
+        st.progress(min(ds / 2.0, 1.0))
+        st.metric("Verification", f"{vs}/2.0", help=_VERIFICATION_TIPS.get(vl, ""))
+        st.progress(min(vs / 2.0, 1.0))
+        st.metric("Recency", f"{rs}/1.0", help=_RECENCY_TIPS.get(rl, ""))
+        st.progress(min(rs / 1.0, 1.0))
+
+    with col_clar:
+        st.markdown("#### Clarity Score")
+        st.markdown(_axis_badge_html(clar_label, clar_score, 5.0), unsafe_allow_html=True)
+        st.caption(clar_meaning)
+        def_s  = clar_comp.get("definition_score",  0)
+        meas_s = clar_comp.get("measurement_score", 0)
+        integ  = clar_comp.get("integrity_score",   0)
+        scope  = clar_comp.get("scope_score",       0)
+        gov    = clar_comp.get("governance_score",  0)
+        st.metric("Definition", f"{def_s}/1.25", help=_CLARITY_TIPS["definition"])
+        st.progress(min(def_s / 1.25, 1.0))
+        st.metric("Measurement", f"{meas_s}/1.25", help=_CLARITY_TIPS["measurement"])
+        st.progress(min(meas_s / 1.25, 1.0))
+        st.metric("Integrity", f"{integ}/1.0", help=_CLARITY_TIPS["integrity"])
+        st.progress(min(integ / 1.0, 1.0))
+        st.metric("Scope", f"{scope}/0.75", help=_CLARITY_TIPS["scope"])
+        st.progress(min(scope / 0.75, 1.0))
+        st.metric("Governance", f"{gov}/0.75", help=_CLARITY_TIPS["governance"])
+        st.progress(min(gov / 0.75, 1.0))
+
+    # Verdict banner
+    css_class = _VERDICT_CSS.get(verdict, "")
+    st.markdown(
+        f"<div class='verdict-banner {css_class}'>{verdict}</div>",
+        unsafe_allow_html=True,
+    )
+
+    # What To Fix
+    fixes      = ev.get("fixes", [])
+    conf_fixes = [f for f in fixes if f.get("dimension") == "confidence"]
+    clar_fixes = [f for f in fixes if f.get("dimension") == "clarity"]
+
+    if conf_label == "Strong" and clar_label == "Strong":
+        st.success("No fixes needed — your result is ready to submit.")
+        if fixes:
+            smallest = fixes[0]
+            st.caption(f"Optional refinement: {smallest['message']} ({smallest['score_impact']})")
     else:
-        st.success("No specific fixes required — this result is ready to submit.")
+        if conf_fixes:
+            st.markdown("##### Strengthen your evidence (Confidence)")
+            for j, fix in enumerate(conf_fixes):
+                st.checkbox(
+                    f"{fix['message']}  _({fix['score_impact']})_",
+                    value=False,
+                    key=f"fix_conf_{j}",
+                )
+        if clar_fixes:
+            st.markdown("##### Sharpen your definition (Clarity)")
+            for j, fix in enumerate(clar_fixes):
+                st.checkbox(
+                    f"{fix['message']}  _({fix['score_impact']})_",
+                    value=False,
+                    key=f"fix_clar_{j}",
+                )
+
+    filenames = submission.get("attached_filenames", [])
+    if filenames:
+        st.caption(f"Attached documents: {', '.join(filenames)}")
 
     st.divider()
 
 
 def render_screen_2():
-    count = st.session_state["active_result_count"]
-    results_data = st.session_state["results_data"][:count]
-
-    # Run evaluations if not yet done
-    if not st.session_state.get("evaluations"):
+    # Run evaluation once and cache in session_state
+    if not st.session_state.get("evaluation"):
         from evaluator import evaluate_submission
 
-        evaluations = []
-        saved_paths_list = []
-        error_occurred = False
-
-        with st.spinner("Running confidence check…"):
-            for i, submission in enumerate(results_data):
-                try:
-                    ev = evaluate_submission(submission)
-                    evaluations.append(ev)
-                    paths = save_all_files(submission, ev, result_index=i)
-                    saved_paths_list.append(paths)
-                except Exception as exc:
-                    st.session_state["error_message"] = (
-                        f"Error evaluating Result {i + 1}:\n\n{exc}\n\n"
-                        "Please go back and try again."
-                    )
-                    error_occurred = True
-                    break
-
-        if not error_occurred:
-            st.session_state["evaluations"] = evaluations
-            st.session_state["saved_paths"] = saved_paths_list
+        submission = _build_submission_from_session()
+        try:
+            with st.spinner("Running confidence check..."):
+                ev = evaluate_submission(submission)
+            save_all_files(submission, ev)
+            st.session_state["evaluation"]        = ev
+            st.session_state["submission_snapshot"] = submission
             st.rerun()
+        except Exception as exc:
+            st.session_state["error_message"] = (
+                f"Something went wrong during evaluation:\n\n{exc}\n\n"
+                "Please go back and try again."
+            )
 
-    # Error state
     if st.session_state.get("error_message"):
         st.error(st.session_state["error_message"])
-        if st.button("← Go Back and Try Again"):
+        if st.button("Go Back and Try Again"):
             st.session_state["screen"] = 1
-            st.session_state["evaluations"] = []
+            st.session_state["evaluation"] = None
             st.session_state["error_message"] = None
             st.rerun()
         return
 
-    evaluations = st.session_state["evaluations"]
-    if not evaluations:
+    ev         = st.session_state.get("evaluation")
+    submission = st.session_state.get("submission_snapshot")
+
+    if not ev or not submission:
         st.warning("No evaluation results found. Please go back and try again.")
-        if st.button("← Back"):
+        if st.button("Back"):
             _go_to_screen(1)
         return
 
-    # Summary header
     st.markdown(
         "<h2 style='color:#1B5E20;margin-bottom:4px;'>Your Confidence Snapshot</h2>"
         "<p style='color:#B8860B;font-style:italic;font-size:0.95rem;margin-bottom:16px;'>"
@@ -804,27 +856,13 @@ def render_screen_2():
         unsafe_allow_html=True,
     )
 
-    if count > 1:
-        from evaluator import compute_confidence_label
-        labels = [compute_confidence_label(ev.get("scores", {}))[0] for ev in evaluations]
-        from collections import Counter
-        label_counts = Counter(labels)
-        summary_parts = " · ".join(f"{v}× {k}" for k, v in label_counts.items())
-        st.markdown(
-            f"<div class='summary-banner'><p>{count} results evaluated: {summary_parts}</p></div>",
-            unsafe_allow_html=True,
-        )
+    _render_result_card(submission, ev)
 
-    # Per-result cards
-    for i, ev in enumerate(evaluations):
-        _render_result_card(i, results_data[i], ev)
-
-    # GTM conversion hook card
     st.markdown(
         """
         <div class="gtm-card">
           <p><strong>Want me to run this check with you?</strong></p>
-          <p class="gtm-sub">I personally review 1&ndash;3 results for MEL professionals before their
+          <p class="gtm-sub">I personally review results for MEL professionals before their
           submissions. 20 minutes, free for the first session.</p>
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
             <div class="gtm-btn-gold">
@@ -836,8 +874,7 @@ def render_screen_2():
         unsafe_allow_html=True,
     )
 
-    # LinkedIn share link
-    snippet = results_data[0]["result_statement"][:120] if results_data else ""
+    snippet = submission.get("result_statement", "")[:120]
     li_text = urllib.parse.quote(
         f"I just stress-tested a result using Impact-Receipts before submitting. "
         f"Here's what it caught: {snippet}. "
@@ -855,22 +892,17 @@ def render_screen_2():
         unsafe_allow_html=True,
     )
 
-    # Download + restart
     col_dl, col_restart = st.columns([2, 1])
-
     with col_dl:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        combined_report = _build_combined_markdown_report(
-            results_data, evaluations, timestamp
-        )
+        timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
+        html_report = _build_html_report(submission, ev, timestamp)
         st.download_button(
-            label="Download Your Report (.md)",
-            data=combined_report,
-            file_name=f"impact_receipts_{timestamp}.md",
-            mime="text/markdown",
+            label="Download Your Report (.html)",
+            data=html_report,
+            file_name=f"impact_receipts_{timestamp}.html",
+            mime="text/html",
             use_container_width=True,
         )
-
     with col_restart:
         if st.button("Check Another Result", use_container_width=True):
             _go_to_screen(0, reset=True)
@@ -882,18 +914,14 @@ def render_screen_2():
 # File persistence
 # ---------------------------------------------------------------------------
 
-def save_all_files(
-    submission: dict, evaluation: dict, result_index: int = 0
-) -> dict:
-    """Save input JSON, evaluation JSON, and markdown report to disk."""
+def save_all_files(submission: dict, evaluation: dict) -> dict:
     os.makedirs("inputs", exist_ok=True)
     os.makedirs("evaluations", exist_ok=True)
     os.makedirs("outputs", exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    slug = _make_slug(submission.get("result_statement", "result"))
-    suffix = f"_r{result_index + 1}" if result_index > 0 else ""
-    base = f"{timestamp}{suffix}_{slug}"
+    slug      = _make_slug(submission.get("result_statement", "result"))
+    base      = f"{timestamp}_{slug}"
 
     paths = {
         "input":      os.path.join("inputs",      f"{base}_input.json"),
@@ -902,13 +930,13 @@ def save_all_files(
     }
 
     with open(paths["input"], "w", encoding="utf-8") as f:
-        json.dump(submission, f, indent=2, ensure_ascii=False)
+        json.dump(submission, f, indent=2, ensure_ascii=False, default=str)
 
     save_eval = {k: v for k, v in evaluation.items() if not k.startswith("_")}
     with open(paths["evaluation"], "w", encoding="utf-8") as f:
         json.dump(save_eval, f, indent=2, ensure_ascii=False)
 
-    report = _build_markdown_report(submission, evaluation, timestamp)
+    report = _build_html_report(submission, evaluation, timestamp)
     with open(paths["output"], "w", encoding="utf-8") as f:
         f.write(report)
 
@@ -921,97 +949,252 @@ def _make_slug(text: str, max_len: int = 45) -> str:
     return slug[:max_len]
 
 
-def _build_markdown_report(
-    submission: dict, evaluation: dict, timestamp: str
-) -> str:
-    scores = evaluation.get("scores", {})
-
-    from evaluator import compute_confidence_label
-    py_label, _ = compute_confidence_label(scores)
+def _build_markdown_report(submission: dict, evaluation: dict, timestamp: str) -> str:
+    conf_score = evaluation.get("confidence_score", 0)
+    clar_score = evaluation.get("clarity_score", 0)
+    conf_label = evaluation.get("confidence_label", "")
+    clar_label = evaluation.get("clarity_label", "")
+    verdict    = evaluation.get("verdict", "")
+    fixes      = evaluation.get("fixes", [])
+    conf_comp  = evaluation.get("confidence_components", {})
+    clar_comp  = evaluation.get("clarity_components", {})
+    filenames  = submission.get("attached_filenames", [])
 
     lines = [
         "# Impact-Receipts Evaluation Report",
         f"**Generated:** {timestamp}",
-        f"**Confidence Label:** {py_label}",
+        f"**Confidence Score:** {conf_score}/5.0 ({conf_label})",
+        f"**Clarity Score:** {clar_score}/5.0 ({clar_label})",
+        f"**Verdict:** {verdict}",
         "",
         "---",
         "",
         "## Result Statement",
-        f"{submission.get('result_statement', '—')}",
+        f"{submission.get('result_statement', '-')}",
         "",
-        f"- **Target Group:** {submission.get('target_group', '—')}",
-        f"- **Timeframe:** {submission.get('timeframe', '—')}",
-        f"- **Geographic Scope:** {submission.get('geographic_scope', '—')}",
+        f"- **Target Group:** {submission.get('target_group', '-')}",
+        f"- **Timeframe:** {submission.get('timeframe', '-')}",
+        f"- **Geographic Scope:** {submission.get('geographic_scope', '-')}",
         "",
-        "---",
-        "",
-        "## Dimension Scores",
     ]
 
-    dim_map = {
-        "clarity_of_claim":     "Clarity of Claim",
-        "strength_of_evidence": "Strength of Evidence",
-        "independent_review":   "Independent Review",
-    }
-    for key, name in dim_map.items():
-        dim = scores.get(key, {})
-        lines += [
-            f"### {name}: {dim.get('score', '?')} / 5",
-            "",
-            dim.get("rationale", ""),
-            "",
-        ]
-        missing = dim.get("missing_elements", [])
-        if missing:
-            lines += ["**Missing:**"] + [f"- {m}" for m in missing] + [""]
-
-    lines += ["---", "", "## Key Issues", ""]
-    for issue in evaluation.get("key_issues", []):
-        lines.append(f"- {issue}")
-
-    lines += ["", "---", "", "## Here's How to Strengthen Your Result Before Submission", ""]
-    for fix in evaluation.get("fixes", []):
-        lines.append(f"- [ ] {fix}")
+    if filenames:
+        lines += [f"- **Attached documents:** {', '.join(filenames)}", ""]
 
     lines += [
+        "---",
+        "",
+        "## Confidence Score Breakdown",
+        "",
+        "| Component | Level | Score |",
+        "|---|---|---|",
+        f"| Directness   | {conf_comp.get('direct_level', '-')}/5  | {conf_comp.get('direct_score', '-')}/2.0 |",
+        f"| Verification | {conf_comp.get('verify_level', '-')}/5  | {conf_comp.get('verify_score', '-')}/2.0 |",
+        f"| Recency      | {conf_comp.get('recency_level', '-')}/5 | {conf_comp.get('recency_score', '-')}/1.0 |",
+        f"| **Total**    |                                          | **{conf_score}/5.0** |",
+        "",
+        "## Clarity Score Breakdown",
+        "",
+        "| Component   | Score | Max  |",
+        "|---|---|---|",
+        f"| Definition  | {clar_comp.get('definition_score', '-')}  | 1.25 |",
+        f"| Measurement | {clar_comp.get('measurement_score', '-')} | 1.25 |",
+        f"| Integrity   | {clar_comp.get('integrity_score', '-')}   | 1.0  |",
+        f"| Scope       | {clar_comp.get('scope_score', '-')}       | 0.75 |",
+        f"| Governance  | {clar_comp.get('governance_score', '-')}  | 0.75 |",
+        f"| **Total**   | **{clar_score}**                          | **5.0** |",
         "",
         "---",
         "",
-        "## Label Rationale",
+        "## What To Fix",
         "",
-        evaluation.get("label_rationale", ""),
-        "",
-        "---",
-        "",
-        "*Evaluated using: rule-based scoring (local, no API)*",
     ]
 
-    return "\n".join(lines)
+    conf_fixes = [f for f in fixes if f.get("dimension") == "confidence"]
+    clar_fixes = [f for f in fixes if f.get("dimension") == "clarity"]
 
-
-def _build_combined_markdown_report(
-    submissions: list, evaluations: list, timestamp: str
-) -> str:
-    """Build a combined markdown report for 1–3 results."""
-    lines = [
-        "# Impact-Receipts Evaluation Report",
-        f"**Generated:** {timestamp}",
-        f"**Results evaluated:** {len(submissions)}",
-        "",
-        "---",
-        "",
-    ]
-    for i, (sub, ev) in enumerate(zip(submissions, evaluations)):
-        if len(submissions) > 1:
-            lines.append(f"## Result {i + 1}")
-            lines.append("")
-        single = _build_markdown_report(sub, ev, timestamp)
-        # Skip the shared header lines (title, generated, label, blank, ---, blank)
-        body_lines = single.split("\n")[6:]
-        lines.extend(body_lines)
+    if conf_fixes:
+        lines.append("### Strengthen your evidence (Confidence)")
+        for fix in conf_fixes:
+            lines.append(f"- [ ] {fix['message']}  *({fix['score_impact']})*")
         lines.append("")
 
+    if clar_fixes:
+        lines.append("### Sharpen your definition (Clarity)")
+        for fix in clar_fixes:
+            lines.append(f"- [ ] {fix['message']}  *({fix['score_impact']})*")
+        lines.append("")
+
+    if not fixes:
+        lines += ["No fixes needed — your result is ready to submit.", ""]
+
+    lines += [
+        "---",
+        "",
+        "*Evaluated using: Impact-Receipts v2 dual-axis scoring "
+        "(USAID DQA / OECD-DAC / Bond Evidence Principles)*",
+    ]
+
     return "\n".join(lines)
+
+
+def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> str:
+    conf_score = evaluation.get("confidence_score", 0)
+    clar_score = evaluation.get("clarity_score", 0)
+    conf_label = evaluation.get("confidence_label", "")
+    clar_label = evaluation.get("clarity_label", "")
+    verdict    = evaluation.get("verdict", "")
+    fixes      = evaluation.get("fixes", [])
+    conf_comp  = evaluation.get("confidence_components", {})
+    clar_comp  = evaluation.get("clarity_components", {})
+    filenames  = submission.get("attached_filenames", [])
+
+    badge_colors = {
+        "Strong":     ("#C8E6C9", "#1B5E20"),
+        "Acceptable": ("#FFF9C4", "#F57F17"),
+        "Weak":       ("#FFE0B2", "#E65100"),
+        "High Risk":  ("#FFCDD2", "#B71C1C"),
+    }
+    _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
+
+    def badge(label, score, max_s):
+        bg, fg = badge_colors.get(label, ("#F5F5F5", "#212121"))
+        return (f"<div style='background:{bg};color:{fg};padding:10px 14px;"
+                f"border-radius:8px;font-weight:700;font-size:0.9rem;margin-bottom:6px;{_pca}'>"
+                f"{score}/{max_s} &nbsp; {label.upper()}</div>")
+
+    def bar(value, max_v):
+        pct = min(value / max_v * 100, 100)
+        return (f"<div style='background:#E0E0E0;border-radius:4px;height:10px;margin-bottom:10px;{_pca}'>"
+                f"<div style='background:#1B5E20;width:{pct:.1f}%;height:10px;border-radius:4px;{_pca}'></div></div>")
+
+    def row(label, score, max_v, tip=""):
+        title = f' title="{tip}"' if tip else ""
+        return (f"<tr><td{title} style='padding:6px 8px;font-size:0.88rem;'>{label}</td>"
+                f"<td style='padding:6px 8px;font-family:monospace;'>{score}/{max_v}</td>"
+                f"<td style='padding:6px 8px;width:120px;'>{bar(score, max_v)}</td></tr>")
+
+    conf_fixes = [f for f in fixes if f.get("dimension") == "confidence"]
+    clar_fixes = [f for f in fixes if f.get("dimension") == "clarity"]
+
+    def fix_items(items):
+        if not items:
+            return ""
+        return "".join(
+            f"<li style='margin-bottom:6px;'>{f['message']} "
+            f"<em style='color:#616161;'>({f['score_impact']})</em></li>"
+            for f in items
+        )
+
+    verdict_colors = {
+        "Strong KPI — ready to submit": "#1B5E20",
+        "Misleading KPI — sharpen the definition before submission": "#E65100",
+        "Well-defined but weak evidence — strengthen the verification chain": "#F57F17",
+        "High risk — do not submit until both axes are addressed": "#B71C1C",
+    }
+    verdict_bg = verdict_colors.get(verdict, "#1B5E20")
+
+    files_row = (f"<p><strong>Attached documents:</strong> {', '.join(filenames)}</p>"
+                 if filenames else "")
+
+    dl = conf_comp.get("direct_level", 0)
+    vl = conf_comp.get("verify_level", 0)
+    rl = conf_comp.get("recency_level", 0)
+    ds = conf_comp.get("direct_score", 0)
+    vs = conf_comp.get("verify_score", 0)
+    rs = conf_comp.get("recency_score", 0)
+    def_s  = clar_comp.get("definition_score", 0)
+    meas_s = clar_comp.get("measurement_score", 0)
+    integ  = clar_comp.get("integrity_score", 0)
+    scope  = clar_comp.get("scope_score", 0)
+    gov    = clar_comp.get("governance_score", 0)
+
+    fixes_html = ""
+    if conf_fixes:
+        fixes_html += ("<h3 style='color:#1B5E20;'>Strengthen your evidence (Confidence)</h3>"
+                       f"<ul>{fix_items(conf_fixes)}</ul>")
+    if clar_fixes:
+        fixes_html += ("<h3 style='color:#1B5E20;'>Sharpen your definition (Clarity)</h3>"
+                       f"<ul>{fix_items(clar_fixes)}</ul>")
+    if not fixes:
+        fixes_html = "<p style='color:#1B5E20;font-weight:700;'>No fixes needed — your result is ready to submit.</p>"
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Impact-Receipts Report</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet"/>
+<style>
+  body{{font-family:'Inter',sans-serif;color:#212121;max-width:860px;margin:40px auto;padding:0 24px;}}
+  h1,h2,h3{{color:#1B5E20;}} h1{{font-size:1.6rem;}} h2{{font-size:1.2rem;border-bottom:1px solid #B8860B;padding-bottom:4px;margin-top:28px;}}
+  table{{width:100%;border-collapse:collapse;margin-bottom:16px;}}
+  td,th{{border:1px solid #E0E0E0;text-align:left;}}
+  th{{background:#F5F5F5;padding:7px 8px;font-size:0.85rem;}}
+  .grid{{display:grid;grid-template-columns:1fr 1fr;gap:24px;}}
+  .footer{{color:#616161;font-style:italic;font-size:0.8rem;border-top:1px solid #E0E0E0;margin-top:32px;padding-top:12px;}}
+  @media print{{
+    body{{margin:20px;}}
+    .no-print{{display:none;}}
+    *{{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}}
+  }}
+</style>
+</head>
+<body>
+<h1>Impact-Receipts Evaluation Report</h1>
+<p style="color:#616161;font-size:0.88rem;">Generated: {timestamp}</p>
+
+<h2>Result Statement</h2>
+<p>{submission.get('result_statement', '-')}</p>
+<p><strong>Target Group:</strong> {submission.get('target_group', '-')}<br/>
+   <strong>Timeframe:</strong> {submission.get('timeframe', '-')}<br/>
+   <strong>Geographic Scope:</strong> {submission.get('geographic_scope', '-')}</p>
+{files_row}
+
+<div style="background:{verdict_bg};color:white;border-radius:10px;padding:14px 20px;
+     font-weight:700;text-align:center;margin:20px 0;font-size:1rem;
+     -webkit-print-color-adjust:exact;print-color-adjust:exact;">
+  {verdict}
+</div>
+
+<h2>Score Summary</h2>
+<div class="grid">
+  <div>
+    <strong>Confidence Score</strong><br/>
+    {badge(conf_label, conf_score, 5.0)}
+    <p style="color:#616161;font-size:0.85rem;">{evaluation.get('confidence_meaning','')}</p>
+    <table>
+      <tr><th>Component</th><th>Score</th><th>Bar</th></tr>
+      {row(f"Directness (Level {dl}/5)", ds, 2.0, _DIRECTNESS_TIPS.get(dl,''))}
+      {row(f"Verification (Level {vl}/5)", vs, 2.0, _VERIFICATION_TIPS.get(vl,''))}
+      {row(f"Recency (Level {rl}/5)", rs, 1.0, _RECENCY_TIPS.get(rl,''))}
+    </table>
+  </div>
+  <div>
+    <strong>Clarity Score</strong><br/>
+    {badge(clar_label, clar_score, 5.0)}
+    <p style="color:#616161;font-size:0.85rem;">{evaluation.get('clarity_meaning','')}</p>
+    <table>
+      <tr><th>Component</th><th>Score</th><th>Bar</th></tr>
+      {row("Definition", def_s, 1.25, _CLARITY_TIPS['definition'])}
+      {row("Measurement", meas_s, 1.25, _CLARITY_TIPS['measurement'])}
+      {row("Integrity", integ, 1.0, _CLARITY_TIPS['integrity'])}
+      {row("Scope", scope, 0.75, _CLARITY_TIPS['scope'])}
+      {row("Governance", gov, 0.75, _CLARITY_TIPS['governance'])}
+    </table>
+  </div>
+</div>
+
+<h2>What To Fix</h2>
+{fixes_html}
+
+<div class="footer">
+  Evaluated using Impact-Receipts v2 dual-axis scoring (USAID DQA / OECD-DAC / Bond Evidence Principles).<br/>
+  Tip: Print this page (Ctrl+P) and choose &ldquo;Save as PDF&rdquo; to get a PDF copy.
+</div>
+</body>
+</html>"""
 
 
 # ---------------------------------------------------------------------------
@@ -1021,32 +1204,23 @@ def _build_combined_markdown_report(
 def main():
     st.set_page_config(
         page_title="Impact-Receipts",
-        page_icon="✓",
+        page_icon="",
         layout="centered",
         initial_sidebar_state="collapsed",
     )
 
-    # Inject global CSS
     st.markdown(CSS, unsafe_allow_html=True)
-
-    # Initialise session state
     _init_session_state()
 
-    # Top progress bar
     screen = st.session_state["screen"]
     if screen == 1:
         st.progress(0.5, text="Submission Form")
     elif screen == 2:
         st.progress(1.0, text="Confidence Check Complete")
 
-    # Screen dispatcher
-    screen_renderers = {
-        0: render_screen_0,
-        1: render_screen_1,
-        2: render_screen_2,
-    }
-    renderer = screen_renderers.get(screen, render_screen_0)
-    renderer()
+    {0: render_screen_0, 1: render_screen_1, 2: render_screen_2}.get(
+        screen, render_screen_0
+    )()
 
 
 if __name__ == "__main__":
