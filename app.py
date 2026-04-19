@@ -289,42 +289,46 @@ h1, h2, h3, h4 {
 
 def _init_session_state():
     defaults = {
-        "screen":               0,
-        "error_message":        None,
-        "evaluation":           None,
-        "submission_snapshot":  None,
-        # Form widget keys — match key= params in render_screen_1
-        "result_statement":     "",
-        "target_group":         "",
-        "timeframe":            "",
-        "geographic_scope":     "",
-        "evidence_description": "",
-        "evidence_type":        EVIDENCE_TYPES[0],
-        "evidence_type_other":  "",
-        "internal_review":      INTERNAL_REVIEW_OPTIONS[0],
-        "internal_review_other": "",
-        "external_review":      EXTERNAL_REVIEW_OPTIONS[0],
-        "external_review_other": "",
-        "verifier":             "",
-        "evidence_date":        None,
-        "uploaded_files":       [],
+        "screen":        0,
+        "error_message": None,
+        "evaluations":   None,
+        "submissions_snapshot": None,
+        "active_slots":  1,
     }
     for key, default in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = default
 
 
+_BASE_FORM_KEYS = [
+    "result_statement", "target_group", "timeframe", "geographic_scope",
+    "evidence_description", "evidence_type", "evidence_type_other",
+    "internal_review", "internal_review_other",
+    "external_review", "external_review_other",
+    "verifier",
+]
+
+
+def _slot_suffix(slot: int) -> str:
+    return "" if slot == 1 else f"_{slot}"
+
+
+def _reset_all_slots():
+    active = st.session_state.get("active_slots", 1)
+    for slot in range(1, active + 1):
+        s = _slot_suffix(slot)
+        for k in _BASE_FORM_KEYS:
+            st.session_state.pop(f"{k}{s}", None)
+        for k in ["evidence_date", "uploaded_files", "draft_uploaded_filenames"]:
+            st.session_state.pop(f"{k}{s}", None)
+    for k in ["active_slots", "evaluations", "submissions_snapshot",
+              "evaluation", "submission_snapshot", "error_message", "active_slots_run"]:
+        st.session_state.pop(k, None)
+
+
 def _go_to_screen(screen: int, reset: bool = False):
     if reset:
-        for k in [
-            "result_statement", "target_group", "timeframe", "geographic_scope",
-            "evidence_description", "evidence_type", "evidence_type_other",
-            "internal_review", "internal_review_other",
-            "external_review", "external_review_other",
-            "verifier", "evidence_date", "uploaded_files",
-            "evaluation", "submission_snapshot", "error_message",
-        ]:
-            st.session_state.pop(k, None)
+        _reset_all_slots()
     if screen == 1:
         _load_draft()
     st.session_state["screen"] = screen
@@ -353,21 +357,18 @@ def _format_date(d) -> str:
 
 _DRAFT_PATH = os.path.join("inputs", "draft.json")
 
-_DRAFT_TEXT_KEYS = [
-    "result_statement", "target_group", "timeframe", "geographic_scope",
-    "evidence_description", "evidence_type", "evidence_type_other",
-    "internal_review", "internal_review_other",
-    "external_review", "external_review_other",
-    "verifier",
-]
-
 
 def _save_draft():
-    draft = {k: st.session_state.get(k, "") for k in _DRAFT_TEXT_KEYS}
-    ed = st.session_state.get("evidence_date")
-    draft["evidence_date"] = ed.isoformat() if hasattr(ed, "isoformat") else ""
-    raw_files = st.session_state.get("uploaded_files_widget") or []
-    draft["uploaded_filenames"] = [f.name for f in raw_files if hasattr(f, "name")]
+    active = st.session_state.get("active_slots", 1)
+    draft = {"active_slots": active}
+    for slot in range(1, active + 1):
+        s = _slot_suffix(slot)
+        for k in _BASE_FORM_KEYS:
+            draft[f"{k}{s}"] = st.session_state.get(f"{k}{s}", "")
+        ed = st.session_state.get(f"evidence_date{s}")
+        draft[f"evidence_date{s}"] = ed.isoformat() if hasattr(ed, "isoformat") else ""
+        raw_files = st.session_state.get(f"uploaded_files_widget{s}") or []
+        draft[f"uploaded_filenames{s}"] = [f.name for f in raw_files if hasattr(f, "name")]
     os.makedirs("inputs", exist_ok=True)
     with open(_DRAFT_PATH, "w", encoding="utf-8") as f:
         json.dump(draft, f, indent=2, ensure_ascii=False)
@@ -381,50 +382,113 @@ def _load_draft():
             draft = json.load(f)
     except Exception:
         return
-    for k in _DRAFT_TEXT_KEYS:
-        if k in draft:
-            st.session_state[k] = draft[k]
-    raw_date = draft.get("evidence_date", "")
-    if raw_date:
-        try:
-            st.session_state["evidence_date"] = date.fromisoformat(raw_date)
-        except (ValueError, TypeError):
-            pass
-    st.session_state["draft_uploaded_filenames"] = draft.get("uploaded_filenames", [])
+    active = int(draft.get("active_slots", 1))
+    st.session_state["active_slots"] = active
+    for slot in range(1, active + 1):
+        s = _slot_suffix(slot)
+        for k in _BASE_FORM_KEYS:
+            key = f"{k}{s}"
+            if key in draft:
+                st.session_state[key] = draft[key]
+        raw_date = draft.get(f"evidence_date{s}", "")
+        if raw_date:
+            try:
+                st.session_state[f"evidence_date{s}"] = date.fromisoformat(raw_date)
+            except (ValueError, TypeError):
+                pass
+        st.session_state[f"draft_uploaded_filenames{s}"] = draft.get(f"uploaded_filenames{s}", [])
 
 
-def _build_submission_from_session() -> dict:
-    """Assemble evaluator-compatible submission dict from flat session_state."""
-    ev_type = st.session_state.get("evidence_type", "")
+def _clear_draft():
+    if os.path.exists(_DRAFT_PATH):
+        os.remove(_DRAFT_PATH)
+
+
+def _build_submission_from_session(slot: int = 1) -> dict:
+    """Assemble evaluator-compatible submission dict from session_state for a given slot."""
+    s = _slot_suffix(slot)
+
+    ev_type = st.session_state.get(f"evidence_type{s}", "")
     if ev_type == "Other":
-        ev_type = st.session_state.get("evidence_type_other", "") or "Other"
+        ev_type = st.session_state.get(f"evidence_type_other{s}", "") or "Other"
 
-    int_rev = st.session_state.get("internal_review", "Not reviewed")
+    int_rev = st.session_state.get(f"internal_review{s}", "Not reviewed")
     if int_rev == "Other":
-        int_rev = st.session_state.get("internal_review_other", "") or "Other"
+        int_rev = st.session_state.get(f"internal_review_other{s}", "") or "Other"
 
-    ext_rev = st.session_state.get("external_review", "No external review")
+    ext_rev = st.session_state.get(f"external_review{s}", "No external review")
     if ext_rev == "Other":
-        ext_rev = st.session_state.get("external_review_other", "") or "Other"
+        ext_rev = st.session_state.get(f"external_review_other{s}", "") or "Other"
 
     return {
-        "result_statement":  st.session_state.get("result_statement", ""),
-        "target_group":      st.session_state.get("target_group", ""),
-        "timeframe":         st.session_state.get("timeframe", ""),
-        "geographic_scope":  st.session_state.get("geographic_scope", ""),
+        "result_statement":   st.session_state.get(f"result_statement{s}", ""),
+        "target_group":       st.session_state.get(f"target_group{s}", ""),
+        "timeframe":          st.session_state.get(f"timeframe{s}", ""),
+        "geographic_scope":   st.session_state.get(f"geographic_scope{s}", ""),
         "additional_context": "",
-        "internal_review":   int_rev,
-        "external_review":   ext_rev,
-        "attached_filenames": st.session_state.get("uploaded_files", []),
-        "evidence": [
-            {
-                "type":        ev_type,
-                "description": st.session_state.get("evidence_description", ""),
-                "recency":     _format_date(st.session_state.get("evidence_date")),
-                "verified_by": st.session_state.get("verifier", ""),
-            }
-        ],
+        "internal_review":    int_rev,
+        "external_review":    ext_rev,
+        "attached_filenames": st.session_state.get(f"uploaded_files{s}", []),
+        "evidence": [{
+            "type":        ev_type,
+            "description": st.session_state.get(f"evidence_description{s}", ""),
+            "recency":     _format_date(st.session_state.get(f"evidence_date{s}")),
+            "verified_by": st.session_state.get(f"verifier{s}", ""),
+        }],
     }
+
+
+def _render_slot_fields(slot: int):
+    """Render all form fields for one result slot."""
+    s = _slot_suffix(slot)
+
+    for key, default in [
+        (f"evidence_type{s}", EVIDENCE_TYPES[0]),
+        (f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0]),
+        (f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0]),
+    ]:
+        if key not in st.session_state:
+            st.session_state[key] = default
+
+    st.text_area(
+        "Result statement",
+        key=f"result_statement{s}",
+        placeholder="e.g., Trained 500 smallholder farmers in climate-smart agriculture across 3 districts in Northern Ghana between January and June 2025",
+        height=100,
+        help="What is the specific result you're reporting?",
+    )
+    st.text_input("Target group", key=f"target_group{s}",
+                  placeholder="e.g., Smallholder farmers, 18-60 years old, three districts in Northern Region")
+    st.text_input("Timeframe", key=f"timeframe{s}", placeholder="e.g., January - June 2025")
+    st.text_input("Geographic scope", key=f"geographic_scope{s}",
+                  placeholder="e.g., Tamale, Yendi, Savelugu districts")
+    st.text_area("Describe your supporting evidence", key=f"evidence_description{s}",
+                 placeholder="e.g., Signed attendance sheets from 12 training sessions across 3 districts, verified by District Agriculture Officer.",
+                 height=120)
+
+    st.selectbox("Evidence type", key=f"evidence_type{s}", options=EVIDENCE_TYPES)
+    if st.session_state.get(f"evidence_type{s}") == "Other":
+        st.text_input("Specify evidence type", key=f"evidence_type_other{s}")
+
+    st.selectbox("Internal review", key=f"internal_review{s}", options=INTERNAL_REVIEW_OPTIONS)
+    if st.session_state.get(f"internal_review{s}") == "Other":
+        st.text_input("Specify internal reviewer", key=f"internal_review_other{s}")
+
+    st.selectbox("External review", key=f"external_review{s}", options=EXTERNAL_REVIEW_OPTIONS)
+    if st.session_state.get(f"external_review{s}") == "Other":
+        st.text_input("Specify external reviewer", key=f"external_review_other{s}")
+
+    st.text_input("Who verified this?", key=f"verifier{s}",
+                  placeholder="e.g., District Agriculture Officer, partner org M&E lead, external evaluator")
+    st.date_input("When was this evidence collected?", key=f"evidence_date{s}")
+
+    prev_files = st.session_state.get(f"draft_uploaded_filenames{s}", [])
+    if prev_files:
+        st.caption(f"Previously attached: {', '.join(prev_files)} — please re-attach below.")
+    st.file_uploader("Attach supporting documents (optional)", key=f"uploaded_files_widget{s}",
+                     accept_multiple_files=True,
+                     type=["pdf", "docx", "xlsx", "csv", "jpg", "jpeg", "png", "txt"],
+                     help="Attach raw evidence files — datasets, signed sheets, photos with metadata, partner letters.")
 
 
 # ---------------------------------------------------------------------------
@@ -525,108 +589,42 @@ def render_screen_1():
     st.markdown(
         """
         <div class="progress-steps">
-          <span class="step">1</span>
-          <span class="step-label">Result Details</span>
+          <span class="step">1</span><span class="step-label">Result Details</span>
           <span class="connector"></span>
-          <span class="step">2</span>
-          <span class="step-label">Evidence</span>
+          <span class="step">2</span><span class="step-label">Evidence</span>
           <span class="connector"></span>
-          <span class="step">3</span>
-          <span class="step-label">Review Status</span>
+          <span class="step">3</span><span class="step-label">Review Status</span>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.markdown("## Tell us about your result")
+    active = st.session_state.get("active_slots", 1)
 
-    # No st.form — plain widgets so selectbox changes rerun immediately,
-    # enabling the "Other → Specify" fields to appear without a submit first.
+    # Header row with optional "+" button
+    col_h, col_add = st.columns([5, 1])
+    with col_h:
+        label = "Tell us about your result" if active == 1 else f"Tell us about your results ({active} added)"
+        st.markdown(f"## {label}")
+    with col_add:
+        if active < 3:
+            st.markdown("<div style='padding-top:22px'></div>", unsafe_allow_html=True)
+            if st.button("＋ Add Result", use_container_width=True):
+                st.session_state["active_slots"] = active + 1
+                st.rerun()
 
-    st.text_area(
-        "Result statement",
-        key="result_statement",
-        placeholder=(
-            "e.g., Trained 500 smallholder farmers in climate-smart agriculture across "
-            "3 districts in Northern Ghana between January and June 2025"
-        ),
-        height=100,
-        help="What is the specific result you're reporting?",
-    )
+    # Render each slot
+    for slot in range(1, active + 1):
+        if active > 1:
+            st.markdown(f"---\n#### Result {slot}")
+        _render_slot_fields(slot)
 
-    st.text_input(
-        "Target group",
-        key="target_group",
-        placeholder="e.g., Smallholder farmers, 18-60 years old, three districts in Northern Region",
-    )
-
-    st.text_input(
-        "Timeframe",
-        key="timeframe",
-        placeholder="e.g., January - June 2025",
-    )
-
-    st.text_input(
-        "Geographic scope",
-        key="geographic_scope",
-        placeholder="e.g., Tamale, Yendi, Savelugu districts",
-    )
-
-    st.text_area(
-        "Describe your supporting evidence",
-        key="evidence_description",
-        placeholder=(
-            "e.g., Signed attendance sheets from 12 training sessions across 3 districts, "
-            "verified by District Agriculture Officer."
-        ),
-        height=120,
-    )
-
-    # Evidence Type — "Other" reveal works because selectbox change triggers rerun
-    st.selectbox("Evidence type", key="evidence_type", options=EVIDENCE_TYPES)
-    if st.session_state.get("evidence_type") == "Other":
-        st.text_input("Specify evidence type", key="evidence_type_other")
-
-    # Internal Review
-    st.selectbox("Internal review", key="internal_review", options=INTERNAL_REVIEW_OPTIONS)
-    if st.session_state.get("internal_review") == "Other":
-        st.text_input("Specify internal reviewer", key="internal_review_other")
-
-    # External Review
-    st.selectbox("External review", key="external_review", options=EXTERNAL_REVIEW_OPTIONS)
-    if st.session_state.get("external_review") == "Other":
-        st.text_input("Specify external reviewer", key="external_review_other")
-
-    st.text_input(
-        "Who verified this?",
-        key="verifier",
-        placeholder="e.g., District Agriculture Officer, partner org M&E lead, external evaluator",
-    )
-
-    st.date_input("When was this evidence collected?", key="evidence_date")
-
-    prev_files = st.session_state.get("draft_uploaded_filenames", [])
-    if prev_files:
-        st.caption(f"Previously attached: {', '.join(prev_files)} — please re-attach below.")
-
-    st.file_uploader(
-        "Attach supporting documents (optional)",
-        key="uploaded_files_widget",
-        accept_multiple_files=True,
-        type=["pdf", "docx", "xlsx", "csv", "jpg", "jpeg", "png", "txt"],
-        help="Attach raw evidence files — datasets, signed sheets, photos with metadata, partner letters.",
-    )
-
-    # Auto-save on every rerun (every widget interaction)
+    # Auto-save on every rerun
     _save_draft()
 
     st.divider()
 
-    if st.button(
-        "Run My Confidence Check",
-        type="primary",
-        use_container_width=True,
-    ):
+    if st.button("Run My Confidence Check", type="primary", use_container_width=True):
         mandatory = [
             st.session_state.get("result_statement", ""),
             st.session_state.get("target_group", ""),
@@ -635,12 +633,15 @@ def render_screen_1():
             st.session_state.get("evidence_description", ""),
         ]
         if not all(mandatory):
-            st.warning("Add the missing details above to run your confidence check.")
+            st.warning("Add the missing details for Result 1 to run your confidence check.")
         else:
-            raw_files = st.session_state.get("uploaded_files_widget") or []
-            st.session_state["uploaded_files"]       = [f.name for f in raw_files]
-            st.session_state["evaluation"]           = None
-            st.session_state["submission_snapshot"]  = None
+            for slot in range(1, active + 1):
+                s = _slot_suffix(slot)
+                raw = st.session_state.get(f"uploaded_files_widget{s}") or []
+                st.session_state[f"uploaded_files{s}"] = [f.name for f in raw]
+            st.session_state["active_slots_run"] = active
+            st.session_state["evaluations"]       = None
+            st.session_state["submissions_snapshot"] = None
             st.session_state["screen"] = 2
             st.rerun()
 
@@ -713,7 +714,7 @@ def _axis_badge_html(label: str, score: float, max_score: float) -> str:
     )
 
 
-def _render_result_card(submission: dict, ev: dict):
+def _render_result_card(submission: dict, ev: dict, card_idx: int = 0):
     conf_score   = ev.get("confidence_score", 0)
     clar_score   = ev.get("clarity_score", 0)
     conf_label   = ev.get("confidence_label", "High Risk")
@@ -794,7 +795,7 @@ def _render_result_card(submission: dict, ev: dict):
                 st.checkbox(
                     f"{fix['message']}  _({fix['score_impact']})_",
                     value=False,
-                    key=f"fix_conf_{j}",
+                    key=f"fix_conf_{card_idx}_{j}",
                 )
         if clar_fixes:
             st.markdown("##### Sharpen your definition (Clarity)")
@@ -802,7 +803,7 @@ def _render_result_card(submission: dict, ev: dict):
                 st.checkbox(
                     f"{fix['message']}  _({fix['score_impact']})_",
                     value=False,
-                    key=f"fix_clar_{j}",
+                    key=f"fix_clar_{card_idx}_{j}",
                 )
 
     filenames = submission.get("attached_filenames", [])
@@ -813,42 +814,47 @@ def _render_result_card(submission: dict, ev: dict):
 
 
 def render_screen_2():
-    # Run evaluation once and cache in session_state
-    if not st.session_state.get("evaluation"):
-        from evaluator import evaluate_submission
+    from evaluator import evaluate_submission
 
-        submission = _build_submission_from_session()
+    # Run evaluations once, cache results
+    if not st.session_state.get("evaluations"):
+        active = st.session_state.get("active_slots_run", st.session_state.get("active_slots", 1))
+        subs, evs = [], []
         try:
             with st.spinner("Running confidence check..."):
-                ev = evaluate_submission(submission)
-            save_all_files(submission, ev)
-            st.session_state["evaluation"]        = ev
-            st.session_state["submission_snapshot"] = submission
+                for slot in range(1, active + 1):
+                    sub = _build_submission_from_session(slot)
+                    ev  = evaluate_submission(sub)
+                    save_all_files(sub, ev)
+                    subs.append(sub)
+                    evs.append(ev)
+            st.session_state["evaluations"]        = evs
+            st.session_state["submissions_snapshot"] = subs
             st.rerun()
         except Exception as exc:
             st.session_state["error_message"] = (
-                f"Something went wrong during evaluation:\n\n{exc}\n\n"
-                "Please go back and try again."
+                f"Something went wrong during evaluation:\n\n{exc}\n\nPlease go back and try again."
             )
 
     if st.session_state.get("error_message"):
         st.error(st.session_state["error_message"])
         if st.button("Go Back and Try Again"):
             st.session_state["screen"] = 1
-            st.session_state["evaluation"] = None
+            st.session_state["evaluations"]  = None
             st.session_state["error_message"] = None
             st.rerun()
         return
 
-    ev         = st.session_state.get("evaluation")
-    submission = st.session_state.get("submission_snapshot")
+    evs  = st.session_state.get("evaluations") or []
+    subs = st.session_state.get("submissions_snapshot") or []
 
-    if not ev or not submission:
+    if not evs:
         st.warning("No evaluation results found. Please go back and try again.")
         if st.button("Back"):
             _go_to_screen(1)
         return
 
+    n = len(evs)
     st.markdown(
         "<h2 style='color:#1B5E20;margin-bottom:4px;'>Your Confidence Snapshot</h2>"
         "<p style='color:#B8860B;font-style:italic;font-size:0.95rem;margin-bottom:16px;'>"
@@ -856,7 +862,10 @@ def render_screen_2():
         unsafe_allow_html=True,
     )
 
-    _render_result_card(submission, ev)
+    for i, (sub, ev) in enumerate(zip(subs, evs)):
+        if n > 1:
+            st.markdown(f"### Result {i + 1}")
+        _render_result_card(sub, ev, card_idx=i)
 
     st.markdown(
         """
@@ -874,17 +883,9 @@ def render_screen_2():
         unsafe_allow_html=True,
     )
 
-    snippet = submission.get("result_statement", "")[:120]
-    li_text = urllib.parse.quote(
-        f"I just stress-tested a result using Impact-Receipts before submitting. "
-        f"Here's what it caught: {snippet}. "
-        f"Try it: https://impact-receipts-fnxkamdve55429dk3bxmb9.streamlit.app"
-    )
-    li_url = (
-        "https://www.linkedin.com/shareArticle?mini=true"
-        "&url=https%3A%2F%2Fimpact-receipts-fnxkamdve55429dk3bxmb9.streamlit.app"
-        f"&summary={li_text}"
-    )
+    # LinkedIn — modern share-offsite endpoint opens the share dialog correctly
+    app_url = "https://impact-receipts-fnxkamdve55429dk3bxmb9.streamlit.app"
+    li_url  = f"https://www.linkedin.com/sharing/share-offsite/?url={urllib.parse.quote(app_url, safe='')}"
     st.markdown(
         f"Found this useful? "
         f"<a href='{li_url}' target='_blank'>Share Impact-Receipts on LinkedIn</a>"
@@ -892,10 +893,12 @@ def render_screen_2():
         unsafe_allow_html=True,
     )
 
-    col_dl, col_restart = st.columns([2, 1])
+    timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
+    html_report = _build_html_report(subs[0], evs[0], timestamp) if n == 1 else \
+                  _build_combined_html_report(subs, evs, timestamp)
+
+    col_dl, col_add, col_fresh = st.columns([2, 1, 1])
     with col_dl:
-        timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
-        html_report = _build_html_report(submission, ev, timestamp)
         st.download_button(
             label="Download Your Report (.html)",
             data=html_report,
@@ -903,9 +906,18 @@ def render_screen_2():
             mime="text/html",
             use_container_width=True,
         )
-    with col_restart:
+    with col_add:
+        if n < 3:
+            if st.button("＋ Add Another Result", use_container_width=True):
+                st.session_state["active_slots"] = n + 1
+                st.session_state["evaluations"]  = None
+                st.session_state["submissions_snapshot"] = None
+                st.session_state["screen"] = 1
+                st.rerun()
+    with col_fresh:
         if st.button("Check Another Result", use_container_width=True):
-            _go_to_screen(0, reset=True)
+            _clear_draft()
+            _go_to_screen(1, reset=True)
 
     _render_tagline_footer()
 
@@ -1195,6 +1207,24 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
 </div>
 </body>
 </html>"""
+
+
+def _build_combined_html_report(submissions: list, evaluations: list, timestamp: str) -> str:
+    parts = []
+    for i, (sub, ev) in enumerate(zip(submissions, evaluations)):
+        section = _build_html_report(sub, ev, timestamp)
+        # Strip outer HTML wrapper from all but the first, append just the body content
+        if i == 0:
+            parts.append(section)
+        else:
+            start = section.find("<h2>Result Statement</h2>")
+            if start == -1:
+                start = section.find("<h2 ")
+            end   = section.rfind("</body>")
+            insert_at = parts[0].rfind("</body>")
+            divider = f"<hr style='margin:40px 0;border:2px solid #B8860B;'/><h2 style='color:#1B5E20;'>Result {i+1}</h2>"
+            parts[0] = parts[0][:insert_at] + divider + section[start:end] + parts[0][insert_at:]
+    return parts[0]
 
 
 # ---------------------------------------------------------------------------
