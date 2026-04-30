@@ -67,19 +67,56 @@ SECTOR_OPTIONS = [
     "Other",
 ]
 
-SECTOR_EVIDENCE_PLACEHOLDERS = {
-    "WASH": "e.g., Borehole functionality reports from 25 sites + water quality test results from district lab",
-    "Health": "e.g., Patient records from 3 health facilities + immunization registers signed by district health officer",
-    "Youth Employment": "e.g., Signed employment contracts + 3-month and 6-month tracer surveys",
-    "Education": "e.g., Enrollment registers + standardized test results before/after intervention",
-    "Agriculture / Livelihoods": "e.g., Distribution lists with farmer signatures + harvest records from cooperative",
-    "Climate Resilience": "e.g., Meteorological records + household surveys on adaptive practices adopted",
-    "Governance": "e.g., Meeting minutes signed by officials + citizen satisfaction survey data",
+SECTOR_PLACEHOLDERS = {
+    "WASH": {
+        "result": "e.g., Constructed 25 boreholes serving 12,000 people across 5 districts in Northern Region between January and June 2025",
+        "target_group": "e.g., Rural households without access to safe drinking water; women and children primarily responsible for water collection",
+        "geographic_scope": "e.g., Tamale, Yendi, Savelugu, Karaga, and Kumbungu districts",
+        "evidence_description": "e.g., Borehole functionality reports from 25 sites + water quality test results from district lab + GPS-tagged photos of completed structures",
+    },
+    "Health": {
+        "result": "e.g., Vaccinated 8,500 children under 5 against measles across 3 health districts in Eastern Region between July and September 2025",
+        "target_group": "e.g., Children aged 6 months to 5 years residing in target communities",
+        "geographic_scope": "e.g., New Juaben, Suhum, and Akropong health districts",
+        "evidence_description": "e.g., Patient records from 3 health facilities + immunization registers signed by district health officer + cold chain monitoring logs",
+    },
+    "Education": {
+        "result": "e.g., Improved literacy scores by 35% among 1,200 primary school students across 15 schools in Central Region between September 2024 and June 2025",
+        "target_group": "e.g., Primary school students grades 3-6, ages 8-12, in selected public schools",
+        "geographic_scope": "e.g., Cape Coast, Mfantsiman, and Ekumfi districts (15 schools)",
+        "evidence_description": "e.g., Pre/post standardized test results + enrollment registers + teacher observation logs + sample of student work",
+    },
+    "Agriculture / Livelihoods": {
+        "result": "e.g., Trained 487 smallholder farmers in climate-smart agriculture across 3 districts in Northern Ghana between January and June 2025",
+        "target_group": "e.g., Smallholder farmers (18–60 years), majority women, with land holdings under 2 hectares",
+        "geographic_scope": "e.g., Tamale, Yendi, Savelugu districts (Northern Region)",
+        "evidence_description": "e.g., Signed attendance sheets from 12 training sessions across 3 districts, verified by District Agriculture Officer + farmer cooperative records",
+    },
+    "Youth Employment": {
+        "result": "e.g., Provided vocational training to 250 unemployed youth in IT and entrepreneurship across Accra and Kumasi from January to March 2026",
+        "target_group": "e.g., Unemployed youth aged 18-35, with secondary school qualifications, residing in urban areas",
+        "geographic_scope": "e.g., Accra (Greater Accra Region) and Kumasi (Ashanti Region)",
+        "evidence_description": "e.g., Signed attendance sheets for all 10 training modules + digital certificates issued to 245 graduates + 3-month tracer survey results + employment contracts",
+    },
+    "Climate Resilience": {
+        "result": "e.g., Established 50 community-managed weather stations across 10 coastal communities in Volta Region between March and December 2025",
+        "target_group": "e.g., Coastal fishing and farming communities vulnerable to climate-related disasters",
+        "geographic_scope": "e.g., Keta, Anloga, Ada East, and Ada West districts (Volta Region)",
+        "evidence_description": "e.g., Installation logs + GPS coordinates of all stations + community management committee meeting minutes + monthly data collection reports",
+    },
+    "Governance": {
+        "result": "e.g., Trained 180 district-level officials on participatory budgeting processes across 6 districts between April and August 2025",
+        "target_group": "e.g., Elected district assembly members, district planning officers, and civil society representatives",
+        "geographic_scope": "e.g., 6 selected districts in Ashanti, Eastern, and Western regions",
+        "evidence_description": "e.g., Training attendance records + pre/post knowledge assessments + signed certificates of completion + post-training participatory budget reports from 4 districts",
+    },
+    "Other": {
+        "result": "e.g., [Action verb] [number] [target population] in [location] between [start date] and [end date]",
+        "target_group": "e.g., Specific demographic with age range, gender, role, or other distinguishing characteristics",
+        "geographic_scope": "e.g., Specific districts, regions, or sites where the work was implemented",
+        "evidence_description": "e.g., Type of records + who collected them + how they were verified + any third-party validation",
+    },
 }
-_DEFAULT_EVIDENCE_PLACEHOLDER = (
-    "e.g., Signed attendance sheets from 12 training sessions across 3 districts, "
-    "verified by District Agriculture Officer."
-)
 
 _DIAGNOSTIC_BADGE = {
     "STRONG":             {"bg": "#1B5E20", "text": "#FFFFFF", "subtitle": "Ready for submission"},
@@ -375,7 +412,7 @@ _BASE_FORM_KEYS = [
     "evidence_description", "evidence_type", "evidence_type_other",
     "internal_review", "internal_review_other",
     "external_review", "external_review_other",
-    "verifier", "sector",
+    "verifier", "sector", "sector_other",
 ]
 
 
@@ -701,20 +738,21 @@ def _render_slot_fields(slot: int):
         if key not in st.session_state:
             st.session_state[key] = default
 
+    _sector = st.session_state.get("sector", SECTOR_OPTIONS[0])
+    _ph_key = "Other" if _sector in ("Other", "(No sector selected)") else _sector
+    _ph = SECTOR_PLACEHOLDERS.get(_ph_key, SECTOR_PLACEHOLDERS["Other"])
+
     st.text_area(
         "Result statement",
         key=f"result_statement{s}",
-        placeholder=(
-            "e.g., Trained 500 smallholder farmers in climate-smart agriculture across 3 "
-            "districts in Northern Ghana between January and June 2025"
-        ),
+        placeholder=_ph["result"],
         height=100,
         help="What did your project achieve? Include the verb (trained, distributed, reached), the number, the population, and the timeframe.",
     )
 
     st.text_input(
         "Target group", key=f"target_group{s}",
-        placeholder="e.g., Smallholder farmers, 18-60 years old, three districts in Northern Region",
+        placeholder=_ph["target_group"],
         help="Who specifically? Age, gender, role, geography. Avoid 'beneficiaries' alone.",
     )
 
@@ -726,15 +764,13 @@ def _render_slot_fields(slot: int):
 
     st.text_input(
         "Geographic scope", key=f"geographic_scope{s}",
-        placeholder="e.g., Tamale, Yendi, Savelugu districts",
+        placeholder=_ph["geographic_scope"],
         help="Districts, regions, or specific sites. 'Volta Region' beats 'rural areas'.",
     )
 
-    sector = st.session_state.get("sector", SECTOR_OPTIONS[0])
-    ev_placeholder = SECTOR_EVIDENCE_PLACEHOLDERS.get(sector, _DEFAULT_EVIDENCE_PLACEHOLDER)
     st.text_area(
         "Describe your supporting evidence", key=f"evidence_description{s}",
-        placeholder=ev_placeholder,
+        placeholder=_ph["evidence_description"],
         height=120,
         help="Describe the actual document or data: who collected it, how, and what's in it.",
     )
@@ -885,7 +921,7 @@ def render_screen_0():
           <div class="isnot-col" style="color: #C62828 !important;">
             <h4 style="color: #C62828 !important;">&#10007; What this is NOT</h4>
             <ul style="color: #C62828 !important;">
-              <li style="color: #C62828 !important;">A full reporting system, database, or tool</li>
+              <li style="color: #C62828 !important;">A full reporting system, database, or audit tool</li>
               <li style="color: #C62828 !important;">A replacement for your M&amp;E/MEL framework</li>
               <li style="color: #C62828 !important;">An AI that invents or assumes missing data</li>
               <li style="color: #C62828 !important;">A gatekeeper that decides who passes or fails</li>
@@ -957,6 +993,13 @@ def render_screen_1():
         options=SECTOR_OPTIONS,
         help="Select your sector to see sector-specific example placeholders in the evidence description field.",
     )
+    _sector_val = st.session_state.get("sector", SECTOR_OPTIONS[0])
+    if _sector_val == "Other":
+        st.text_input(
+            "Specify your sector",
+            key="sector_other",
+            placeholder="e.g., Disaster Response, Gender Equality, Financial Inclusion",
+        )
 
     # Header row with optional "+" button
     col_h, col_add = st.columns([5, 1])
