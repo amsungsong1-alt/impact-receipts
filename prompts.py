@@ -236,3 +236,105 @@ def _format_evidence(evidence: list) -> str:
             f"  Verified by: {item.get('verified_by', 'Not specified')}"
         )
     return "\n\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Score rationale tooltip anchors (v3.0) — imported by app.py help= strings
+# ---------------------------------------------------------------------------
+
+TOOLTIP_DIRECTNESS = (
+    "Scores how directly your evidence links programme activities to the reported result. "
+    "Anchored in World Bank IEG Process Tracing standards (2025) and 3ie Contribution Analysis."
+)
+
+TOOLTIP_VERIFICATION = (
+    "Scores the independence and credibility of whoever verified this result. "
+    "Anchored in USAID ADS 201.3.5.7 Data Quality Assessment — Independence criterion "
+    "and classical audit principle of verifier independence."
+)
+
+TOOLTIP_RECENCY = (
+    "Scores how recent your evidence is relative to the result timeframe. "
+    "USAID DQA requires evidence collected within 12 months for full score. "
+    "Anchored in USAID ADS 201.3.5.7 — Timeliness criterion."
+)
+
+TOOLTIP_DEFINITION = (
+    "Scores how precisely the result is defined. "
+    "Anchored in OECD-DAC Evaluation Criterion: Relevance (2019) — "
+    "is what was measured what was intended?"
+)
+
+TOOLTIP_MEASUREMENT = (
+    "Scores whether the result uses a verifiable, quantifiable indicator. "
+    "Anchored in USAID ADS 201.3.5.7 — Precision criterion."
+)
+
+TOOLTIP_INTEGRITY = (
+    "Scores whether the data collection process is free from manipulation risk. "
+    "Anchored in USAID ADS 201.3.5.7 — Integrity criterion and "
+    "Bond Evidence Principles (2024) — Transparency."
+)
+
+TOOLTIP_SCOPE = (
+    "Scores whether the result specifies who was affected, where, and under what conditions. "
+    "Anchored in OECD-DAC Evaluation Criterion: Coherence (2019)."
+)
+
+TOOLTIP_GOVERNANCE = (
+    "Scores whether there is an accountable owner for this result and its evidence. "
+    "Anchored in classical audit principle of Traceability and "
+    "FCDO Evaluation Policy (January 2025) — accountability for evidence."
+)
+
+# ---------------------------------------------------------------------------
+# Beneficiary Voice Bonus strings (v3.0)
+# ---------------------------------------------------------------------------
+
+BENEFICIARY_VOICE_TOOLTIP = (
+    "Scores whether your evidence includes the perspectives of people the programme serves. "
+    "Anchored in Bond Evidence Principles 2024 (Voice & Inclusion) and "
+    "60 Decibels Lean Data Methodology. No competitor scores this at pre-submission stage — "
+    "it is your fastest route to a higher evidence quality rating with FCDO and GIZ donors."
+)
+
+BENEFICIARY_VOICE_WHATTOFIX = {
+    0.0: (
+        "No beneficiary voice detected. Add a structured feedback mechanism "
+        "(e.g., post-activity survey, focus group discussion) to earn up to "
+        "0.35 bonus points. FCDO's 2025 Evaluation Policy requires evidence "
+        "of equity and inclusion in programme results."
+    ),
+    0.15: (
+        "Beneficiary voice mentioned but not systematically collected. "
+        "Formalise your feedback method (structured survey or FGD with "
+        "documentation) to move from 0.15 to 0.35 bonus points."
+    ),
+    0.35: (
+        "Good — structured beneficiary feedback detected. To reach maximum "
+        "0.5 bonus points, use an independently administered feedback tool "
+        "(e.g., phone survey by a non-programme enumerator)."
+    ),
+    0.5: (
+        "Excellent — independently collected or benchmarked beneficiary "
+        "feedback detected. This is the gold standard for Voice & Inclusion "
+        "per Bond Evidence Principles 2024."
+    ),
+}
+
+# ---------------------------------------------------------------------------
+# FCDO citation (v3.0)
+# ---------------------------------------------------------------------------
+
+FCDO_CITATION = (
+    "FCDO Evaluation Policy (reviewed January 2025), "
+    "UK Foreign, Commonwealth & Development Office. "
+    "https://www.gov.uk/government/publications/fcdo-evaluation-policy-2025"
+)
+
+# Updated methodology stack display string
+METHODOLOGY_STACK = (
+    "Impact-Receipts v3.0 dual-axis scoring "
+    "(USAID ADS 201.3.5.7 / OECD-DAC 2019 / Bond Evidence Principles 2024 / "
+    "FCDO Evaluation Policy January 2025 / World Bank IEG 2025)"
+)

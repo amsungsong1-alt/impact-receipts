@@ -1,7 +1,9 @@
 """
-evaluator.py — v2 Dual-Axis Confidence + Clarity scoring for Impact-Receipts.
+evaluator.py — v3.0 Dual-Axis Confidence + Clarity scoring for Impact-Receipts.
 
-Anchored in USAID DQA, OECD-DAC Evaluation Criteria, and Bond Evidence Principles.
+Anchored in USAID ADS 201.3.5.7, OECD-DAC Evaluation Criteria 2019,
+Bond Evidence Principles 2024, FCDO Evaluation Policy January 2025,
+and World Bank IEG Process Tracing 2025.
 Fully deterministic — same inputs always produce the same outputs. No API calls.
 
 Two independent axes, each 0–5.0:
@@ -170,13 +172,75 @@ def interpret_score(score: float) -> tuple:
 # Signal functions (public)
 # ---------------------------------------------------------------------------
 
+def score_directness(evidence_description: str, evidence_type: str) -> float:
+    """
+    5-step Contribution Evidence Ladder.
+    Anchored in: World Bank IEG Process Tracing (2025), 3ie Contribution Analysis.
+    Returns 1.0–5.0.
+    """
+    text = ((evidence_description or "") + " " + (evidence_type or "")).lower()
+
+    if any(kw in text for kw in [
+        "alternative explanation", "ruled out", "counterfactual",
+        "independent evaluation", "contribution analysis", "process trace",
+    ]):
+        return 5.0
+
+    if any(kw in text for kw in [
+        "theory of change", "toc", "outcome data", "baseline",
+        "endline", "comparison group", "control",
+    ]):
+        return 4.0
+
+    if any(kw in text for kw in [
+        "attendance", "register", "records", "log", "activity report",
+        "minutes", "signed", "programme records", "output data",
+    ]):
+        return 3.0
+
+    if any(kw in text for kw in [
+        "survey", "interview", "focus group", "fgd", "observation",
+        "beneficiary feedback", "self-report", "perception",
+    ]):
+        return 2.0
+
+    return 1.0
+
+
 def get_directness_level(evidence_type: str, description: str) -> int:
-    """Map evidence type → directness level; downgrade if description flags gaps."""
-    level = EVIDENCE_TYPE_DIRECTNESS.get(evidence_type, 2)
-    desc_lower = (description or "").lower()
-    if any(k in desc_lower for k in ("sample", "partial", "missing")):
-        level = max(0, level - 1)
-    return level
+    """Thin wrapper around score_directness for backward compatibility."""
+    return int(score_directness(description, evidence_type))
+
+
+def score_beneficiary_voice(evidence_description: str, evidence_type: str) -> float:
+    """
+    Beneficiary Voice Bonus Dimension (0.0–0.5).
+    Anchored in: Bond Evidence Principles 2024 (Voice & Inclusion),
+                 60 Decibels Lean Data Methodology,
+                 FCDO Evaluation Policy January 2025 (Equity & Inclusion lens).
+    """
+    text = ((evidence_description or "") + " " + (evidence_type or "")).lower()
+
+    if any(kw in text for kw in [
+        "phone survey", "beneficiary survey", "lean data", "third party",
+        "independent feedback", "benchmark", "60 decibels", "client voice",
+    ]):
+        return 0.5
+
+    if any(kw in text for kw in [
+        "focus group", "fgd", "post-training survey", "exit survey",
+        "participant feedback", "community feedback", "beneficiary interview",
+        "client feedback", "community meeting",
+    ]):
+        return 0.35
+
+    if any(kw in text for kw in [
+        "beneficiar", "participant said", "community said", "client said",
+        "expressed satisfaction", "reported", "mentioned by",
+    ]):
+        return 0.15
+
+    return 0.0
 
 
 def _level_from_verifier(text: str) -> int:
@@ -503,6 +567,8 @@ def evaluate_submission(submission: dict) -> dict:
     confidence_score = compute_confidence(direct_level, verify_level, recency_level)
     confidence_label, confidence_meaning = interpret_score(confidence_score)
 
+    bv_bonus = score_beneficiary_voice(ev_desc, ev_type)
+
     confidence_components = {
         "direct_level":  direct_level,
         "direct_score":  direct_score,
@@ -510,6 +576,7 @@ def evaluate_submission(submission: dict) -> dict:
         "verify_score":  verify_score,
         "recency_level": recency_level,
         "recency_score": recency_score,
+        "bv_bonus":      bv_bonus,
     }
 
     # Clarity axis
@@ -561,7 +628,7 @@ def evaluate_submission(submission: dict) -> dict:
     )
 
     return {
-        # v2 primary keys
+        # v3.0 primary keys
         "confidence_score":      confidence_score,
         "clarity_score":         clarity_score,
         "confidence_label":      confidence_label,
@@ -570,6 +637,7 @@ def evaluate_submission(submission: dict) -> dict:
         "clarity_meaning":       clarity_meaning,
         "confidence_components": confidence_components,
         "clarity_components":    clarity_components,
+        "beneficiary_voice_bonus": bv_bonus,
         "verdict":               verdict,
         "fixes":                 fixes,
         # backward-compat keys

@@ -20,6 +20,14 @@ from datetime import datetime, date
 
 import streamlit as st
 import evaluator as _evaluator
+from prompts import (
+    TOOLTIP_DIRECTNESS, TOOLTIP_VERIFICATION, TOOLTIP_RECENCY,
+    TOOLTIP_DEFINITION, TOOLTIP_MEASUREMENT, TOOLTIP_INTEGRITY,
+    TOOLTIP_SCOPE, TOOLTIP_GOVERNANCE,
+    BENEFICIARY_VOICE_TOOLTIP, BENEFICIARY_VOICE_WHATTOFIX,
+    METHODOLOGY_STACK,
+)
+from donor_templates import DONOR_DIAGNOSTICS
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1001,6 +1009,14 @@ def render_screen_1():
             placeholder="e.g., Disaster Response, Gender Equality, Financial Inclusion",
         )
 
+    st.selectbox(
+        "Primary donor for this submission",
+        key="donor_selected",
+        options=["USAID", "FCDO", "GIZ", "World Bank", "Other/Not specified"],
+        index=4,
+        help="Select your primary donor to receive donor-specific diagnostic guidance on your results.",
+    )
+
     # Header row with optional "+" button
     col_h, col_add = st.columns([5, 1])
     with col_h:
@@ -1145,7 +1161,7 @@ def _axis_badge_html(label: str, score: float, max_score: float) -> str:
     )
 
 
-def _render_result_card(submission: dict, ev: dict, card_idx: int = 0):
+def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: str = ""):
     conf_score   = ev.get("confidence_score", 0)
     clar_score   = ev.get("clarity_score", 0)
     conf_label   = ev.get("confidence_label", "High Risk")
@@ -1186,12 +1202,19 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0):
         ds = conf_comp.get("direct_score", 0)
         vs = conf_comp.get("verify_score", 0)
         rs = conf_comp.get("recency_score", 0)
-        st.metric("Directness", f"{ds}/2.0", help=_DIRECTNESS_TIPS.get(dl, ""))
+        st.metric("Directness", f"{ds}/2.0",
+                  help=f"{_DIRECTNESS_TIPS.get(dl, '')}\n\n{TOOLTIP_DIRECTNESS}")
         st.progress(min(ds / 2.0, 1.0))
-        st.metric("Verification", f"{vs}/2.0", help=_VERIFICATION_TIPS.get(vl, ""))
+        st.metric("Verification", f"{vs}/2.0",
+                  help=f"{_VERIFICATION_TIPS.get(vl, '')}\n\n{TOOLTIP_VERIFICATION}")
         st.progress(min(vs / 2.0, 1.0))
-        st.metric("Recency", f"{rs}/1.0", help=_RECENCY_TIPS.get(rl, ""))
+        st.metric("Recency", f"{rs}/1.0",
+                  help=f"{_RECENCY_TIPS.get(rl, '')}\n\n{TOOLTIP_RECENCY}")
         st.progress(min(rs / 1.0, 1.0))
+        bv_bonus = conf_comp.get("bv_bonus", 0.0)
+        st.metric("Beneficiary Voice Bonus", f"+{bv_bonus}/0.5",
+                  help=BENEFICIARY_VOICE_TOOLTIP)
+        st.progress(min(bv_bonus / 0.5, 1.0) if bv_bonus > 0 else 0.0)
 
     with col_clar:
         st.markdown("#### Clarity Score")
@@ -1202,15 +1225,20 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0):
         integ  = clar_comp.get("integrity_score",   0)
         scope  = clar_comp.get("scope_score",       0)
         gov    = clar_comp.get("governance_score",  0)
-        st.metric("Definition", f"{def_s}/1.25", help=_CLARITY_TIPS["definition"])
+        st.metric("Definition", f"{def_s}/1.25",
+                  help=f"{_CLARITY_TIPS['definition']}\n\n{TOOLTIP_DEFINITION}")
         st.progress(min(def_s / 1.25, 1.0))
-        st.metric("Measurement", f"{meas_s}/1.25", help=_CLARITY_TIPS["measurement"])
+        st.metric("Measurement", f"{meas_s}/1.25",
+                  help=f"{_CLARITY_TIPS['measurement']}\n\n{TOOLTIP_MEASUREMENT}")
         st.progress(min(meas_s / 1.25, 1.0))
-        st.metric("Integrity", f"{integ}/1.0", help=_CLARITY_TIPS["integrity"])
+        st.metric("Integrity", f"{integ}/1.0",
+                  help=f"{_CLARITY_TIPS['integrity']}\n\n{TOOLTIP_INTEGRITY}")
         st.progress(min(integ / 1.0, 1.0))
-        st.metric("Scope", f"{scope}/0.75", help=_CLARITY_TIPS["scope"])
+        st.metric("Scope", f"{scope}/0.75",
+                  help=f"{_CLARITY_TIPS['scope']}\n\n{TOOLTIP_SCOPE}")
         st.progress(min(scope / 0.75, 1.0))
-        st.metric("Governance", f"{gov}/0.75", help=_CLARITY_TIPS["governance"])
+        st.metric("Governance", f"{gov}/0.75",
+                  help=f"{_CLARITY_TIPS['governance']}\n\n{TOOLTIP_GOVERNANCE}")
         st.progress(min(gov / 0.75, 1.0))
 
     # Verdict banner
@@ -1296,6 +1324,28 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0):
     if filenames:
         st.caption(f"Attached documents: {', '.join(filenames)}")
 
+    bv_bonus = conf_comp.get("bv_bonus", 0.0)
+    if bv_bonus < 0.5:
+        bv_fix = BENEFICIARY_VOICE_WHATTOFIX.get(bv_bonus, BENEFICIARY_VOICE_WHATTOFIX[0.0])
+        with st.expander("Improve Beneficiary Voice →"):
+            st.caption(bv_fix)
+
+    if donor and donor != "Other/Not specified" and donor in DONOR_DIAGNOSTICS:
+        st.subheader(f"{donor}-Specific Guidance")
+        st.caption(f"Diagnostic language adapted for {donor} submission standards")
+        donor_map = DONOR_DIAGNOSTICS[donor]
+        checks = [
+            ("Directness",       conf_comp.get("direct_score", 0),  2.0),
+            ("Verification",     conf_comp.get("verify_score", 0),  2.0),
+            ("Recency",          conf_comp.get("recency_score", 0), 1.0),
+            ("BeneficiaryVoice", conf_comp.get("bv_bonus", 0.0),    0.5),
+        ]
+        for dim, raw_score, max_val in checks:
+            if dim not in donor_map:
+                continue
+            level = "low" if (raw_score / max_val) < 0.6 else "high"
+            st.markdown(f"**{dim}:** {donor_map[dim][level]}")
+
     st.divider()
 
 
@@ -1351,7 +1401,8 @@ def render_screen_2():
     for i, (sub, ev) in enumerate(zip(subs, evs)):
         if n > 1:
             st.markdown(f"### Result {i + 1}")
-        _render_result_card(sub, ev, card_idx=i)
+        _render_result_card(sub, ev, card_idx=i,
+                            donor=st.session_state.get("donor_selected", ""))
 
     st.markdown(
         """
@@ -1538,8 +1589,7 @@ def _build_markdown_report(submission: dict, evaluation: dict, timestamp: str) -
     lines += [
         "---",
         "",
-        "*Evaluated using: Impact-Receipts v2 dual-axis scoring "
-        "(USAID DQA / OECD-DAC / Bond Evidence Principles)*",
+        f"*Evaluated using: {METHODOLOGY_STACK}*",
     ]
 
     return "\n".join(lines)
@@ -1697,7 +1747,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
 {fixes_html}
 
 <div class="footer">
-  Evaluated using Impact-Receipts v2 dual-axis scoring (USAID DQA / OECD-DAC / Bond Evidence Principles).<br/>
+  Evaluated using {METHODOLOGY_STACK}.<br/>
   Tip: Print this page (Ctrl+P) and choose &ldquo;Save as PDF&rdquo; to get a PDF copy.
 </div>
 </body>
