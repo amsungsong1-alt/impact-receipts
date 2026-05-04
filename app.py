@@ -132,6 +132,7 @@ _DIAGNOSTIC_BADGE = {
     "UNDEREVIDENCED":     {"bg": "#B8860B", "text": "#FFFFFF", "subtitle": "Strengthen the evidence"},
     "NEEDS REFINEMENT":   {"bg": "#FFF9C4", "text": "#F57F17", "subtitle": "Specific gaps to address"},
     "FUNDAMENTALLY WEAK": {"bg": "#B71C1C", "text": "#FFFFFF", "subtitle": "Redefine the claim AND gather new evidence"},
+    "INVALID INPUT":      {"bg": "#B71C1C", "text": "#FFFFFF", "subtitle": "Placeholder text detected — please provide real content"},
     "INCOMPLETE":         {"bg": "#9E9E9E", "text": "#FFFFFF", "subtitle": "Fill remaining fields"},
 }
 
@@ -523,7 +524,12 @@ def _clear_draft():
 # Diagnostic state classifier
 # ---------------------------------------------------------------------------
 
-def get_diagnostic_state(confidence: float, clarity: float) -> tuple:
+def get_diagnostic_state(confidence: float, clarity: float, content_issues: list | None = None) -> tuple:
+    if content_issues and len(content_issues) >= 2:
+        return (
+            "INVALID INPUT",
+            "Inputs look like placeholder text — please provide real result and evidence details",
+        )
     if confidence >= 4.0 and clarity >= 4.0:
         return "STRONG", "Ready for submission"
     if confidence >= 3.5 and clarity < 3.0:
@@ -757,6 +763,11 @@ def _render_slot_fields(slot: int):
         height=100,
         help="What did your project achieve? Include the verb (trained, distributed, reached), the number, the population, and the timeframe.",
     )
+    _rs = st.session_state.get(f"result_statement{s}", "")
+    if _rs and len(_rs.strip()) < 20:
+        st.warning("Result statement is very short. Include: action verb + number + population + timeframe.")
+    elif _rs and not any(c.isdigit() for c in _rs):
+        st.caption("Tip: Add a number (e.g., '500 farmers trained') — quantified claims score higher.")
 
     st.text_input(
         "Target group", key=f"target_group{s}",
@@ -782,6 +793,9 @@ def _render_slot_fields(slot: int):
         height=120,
         help="Describe the actual document or data: who collected it, how, and what's in it.",
     )
+    _ed = st.session_state.get(f"evidence_description{s}", "")
+    if _ed and len(_ed.strip()) < 30:
+        st.warning("Evidence description is brief. Specify: who collected it, how, and what it contains.")
 
     st.selectbox(
         "Evidence type", key=f"evidence_type{s}",
@@ -1179,7 +1193,8 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     st.divider()
 
     # Diagnostic state badge
-    diag_state, diag_sub = get_diagnostic_state(conf_score, clar_score)
+    content_issues = ev.get("content_issues", [])
+    diag_state, diag_sub = get_diagnostic_state(conf_score, clar_score, content_issues)
     diag_cfg = _DIAGNOSTIC_BADGE.get(diag_state, {"bg": "#9E9E9E", "text": "#FFFFFF", "subtitle": ""})
     _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
     st.markdown(
@@ -1188,6 +1203,28 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         f"</div>",
         unsafe_allow_html=True,
     )
+
+    # INVALID INPUT early exit
+    if diag_state == "INVALID INPUT":
+        st.error("Input Quality Issue Detected")
+        st.markdown(
+            "Your responses appear to be placeholder text. Impact-Receipts scores **real** "
+            "reported results. Please return to Screen 1 and provide genuine content."
+        )
+        for issue in content_issues:
+            st.markdown(f"- {issue}")
+        raw_conf = ev.get("raw_confidence_score")
+        mult = ev.get("content_quality_multiplier", 1.0)
+        if raw_conf is not None:
+            st.caption(
+                f"Raw score before quality adjustment: {raw_conf}/5.0 — multiplier applied: ×{mult}"
+            )
+        if st.button("← Return to Screen 1", key=f"invalid_back_{card_idx}"):
+            st.session_state["screen"] = 1
+            st.session_state["evaluations"] = None
+            st.rerun()
+        st.divider()
+        return
 
     # Dual-axis columns
     col_conf, col_clar = st.columns(2)

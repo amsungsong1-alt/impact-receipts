@@ -243,6 +243,51 @@ def score_beneficiary_voice(evidence_description: str, evidence_type: str) -> fl
     return 0.0
 
 
+_TEST_PATTERNS = {"test", "abc", "xxx", "asdf", "qwerty", "lorem", "placeholder", "sample"}
+
+
+def validate_content_quality(
+    result_statement: str,
+    evidence_description: str,
+    verifier: str,
+) -> tuple:
+    """
+    Returns (quality_multiplier: float, issues: list[str]).
+    Multiplier is applied to confidence_score after normal calculation in evaluate_submission().
+    compute_confidence() is not touched.
+    """
+    result  = (result_statement or "").strip()
+    ev_desc = (evidence_description or "").strip()
+    verif   = (verifier or "").strip()
+
+    multiplier = 1.0
+    issues: list = []
+
+    if len(result) < 20:
+        multiplier *= 0.3
+        issues.append("Result statement is too short (under 20 characters)")
+
+    if len(ev_desc) < 30:
+        multiplier *= 0.3
+        issues.append("Evidence description is too short (under 30 characters)")
+
+    if len(verif) < 5:
+        multiplier *= 0.5
+        issues.append("Verifier name is too short or missing detail")
+
+    combined = f"{result} {ev_desc} {verif}".lower()
+    test_hits = sum(1 for p in _TEST_PATTERNS if p in combined)
+    if test_hits >= 2:
+        multiplier *= 0.2
+        issues.append("Multiple placeholder/test words detected — please provide real content")
+
+    if result and not any(c.isdigit() for c in result):
+        multiplier *= 0.6
+        issues.append("Result statement has no numbers — quantified claims score higher")
+
+    return round(multiplier, 2), issues
+
+
 def _level_from_verifier(text: str) -> int:
     """Keyword-based level from the 'verified by' free-text field."""
     if not text or not text.strip():
@@ -565,6 +610,11 @@ def evaluate_submission(submission: dict) -> dict:
     recency_score = round((recency_level / 5) * 1.0, 2)
 
     confidence_score = compute_confidence(direct_level, verify_level, recency_level)
+
+    result_stmt = submission.get("result_statement", "") or ""
+    quality_multiplier, content_issues = validate_content_quality(result_stmt, ev_desc, verified_by)
+    raw_confidence_score = confidence_score
+    confidence_score = round(confidence_score * quality_multiplier, 1)
     confidence_label, confidence_meaning = interpret_score(confidence_score)
 
     bv_bonus = score_beneficiary_voice(ev_desc, ev_type)
@@ -629,8 +679,11 @@ def evaluate_submission(submission: dict) -> dict:
 
     return {
         # v3.0 primary keys
-        "confidence_score":      confidence_score,
-        "clarity_score":         clarity_score,
+        "confidence_score":         confidence_score,
+        "raw_confidence_score":     raw_confidence_score,
+        "content_quality_multiplier": quality_multiplier,
+        "content_issues":           content_issues,
+        "clarity_score":            clarity_score,
         "confidence_label":      confidence_label,
         "clarity_label":         clarity_label,
         "confidence_meaning":    confidence_meaning,
