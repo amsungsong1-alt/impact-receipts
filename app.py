@@ -982,7 +982,7 @@ def _render_slot_fields(slot: int):
             st.success(_rec_diag)
     _rp_s = st.session_state.get(f"reporting_start{s}")
     _rp_e = st.session_state.get(f"reporting_end{s}")
-    if _ed and _rp_s and _rp_e:
+    if _ed and _rp_s and _rp_e and hasattr(_evaluator, "validate_reporting_period"):
         _, _rp_msg, _rp_sev = _evaluator.validate_reporting_period(_ed, _rp_s, _rp_e)
         if _rp_sev == "ERROR":
             st.error(_rp_msg)
@@ -1421,7 +1421,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         st.divider()
         return
 
-    # Logframe linkage panel
+    # Logframe linkage panel (guarded for backward-compat with stale evaluator deploys)
     linkage = ev.get("logframe_linkage", {})
     if linkage:
         lk_state = linkage.get("state", "MISSING")
@@ -1447,7 +1447,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     rp_start_str = submission.get("reporting_start", "")
     rp_end_str   = submission.get("reporting_end", "")
     ev_date_str  = (submission.get("evidence") or [{}])[0].get("recency", "")
-    if rp_start_str and rp_end_str and ev_date_str:
+    if rp_start_str and rp_end_str and ev_date_str and hasattr(_evaluator, "validate_reporting_period"):
         try:
             from datetime import date as _d
             _rp_s2 = _d.fromisoformat(rp_start_str)
