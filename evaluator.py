@@ -243,6 +243,23 @@ def score_beneficiary_voice(evidence_description: str, evidence_type: str) -> fl
     return 0.0
 
 
+_BV_DROPDOWN_SCORES = {
+    "Direct beneficiary feedback collected (e.g., Lean Data survey, focus groups, NPS)": 0.5,
+    "Beneficiary representatives consulted (community leaders, beneficiary committees)": 0.3,
+    "Anecdotal beneficiary quotes only (uncollected, not systematic)": 0.1,
+    "No beneficiary voice captured": 0.0,
+    "Not applicable to this result type": 0.0,
+}
+
+
+def compute_beneficiary_voice_bonus(beneficiary_voice: str) -> float:
+    """
+    Returns 0.0–0.5 bonus based on explicit dropdown selection.
+    Anchored in Bond Evidence Principles 2024 + 60 Decibels Lean Data.
+    """
+    return _BV_DROPDOWN_SCORES.get(beneficiary_voice, 0.0)
+
+
 _TEST_PATTERNS = {"test", "abc", "xxx", "asdf", "qwerty", "lorem", "placeholder", "sample"}
 
 
@@ -469,17 +486,19 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict) -> li
 
     # Confidence triggers
     if direct_score < (3 / 5) * 2.0:
+        _gain = round(2.0 - direct_score, 2)
         fixes.append({
             "dimension": "confidence",
             "message": (
                 "Add a primary record — signed attendance sheets, payroll records, or a "
                 "KoboToolbox export — so your evidence directly ties to the claim."
             ),
-            "score_impact": "+up to 0.8 on Confidence",
+            "score_impact": f"+up to {_gain} on Confidence",
+            "score_impact_value": _gain,
         })
 
     if verify_score < (3 / 5) * 2.0:
-        current  = round(verify_score, 1)
+        current   = round(verify_score, 1)
         potential = round((4 / 5) * 2.0, 1)
         gain      = round(potential - current, 1)
         fixes.append({
@@ -489,16 +508,19 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict) -> li
                 f"Doing so moves your verification score from {current} to {potential}."
             ),
             "score_impact": f"+{gain} on Confidence",
+            "score_impact_value": gain,
         })
 
     if recency_score < (3 / 5) * 1.0:
+        _gain = round(1.0 - recency_score, 2)
         fixes.append({
             "dimension": "confidence",
             "message": (
                 "Confirm your evidence date is within 6 months of the reporting period end, "
                 "or attach more recent confirmatory evidence."
             ),
-            "score_impact": "+up to 0.4 on Confidence",
+            "score_impact": f"+up to {_gain} on Confidence",
+            "score_impact_value": _gain,
         })
 
     # Clarity sub-scores
@@ -529,49 +551,156 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict) -> li
                 "so any reader interprets it the same way you do."
             ),
             "score_impact": f"+{impact} on Clarity",
+            "score_impact_value": impact,
         })
 
     if meas_score < 1.0:
+        _gain = round(1.25 - meas_score, 2)
         fixes.append({
             "dimension": "clarity",
             "message": (
                 "Describe your collection method and sampling approach in the evidence description "
                 "— specify the instrument used and how participants were selected."
             ),
-            "score_impact": "+up to 0.83 on Clarity",
+            "score_impact": f"+up to {_gain} on Clarity",
+            "score_impact_value": _gain,
         })
 
     if integrity < 0.75:
+        _gain = round(1.0 - integrity, 2)
         fixes.append({
             "dimension": "clarity",
             "message": (
                 "Close data gaps with original source records, "
                 "or disclose the limitation transparently in the evidence description."
             ),
-            "score_impact": "+up to 0.75 on Clarity",
+            "score_impact": f"+up to {_gain} on Clarity",
+            "score_impact_value": _gain,
         })
 
     if scope < 0.5:
+        _gain = round(0.75 - scope, 2)
         fixes.append({
             "dimension": "clarity",
             "message": (
                 "State the sites and groups included and excluded "
                 "so the reader can correctly interpret the coverage."
             ),
-            "score_impact": "+up to 0.75 on Clarity",
+            "score_impact": f"+up to {_gain} on Clarity",
+            "score_impact_value": _gain,
         })
 
     if gov_score < 0.5:
+        _gain = round(0.75 - gov_score, 2)
         fixes.append({
             "dimension": "clarity",
             "message": (
                 "Name an owner for this result and describe the decision it will inform — "
                 "without ownership the result is not actionable."
             ),
-            "score_impact": "+up to 0.5 on Clarity",
+            "score_impact": f"+up to {_gain} on Clarity",
+            "score_impact_value": _gain,
         })
 
+    fixes.sort(key=lambda x: x.get("score_impact_value", 0), reverse=True)
     return fixes
+
+
+def get_score_rationale(dimension: str, level: int, current_score: float, max_score: float) -> str:
+    """
+    Returns a one-line rationale for a sub-score, anchored to a named standard.
+    Used in Screen 2 st.metric help= parameters.
+    """
+    _rationales = {
+        "directness": {
+            "standard": "USAID ADS 201.3.5.7 — Validity",
+            "interpretations": {
+                5: "Direct primary evidence with 1:1 traceability to the claim.",
+                4: "Mostly direct evidence with minor inconsistencies acknowledged.",
+                3: "Indirect but relevant evidence — aggregated reports without raw source records.",
+                2: "Weak proxy evidence — verbal reports or photos without metadata.",
+                1: "Very weak proxy — estimates or back-calculated figures.",
+                0: "No supporting evidence provided.",
+            },
+        },
+        "verification": {
+            "standard": "USAID ADS 201.3.5.7 — Integrity + Audit Independence Principle",
+            "interpretations": {
+                5: "Independent third-party verification documented (gold standard).",
+                4: "External partner review with limited audit depth.",
+                3: "Internal cross-check by reviewer other than data collector.",
+                2: "Data collected but not formally reviewed.",
+                1: "Self-reported by the same person who claims it.",
+                0: "No review of any kind detected.",
+            },
+        },
+        "recency": {
+            "standard": "USAID ADS 201.3.5.7 — Timeliness",
+            "interpretations": {
+                5: "Evidence dated within 1 month of reporting period — fully current.",
+                4: "Evidence dated within 3 months — slight lag, still highly relevant.",
+                3: "Evidence dated within 6 months — moderate lag noted.",
+                2: "Evidence dated within 12 months — outdated, from previous cycle.",
+                1: "Evidence over 12 months old — very weak relevance to current period.",
+                0: "Evidence date unknown — cannot assess timeliness.",
+            },
+        },
+    }
+    _clarity_rationales = {
+        "definition":        ("OECD-DAC 2019 — Relevance + USAID Validity",
+                              "Checks whether the unit, timeframe, target group, and inclusion criteria are explicit enough that any reader interprets the result the same way."),
+        "measurement":       ("USAID ADS 201.3.5.7 — Reliability + Bond Appropriateness 2024",
+                              "Checks whether the collection method is structured, sampling approach disclosed, and bias controls stated."),
+        "integrity":         ("USAID ADS 201.3.5.7 — Integrity",
+                              "Checks for completeness of data, audit trail existence, and disclosure of any missing data."),
+        "scope":             ("USAID ADS 201.3.5.7 — Precision + Bond Voice & Inclusion 2024",
+                              "Checks coverage adequacy across sites and defensibility of the sample."),
+        "governance":        ("OECD-DAC 2019 — Usefulness Principle",
+                              "Checks whether there's a clear owner and decision the result will inform."),
+        "beneficiary_voice": ("Bond Evidence Principles 2024 + 60 Decibels Lean Data",
+                              "Checks whether beneficiaries themselves contributed to or validated the evidence."),
+    }
+
+    if dimension in _rationales:
+        r = _rationales[dimension]
+        interp = r["interpretations"].get(level, "")
+        return f"{r['standard']}: {interp} Score: {current_score:.1f}/{max_score}"
+    if dimension in _clarity_rationales:
+        std, interp = _clarity_rationales[dimension]
+        return f"{std}: {interp} Score: {current_score:.2f}/{max_score}"
+    return f"Score: {current_score}/{max_score}"
+
+
+def get_recency_diagnostic(evidence_date, report_end_date=None) -> str:
+    """
+    Returns a plain-English string explaining the recency calculation.
+    Displayed below the Evidence Date field on Screen 1.
+    """
+    from datetime import date as _date
+    if not evidence_date:
+        return "Evidence date not provided — cannot assess timeliness. Recency: 0.0/1.0"
+    if not report_end_date:
+        report_end_date = _date.today()
+    try:
+        months_gap = (
+            (report_end_date.year - evidence_date.year) * 12
+            + (report_end_date.month - evidence_date.month)
+        )
+    except AttributeError:
+        return "Evidence date format unrecognised — cannot assess timeliness."
+    if months_gap <= 1:
+        return (f"Evidence age: {months_gap} month(s) — fully current. Scores 1.0/1.0 on Recency. "
+                "(USAID DQA: data within 1 month is gold standard.)")
+    if months_gap <= 3:
+        return (f"Evidence age: {months_gap} months — slight lag, highly relevant. Scores 0.8/1.0 on Recency. "
+                "(USAID DQA: 1–3 month lag acceptable for full reporting.)")
+    if months_gap <= 6:
+        return f"Evidence age: {months_gap} months — moderate lag noted. Scores 0.6/1.0 on Recency."
+    if months_gap <= 12:
+        return (f"Evidence age: {months_gap} months — outdated, previous cycle. Scores 0.4/1.0 on Recency. "
+                "(USAID DQA: data over 12 months loses currency.)")
+    return (f"Evidence age: {months_gap} months — very weak relevance. Scores 0.2/1.0 on Recency. "
+            "Confirm this still reflects current state.")
 
 
 # ---------------------------------------------------------------------------
@@ -617,7 +746,9 @@ def evaluate_submission(submission: dict) -> dict:
     confidence_score = round(confidence_score * quality_multiplier, 1)
     confidence_label, confidence_meaning = interpret_score(confidence_score)
 
-    bv_bonus = score_beneficiary_voice(ev_desc, ev_type)
+    bv_field = submission.get("beneficiary_voice", "")
+    bv_bonus = (compute_beneficiary_voice_bonus(bv_field) if bv_field
+                else score_beneficiary_voice(ev_desc, ev_type))
 
     confidence_components = {
         "direct_level":  direct_level,

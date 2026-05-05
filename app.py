@@ -21,7 +21,6 @@ from datetime import datetime, date
 import streamlit as st
 import evaluator as _evaluator
 from prompts import (
-    TOOLTIP_DIRECTNESS, TOOLTIP_VERIFICATION, TOOLTIP_RECENCY,
     TOOLTIP_DEFINITION, TOOLTIP_MEASUREMENT, TOOLTIP_INTEGRITY,
     TOOLTIP_SCOPE, TOOLTIP_GOVERNANCE,
     BENEFICIARY_VOICE_TOOLTIP, BENEFICIARY_VOICE_WHATTOFIX,
@@ -421,7 +420,15 @@ _BASE_FORM_KEYS = [
     "evidence_description", "evidence_type", "evidence_type_other",
     "internal_review", "internal_review_other",
     "external_review", "external_review_other",
-    "verifier", "sector", "sector_other",
+    "verifier", "sector", "sector_other", "beneficiary_voice",
+]
+
+_BV_OPTIONS = [
+    "No beneficiary voice captured",
+    "Direct beneficiary feedback collected (e.g., Lean Data survey, focus groups, NPS)",
+    "Beneficiary representatives consulted (community leaders, beneficiary committees)",
+    "Anecdotal beneficiary quotes only (uncollected, not systematic)",
+    "Not applicable to this result type",
 ]
 
 
@@ -524,13 +531,24 @@ def _clear_draft():
 # Diagnostic state classifier
 # ---------------------------------------------------------------------------
 
-def get_diagnostic_state(confidence: float, clarity: float, content_issues: list | None = None) -> tuple:
+def get_diagnostic_state(
+    confidence: float,
+    clarity: float,
+    content_issues: list | None = None,
+    beneficiary_voice: str = "",
+) -> tuple:
     if content_issues and len(content_issues) >= 2:
         return (
             "INVALID INPUT",
             "Inputs look like placeholder text — please provide real result and evidence details",
         )
     if confidence >= 4.0 and clarity >= 4.0:
+        if beneficiary_voice == "No beneficiary voice captured":
+            return (
+                "NEEDS REFINEMENT",
+                "Strong on both axes, but missing beneficiary voice — Bond Evidence Principles 2024 "
+                "require voice & inclusion. Consider adding beneficiary feedback.",
+            )
         return "STRONG", "Ready for submission"
     if confidence >= 3.5 and clarity < 3.0:
         return "MISLEADING", "Strong evidence but unclear claim — sharpen the definition"
@@ -731,6 +749,7 @@ def _build_submission_from_session(slot: int = 1) -> dict:
         "internal_review":    int_rev,
         "external_review":    ext_rev,
         "attached_filenames": st.session_state.get(f"uploaded_files{s}", []),
+        "beneficiary_voice":  st.session_state.get(f"beneficiary_voice{s}", ""),
         "evidence": [{
             "type":        ev_type,
             "description": st.session_state.get(f"evidence_description{s}", ""),
@@ -860,11 +879,29 @@ def _render_slot_fields(slot: int):
         help="When was the data collected? Use the most recent date if multiple sources.",
     )
     _ed = st.session_state.get(f"evidence_date{s}")
-    _timeframe = st.session_state.get(f"timeframe{s}", "")
     if _ed:
-        _rl = _evaluator.get_recency_level(_format_date(_ed), _timeframe)
-        _rs = round((_rl / 5) * 1.0, 1)
-        st.caption(f"Recency score: **{_rs}/1.0**")
+        _rec_diag = _evaluator.get_recency_diagnostic(_ed)
+        if "0.4/1.0" in _rec_diag or "0.2/1.0" in _rec_diag:
+            st.warning(_rec_diag)
+        elif "0.6/1.0" in _rec_diag:
+            st.info(_rec_diag)
+        else:
+            st.success(_rec_diag)
+
+    st.markdown("#### Beneficiary Voice")
+    st.caption(
+        "Did the beneficiaries contribute to or validate this evidence? "
+        "Anchored in Bond Evidence Principles 2024 + 60 Decibels Lean Data."
+    )
+    st.selectbox(
+        "How were beneficiary voices captured?",
+        key=f"beneficiary_voice{s}",
+        options=_BV_OPTIONS,
+        help=(
+            "Bond Evidence Principle 1 (2024 refresh): Voice & Inclusion. "
+            "The strongest evidence includes beneficiary perspectives, not just provider reports."
+        ),
+    )
 
     prev_files = st.session_state.get(f"draft_uploaded_filenames{s}", [])
     if prev_files:
@@ -968,6 +1005,11 @@ def render_screen_0():
     )
 
     st.caption("Your data stays on your device. Nothing is stored or shared.")
+    st.markdown(
+        '<p style="color:#B8860B;font-style:italic;font-size:14px;margin:4px 0 8px 0;">'
+        "Anchored in USAID DQA, OECD-DAC, FCDO, and Bond Evidence Principles.</p>",
+        unsafe_allow_html=True,
+    )
 
     st.markdown(
         """
@@ -1193,8 +1235,9 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     st.divider()
 
     # Diagnostic state badge
-    content_issues = ev.get("content_issues", [])
-    diag_state, diag_sub = get_diagnostic_state(conf_score, clar_score, content_issues)
+    content_issues    = ev.get("content_issues", [])
+    bv_voice_field    = submission.get("beneficiary_voice", "")
+    diag_state, diag_sub = get_diagnostic_state(conf_score, clar_score, content_issues, bv_voice_field)
     diag_cfg = _DIAGNOSTIC_BADGE.get(diag_state, {"bg": "#9E9E9E", "text": "#FFFFFF", "subtitle": ""})
     _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
     st.markdown(
@@ -1240,13 +1283,13 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         vs = conf_comp.get("verify_score", 0)
         rs = conf_comp.get("recency_score", 0)
         st.metric("Directness", f"{ds}/2.0",
-                  help=f"{_DIRECTNESS_TIPS.get(dl, '')}\n\n{TOOLTIP_DIRECTNESS}")
+                  help=_evaluator.get_score_rationale("directness", dl, ds, 2.0))
         st.progress(min(ds / 2.0, 1.0))
         st.metric("Verification", f"{vs}/2.0",
-                  help=f"{_VERIFICATION_TIPS.get(vl, '')}\n\n{TOOLTIP_VERIFICATION}")
+                  help=_evaluator.get_score_rationale("verification", vl, vs, 2.0))
         st.progress(min(vs / 2.0, 1.0))
         st.metric("Recency", f"{rs}/1.0",
-                  help=f"{_RECENCY_TIPS.get(rl, '')}\n\n{TOOLTIP_RECENCY}")
+                  help=_evaluator.get_score_rationale("recency", rl, rs, 1.0))
         st.progress(min(rs / 1.0, 1.0))
         bv_bonus = conf_comp.get("bv_bonus", 0.0)
         st.metric("Beneficiary Voice Bonus", f"+{bv_bonus}/0.5",
@@ -1440,6 +1483,23 @@ def render_screen_2():
             st.markdown(f"### Result {i + 1}")
         _render_result_card(sub, ev, card_idx=i,
                             donor=st.session_state.get("donor_selected", ""))
+
+    with st.expander("📚 Methodology & Citations", expanded=False):
+        st.markdown("""
+**Impact-Receipts v3.0 scoring methodology is anchored in:**
+
+- **Data Quality Standards** — adapted from USAID ADS 201.3.5.7, OECD-DAC 2019 evaluation criteria, and FCDO DQA guidance. Used for all Confidence and Clarity sub-scores.
+
+- **Bond Evidence Principles 2024 (refresh)** — particularly Voice & Inclusion (operationalised as the Beneficiary Voice dimension) and Triangulation.
+
+- **60 Decibels Lean Data Methodology** — informs the Beneficiary Voice scoring rubric.
+
+- **Audit Logic** — classical audit independence principle (auditor independence from preparer) operationalised in Verification scoring.
+
+**Why this matters for your donor:** Every sub-score traces to a named, citable standard. Hover over any score to see its specific anchor.
+
+*Impact-Receipts is a pre-submission verification tool, not an audit. It does not replace formal evaluation but identifies gaps that would weaken external review.*
+""")
 
     st.markdown(
         """
