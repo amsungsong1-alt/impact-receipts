@@ -1033,17 +1033,14 @@ def render_screen_0():
     st.markdown(
         """
         <div class="hero-block">
-          <h1>Know which reported results are strong, weak, or need fixing — before submission.</h1>
+          <h1>Know which reported results are strong, weak, or need fixing — before your donor sees them.</h1>
           <p class="hero-tagline">Stress-test a result before you submit it.</p>
           <p class="hero-sub">
-            Impact-Receipts helps Monitoring, Evaluation &amp; Learning (MEL) professionals
-            and reporting teams of developmental projects check reported results
-            before submission, review the evidence behind them, and see what needs fixing
-            before the report goes to donors, leadership, or partners.
+            Built for MEL Officers and Reporting Leads at NGOs and donor-funded projects in Africa
+            &mdash; those compiling final reports for USAID, FCDO, GIZ, RVO, World Bank, and AfDB.
           </p>
-          <p class="brand-promise">We help you submit with confidence. Not by judging your work,
-          but by showing you exactly where it&rsquo;s strong and where it needs strengthening &mdash;
-          before anyone else sees it.</p>
+          <p class="brand-promise">We help you submit with confidence. Not by judging your work &mdash;
+          by showing you exactly where it&rsquo;s strong and where it needs strengthening.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1101,6 +1098,32 @@ def render_screen_0():
         """,
         unsafe_allow_html=True,
     )
+    st.markdown(
+        """
+        <div style="background:#F1F8E9;border-radius:8px;padding:16px 20px;
+                    margin:16px 0;border-left:4px solid #1B5E20;">
+          <h4 style="color:#1B5E20 !important;margin:0 0 10px 0;">&#128203; What we check</h4>
+          <ul style="color:#1B5E20 !important;margin:0;padding-left:18px;">
+            <li style="color:#1B5E20 !important;margin-bottom:6px;">
+              <strong style="color:#1B5E20 !important;">Logframe linkage</strong>
+              &mdash; does your result tie to an approved indicator?</li>
+            <li style="color:#1B5E20 !important;margin-bottom:6px;">
+              <strong style="color:#1B5E20 !important;">Evidence quality</strong>
+              &mdash; direct, verified, recent, defensible?</li>
+            <li style="color:#1B5E20 !important;margin-bottom:6px;">
+              <strong style="color:#1B5E20 !important;">Beneficiary voice</strong>
+              &mdash; were they part of the evidence?</li>
+            <li style="color:#1B5E20 !important;margin-bottom:6px;">
+              <strong style="color:#1B5E20 !important;">Definition clarity</strong>
+              &mdash; would two readers interpret it the same way?</li>
+            <li style="color:#1B5E20 !important;">
+              <strong style="color:#1B5E20 !important;">Submission completeness</strong>
+              &mdash; is your package donor-ready?</li>
+          </ul>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.markdown(
         """
@@ -1111,6 +1134,20 @@ def render_screen_0():
         <p style="color:#616161;font-style:italic;font-size:0.85rem;margin:8px 0 4px 0;">
           Built by a MEL practitioner in Accra who got tired of submitting results without a confidence check.
         </p>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        """
+        <div style="border-left:3px solid #B8860B;padding:8px 12px;margin:8px 0 12px 0;
+                    background:transparent;">
+          <p style="margin:0;font-size:0.85rem;color:#212121;">
+            <strong style="color:#1B5E20;">&#128204; Real case from 2024:</strong>
+            A West African consultancy&rsquo;s final donor report was rejected three times
+            for missing M&amp;E data and logframe gaps. 40+ hours of senior staff rework.
+            Impact-Receipts catches these issues in 10 minutes.
+          </p>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -1127,7 +1164,8 @@ def render_screen_0():
         <div class="gtm-card">
           <p><strong>Want a deeper check?</strong></p>
           <p class="gtm-sub">I personally run free pilot verifications on 1&ndash;3 of your results
-          before your next submission. WhatsApp me to book a 20-minute session.</p>
+          before your next submission. Real teams have caught logframe gaps, evidence
+          inconsistencies, and missing audit components &mdash; before donors flagged them.</p>
           <div class="gtm-btn-gold">
             <a href="https://wa.me/233503648195" target="_blank">Book a Free Pilot Check</a>
           </div>
