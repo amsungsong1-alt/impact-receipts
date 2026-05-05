@@ -879,7 +879,7 @@ def _render_slot_fields(slot: int):
         help="When was the data collected? Use the most recent date if multiple sources.",
     )
     _ed = st.session_state.get(f"evidence_date{s}")
-    if _ed:
+    if _ed and hasattr(_evaluator, "get_recency_diagnostic"):
         _rec_diag = _evaluator.get_recency_diagnostic(_ed)
         if "0.4/1.0" in _rec_diag or "0.2/1.0" in _rec_diag:
             st.warning(_rec_diag)
