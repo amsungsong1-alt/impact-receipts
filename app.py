@@ -80,48 +80,64 @@ SECTOR_PLACEHOLDERS = {
         "target_group": "e.g., Rural households without access to safe drinking water; women and children primarily responsible for water collection",
         "geographic_scope": "e.g., Tamale, Yendi, Savelugu, Karaga, and Kumbungu districts",
         "evidence_description": "e.g., Borehole functionality reports from 25 sites + water quality test results from district lab + GPS-tagged photos of completed structures",
+        "logframe_indicator": "e.g., Indicator 2.1: Number of households with access to safely managed drinking water",
+        "logframe_target": "e.g., 12,000 households with access by Q4 2025",
     },
     "Health": {
         "result": "e.g., Vaccinated 8,500 children under 5 against measles across 3 health districts in Eastern Region between July and September 2025",
         "target_group": "e.g., Children aged 6 months to 5 years residing in target communities",
         "geographic_scope": "e.g., New Juaben, Suhum, and Akropong health districts",
         "evidence_description": "e.g., Patient records from 3 health facilities + immunization registers signed by district health officer + cold chain monitoring logs",
+        "logframe_indicator": "e.g., Indicator 1.3: % of children under 5 fully immunized in target districts",
+        "logframe_target": "e.g., 85% immunization coverage in 3 districts by Dec 2025",
     },
     "Education": {
         "result": "e.g., Improved literacy scores by 35% among 1,200 primary school students across 15 schools in Central Region between September 2024 and June 2025",
         "target_group": "e.g., Primary school students grades 3-6, ages 8-12, in selected public schools",
         "geographic_scope": "e.g., Cape Coast, Mfantsiman, and Ekumfi districts (15 schools)",
         "evidence_description": "e.g., Pre/post standardized test results + enrollment registers + teacher observation logs + sample of student work",
+        "logframe_indicator": "e.g., Indicator 3.2: % of students achieving minimum reading proficiency",
+        "logframe_target": "e.g., 60% of students at grade-level literacy by June 2025",
     },
     "Agriculture / Livelihoods": {
         "result": "e.g., Trained 487 smallholder farmers in climate-smart agriculture across 3 districts in Northern Ghana between January and June 2025",
         "target_group": "e.g., Smallholder farmers (18–60 years), majority women, with land holdings under 2 hectares",
         "geographic_scope": "e.g., Tamale, Yendi, Savelugu districts (Northern Region)",
         "evidence_description": "e.g., Signed attendance sheets from 12 training sessions across 3 districts, verified by District Agriculture Officer + farmer cooperative records",
+        "logframe_indicator": "e.g., Indicator 2.4: Number of smallholder farmers trained in climate-smart practices",
+        "logframe_target": "e.g., 400 farmers trained by Q4 2025",
     },
     "Youth Employment": {
         "result": "e.g., Provided vocational training to 250 unemployed youth in IT and entrepreneurship across Accra and Kumasi from January to March 2026",
         "target_group": "e.g., Unemployed youth aged 18-35, with secondary school qualifications, residing in urban areas",
         "geographic_scope": "e.g., Accra (Greater Accra Region) and Kumasi (Ashanti Region)",
         "evidence_description": "e.g., Signed attendance sheets for all 10 training modules + digital certificates issued to 245 graduates + 3-month tracer survey results + employment contracts",
+        "logframe_indicator": "e.g., Indicator 1.2: Number of unemployed youth completing vocational training",
+        "logframe_target": "e.g., 250 youth trained by Q4 2025",
     },
     "Climate Resilience": {
         "result": "e.g., Established 50 community-managed weather stations across 10 coastal communities in Volta Region between March and December 2025",
         "target_group": "e.g., Coastal fishing and farming communities vulnerable to climate-related disasters",
         "geographic_scope": "e.g., Keta, Anloga, Ada East, and Ada West districts (Volta Region)",
         "evidence_description": "e.g., Installation logs + GPS coordinates of all stations + community management committee meeting minutes + monthly data collection reports",
+        "logframe_indicator": "e.g., Indicator 4.1: Number of community-managed early-warning systems established",
+        "logframe_target": "e.g., 50 weather stations operational by Dec 2025",
     },
     "Governance": {
         "result": "e.g., Trained 180 district-level officials on participatory budgeting processes across 6 districts between April and August 2025",
         "target_group": "e.g., Elected district assembly members, district planning officers, and civil society representatives",
         "geographic_scope": "e.g., 6 selected districts in Ashanti, Eastern, and Western regions",
         "evidence_description": "e.g., Training attendance records + pre/post knowledge assessments + signed certificates of completion + post-training participatory budget reports from 4 districts",
+        "logframe_indicator": "e.g., Indicator 3.3: Number of officials trained in participatory budgeting",
+        "logframe_target": "e.g., 150 district officials trained by Aug 2025",
     },
     "Other": {
         "result": "e.g., [Action verb] [number] [target population] in [location] between [start date] and [end date]",
         "target_group": "e.g., Specific demographic with age range, gender, role, or other distinguishing characteristics",
         "geographic_scope": "e.g., Specific districts, regions, or sites where the work was implemented",
         "evidence_description": "e.g., Type of records + who collected them + how they were verified + any third-party validation",
+        "logframe_indicator": "e.g., Indicator [X.X]: [Indicator name from approved Technical Proposal or logframe]",
+        "logframe_target": "e.g., [Number + unit + deadline from logframe]",
     },
 }
 
@@ -421,6 +437,7 @@ _BASE_FORM_KEYS = [
     "internal_review", "internal_review_other",
     "external_review", "external_review_other",
     "verifier", "sector", "sector_other", "beneficiary_voice",
+    "logframe_indicator", "logframe_target", "logframe_achievement",
 ]
 
 _BV_OPTIONS = [
@@ -492,6 +509,15 @@ def _save_draft():
         draft[f"evidence_date{s}"] = ed.isoformat() if hasattr(ed, "isoformat") else ""
         raw_files = st.session_state.get(f"uploaded_files_widget{s}") or []
         draft[f"uploaded_filenames{s}"] = [f.name for f in raw_files if hasattr(f, "name")]
+    for slot in range(1, active + 1):
+        s = _slot_suffix(slot)
+        for dk in ("reporting_start", "reporting_end"):
+            d = st.session_state.get(f"{dk}{s}")
+            draft[f"{dk}{s}"] = d.isoformat() if hasattr(d, "isoformat") else ""
+    for gk in ("submission_type", "cl_narrative", "cl_financial", "cl_audit",
+               "cl_logframe", "cl_annexes", "cl_beneficiary", "cl_sustainability",
+               "cl_budget"):
+        draft[gk] = st.session_state.get(gk, "")
     os.makedirs("inputs", exist_ok=True)
     with open(_DRAFT_PATH, "w", encoding="utf-8") as f:
         json.dump(draft, f, indent=2, ensure_ascii=False)
@@ -520,6 +546,20 @@ def _load_draft():
             except (ValueError, TypeError):
                 pass
         st.session_state[f"draft_uploaded_filenames{s}"] = draft.get(f"uploaded_filenames{s}", [])
+    for slot in range(1, active + 1):
+        s = _slot_suffix(slot)
+        for dk in ("reporting_start", "reporting_end"):
+            raw = draft.get(f"{dk}{s}", "")
+            if raw:
+                try:
+                    st.session_state[f"{dk}{s}"] = date.fromisoformat(raw)
+                except (ValueError, TypeError):
+                    pass
+    for gk in ("submission_type", "cl_narrative", "cl_financial", "cl_audit",
+               "cl_logframe", "cl_annexes", "cl_beneficiary", "cl_sustainability",
+               "cl_budget"):
+        if gk in draft:
+            st.session_state[gk] = draft[gk]
 
 
 def _clear_draft():
@@ -749,7 +789,12 @@ def _build_submission_from_session(slot: int = 1) -> dict:
         "internal_review":    int_rev,
         "external_review":    ext_rev,
         "attached_filenames": st.session_state.get(f"uploaded_files{s}", []),
-        "beneficiary_voice":  st.session_state.get(f"beneficiary_voice{s}", ""),
+        "beneficiary_voice":    st.session_state.get(f"beneficiary_voice{s}", ""),
+        "logframe_indicator":   st.session_state.get(f"logframe_indicator{s}", ""),
+        "logframe_target":      st.session_state.get(f"logframe_target{s}", ""),
+        "logframe_achievement": st.session_state.get(f"logframe_achievement{s}", ""),
+        "reporting_start":      _format_date(st.session_state.get(f"reporting_start{s}")),
+        "reporting_end":        _format_date(st.session_state.get(f"reporting_end{s}")),
         "evidence": [{
             "type":        ev_type,
             "description": st.session_state.get(f"evidence_description{s}", ""),
@@ -787,6 +832,40 @@ def _render_slot_fields(slot: int):
         st.warning("Result statement is very short. Include: action verb + number + population + timeframe.")
     elif _rs and not any(c.isdigit() for c in _rs):
         st.caption("Tip: Add a number (e.g., '500 farmers trained') — quantified claims score higher.")
+
+    st.markdown("#### Logframe Linkage")
+    st.caption(
+        "**Why this matters:** A real West African consultancy had their final donor report "
+        "rejected 3 times in 2024 because results weren't tied to logframe indicators. "
+        "40+ hours of rework. We don't want that to happen to you."
+    )
+    st.text_input(
+        "Logframe indicator this result reports against",
+        key=f"logframe_indicator{s}",
+        placeholder=_ph.get("logframe_indicator", "e.g., Indicator 1.2: Number of [target group] achieving [outcome]"),
+        help=(
+            "Copy the exact indicator name and code from your approved Technical Proposal or logframe. "
+            "If you cannot quote it, your donor cannot match your result to your commitment."
+        ),
+    )
+    st.text_input(
+        "Original target for this indicator (from logframe)",
+        key=f"logframe_target{s}",
+        placeholder=_ph.get("logframe_target", "e.g., 250 youth trained by Q4 2025"),
+        help=(
+            "The target as approved in the original Technical Proposal. Donors compare achievements "
+            "against approved targets — not revised internal targets."
+        ),
+    )
+    st.text_input(
+        "Actual achievement (must match your result statement)",
+        key=f"logframe_achievement{s}",
+        placeholder="e.g., 487 youth trained by June 2025 — 195% of target",
+        help=(
+            "The actual delivered number, ideally with % achievement vs original target. "
+            "Must reconcile with your result statement above."
+        ),
+    )
 
     st.text_input(
         "Target group", key=f"target_group{s}",
@@ -874,6 +953,20 @@ def _render_slot_fields(slot: int):
         help="The person or organization that confirmed the data is accurate.",
     )
 
+    st.markdown("#### Reporting Period")
+    st.caption("The period this submission covers. Evidence dates outside this range will be flagged.")
+    _rp_col_s, _rp_col_e = st.columns(2)
+    with _rp_col_s:
+        st.date_input(
+            "Reporting period start", key=f"reporting_start{s}",
+            help="When does the period this report covers begin?",
+        )
+    with _rp_col_e:
+        st.date_input(
+            "Reporting period end", key=f"reporting_end{s}",
+            help="When does the period this report covers end?",
+        )
+
     st.date_input(
         "When was this evidence collected?", key=f"evidence_date{s}",
         help="When was the data collected? Use the most recent date if multiple sources.",
@@ -887,6 +980,16 @@ def _render_slot_fields(slot: int):
             st.info(_rec_diag)
         else:
             st.success(_rec_diag)
+    _rp_s = st.session_state.get(f"reporting_start{s}")
+    _rp_e = st.session_state.get(f"reporting_end{s}")
+    if _ed and _rp_s and _rp_e:
+        _, _rp_msg, _rp_sev = _evaluator.validate_reporting_period(_ed, _rp_s, _rp_e)
+        if _rp_sev == "ERROR":
+            st.error(_rp_msg)
+        elif _rp_sev == "WARNING":
+            st.warning(_rp_msg)
+        elif _rp_msg:
+            st.success(_rp_msg)
 
     st.markdown("#### Beneficiary Voice")
     st.caption(
@@ -1049,6 +1152,55 @@ def render_screen_1():
     _render_tutorial(1)
 
     active = st.session_state.get("active_slots", 1)
+
+    # Submission Completeness Checklist (global)
+    with st.expander("📦 Submission Package Completeness Check (Recommended)", expanded=False):
+        st.caption(
+            "Most donor rejections happen because something was missing from the submission package "
+            "— not because the work was bad. Confirm what your donor expects."
+        )
+        st.selectbox(
+            "What type of submission is this for?",
+            options=[
+                "Quarterly progress report",
+                "Annual progress report",
+                "Mid-term review",
+                "Final / closeout report",
+                "Project proposal",
+                "Other",
+            ],
+            key="submission_type",
+        )
+        st.markdown("**Tick what your donor requires for this submission:**")
+        _cl1, _cl2 = st.columns(2)
+        with _cl1:
+            st.checkbox("Narrative / technical report",                      value=True, key="cl_narrative")
+            st.checkbox("Financial report",                                              key="cl_financial")
+            st.checkbox("Audit report (often required for final reports)",               key="cl_audit")
+            st.checkbox("Updated logframe with achievements",                            key="cl_logframe")
+        with _cl2:
+            st.checkbox("Annexes (evidence, datasets, photos)",                          key="cl_annexes")
+            st.checkbox("Beneficiary lists / disaggregated data",                        key="cl_beneficiary")
+            st.checkbox("Sustainability / exit plan",                                    key="cl_sustainability")
+            st.checkbox("Budget balance / variance report",                              key="cl_budget")
+        _n_ticked = sum(
+            st.session_state.get(k, False)
+            for k in ("cl_narrative", "cl_financial", "cl_audit", "cl_logframe",
+                      "cl_annexes", "cl_beneficiary", "cl_sustainability", "cl_budget")
+        )
+        _sub_type = st.session_state.get("submission_type", "")
+        if _sub_type == "Final / closeout report" and _n_ticked < 5:
+            st.warning(
+                f"Final / closeout reports typically require 5+ deliverables. "
+                f"You've ticked {_n_ticked}. Confirm with your donor what's required."
+            )
+        else:
+            st.info(f"{_n_ticked} deliverable(s) selected.")
+        st.caption(
+            "**Common rejection cause:** Submitting a narrative report without the audit report "
+            "(for final reports) or without the financial report (for quarterly reports). "
+            "Always confirm the package list with your donor before submission."
+        )
 
     # Sector selector (global, above all slots)
     st.selectbox(
@@ -1268,6 +1420,47 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             st.rerun()
         st.divider()
         return
+
+    # Logframe linkage panel
+    linkage = ev.get("logframe_linkage", {})
+    if linkage:
+        lk_state = linkage.get("state", "MISSING")
+        lk_rat   = linkage.get("rationale", "")
+        lk_issues = linkage.get("issues", [])
+        st.markdown("### Logframe Linkage")
+        if lk_state == "STRONG":
+            st.success(f"✓ {lk_rat}")
+        elif lk_state == "WEAK":
+            st.warning(f"⚠️ {lk_rat}")
+            for iss in lk_issues:
+                st.markdown(f"- {iss}")
+        else:
+            st.error(f"❌ {lk_rat}")
+            st.markdown(
+                "**Highest-impact missing piece:** Donors will reject results that cannot "
+                "be traced to an approved indicator from your Technical Proposal."
+            )
+            for iss in lk_issues:
+                st.markdown(f"- {iss}")
+
+    # Reporting period validation on Screen 2
+    rp_start_str = submission.get("reporting_start", "")
+    rp_end_str   = submission.get("reporting_end", "")
+    ev_date_str  = (submission.get("evidence") or [{}])[0].get("recency", "")
+    if rp_start_str and rp_end_str and ev_date_str:
+        try:
+            from datetime import date as _d
+            _rp_s2 = _d.fromisoformat(rp_start_str)
+            _rp_e2 = _d.fromisoformat(rp_end_str)
+            _ev2   = _d.fromisoformat(ev_date_str)
+            _, _rp2_msg, _rp2_sev = _evaluator.validate_reporting_period(_ev2, _rp_s2, _rp_e2)
+            if _rp2_sev == "WARNING":
+                st.warning(f"📅 Reporting Period Issue: {_rp2_msg}")
+                st.caption("This is a common cause of donor flags. Address before submission.")
+            elif _rp2_sev == "ERROR":
+                st.error(f"📅 Reporting Period Error: {_rp2_msg}")
+        except (ValueError, TypeError, AttributeError):
+            pass
 
     # Dual-axis columns
     col_conf, col_clar = st.columns(2)

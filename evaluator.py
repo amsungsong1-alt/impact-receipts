@@ -305,6 +305,123 @@ def validate_content_quality(
     return round(multiplier, 2), issues
 
 
+def evaluate_logframe_linkage(
+    indicator: str,
+    target: str,
+    achievement: str,
+    result_statement: str,
+) -> dict:
+    """
+    Checks whether a reported result is tied to an approved logframe indicator.
+    Anchored in OECD-DAC 2019 Coherence + USAID DQA Validity.
+    Returns {score, state, issues, rationale}.
+    """
+    indicator   = (indicator or "").strip()
+    target      = (target or "").strip()
+    achievement = (achievement or "").strip()
+    result      = (result_statement or "").strip()
+
+    if not indicator:
+        return {
+            "score": 0.0,
+            "state": "MISSING",
+            "issues": [
+                "No logframe indicator linked. Donors will not be able to verify this "
+                "result against your approved Technical Proposal."
+            ],
+            "rationale": (
+                "OECD-DAC 2019 + USAID DQA: Every reported result must trace to an "
+                "approved indicator. Score: 0.0/1.0"
+            ),
+        }
+
+    score = 0.4
+    issues = []
+
+    if not target:
+        issues.append(
+            "Original target is missing. Donors compare achievements against approved "
+            "targets, not internal revised numbers."
+        )
+    else:
+        score += 0.3
+
+    if not achievement:
+        issues.append(
+            "Actual achievement number is missing. Quantify with % vs target where possible."
+        )
+    else:
+        score += 0.3
+        ach_nums = re.findall(r"\d[\d,]*", achievement)
+        res_nums = re.findall(r"\d[\d,]*", result)
+        if ach_nums and res_nums and not any(n in res_nums for n in ach_nums):
+            issues.append(
+                "The number in your achievement field does not match any number in your "
+                "result statement. Reconcile these to avoid donor flags."
+            )
+            score -= 0.2
+
+    score = round(max(0.0, score), 2)
+    if score >= 0.85:
+        state = "STRONG"
+    else:
+        state = "WEAK"
+
+    return {
+        "score": score,
+        "state": state,
+        "issues": issues,
+        "rationale": (
+            f"OECD-DAC 2019 + USAID DQA — Logframe linkage "
+            f"{'complete and consistent' if state == 'STRONG' else 'partial — gaps exist'}. "
+            f"Score: {score:.1f}/1.0"
+        ),
+    }
+
+
+def validate_reporting_period(evidence_date, period_start, period_end) -> tuple:
+    """
+    Checks that evidence_date falls within the stated reporting period.
+    Returns (is_valid: bool, message: str, severity: "OK"|"WARNING"|"ERROR").
+    All three date args must be date objects; returns (True, "", "OK") if any is None.
+    """
+    if not evidence_date or not period_start or not period_end:
+        return (True, "", "OK")
+
+    if period_start > period_end:
+        return (
+            False,
+            "Reporting period start is AFTER reporting period end. Check your dates.",
+            "ERROR",
+        )
+
+    if evidence_date < period_start:
+        days = (period_start - evidence_date).days
+        return (
+            False,
+            (
+                f"Evidence is dated {days} day(s) BEFORE the reporting period started. "
+                "Donors may flag this as outside-scope evidence. Confirm this evidence "
+                "is relevant to this reporting period."
+            ),
+            "WARNING",
+        )
+
+    if evidence_date > period_end:
+        days = (evidence_date - period_end).days
+        return (
+            False,
+            (
+                f"Evidence is dated {days} day(s) AFTER the reporting period ended. "
+                "This is a common rejection cause. Either revise the reporting period "
+                "or flag this evidence as 'post-period validation'."
+            ),
+            "WARNING",
+        )
+
+    return (True, "Evidence date falls within the reporting period.", "OK")
+
+
 def _level_from_verifier(text: str) -> int:
     """Keyword-based level from the 'verified by' free-text field."""
     if not text or not text.strip():
@@ -742,6 +859,13 @@ def evaluate_submission(submission: dict) -> dict:
 
     result_stmt = submission.get("result_statement", "") or ""
     quality_multiplier, content_issues = validate_content_quality(result_stmt, ev_desc, verified_by)
+
+    linkage_result = evaluate_logframe_linkage(
+        submission.get("logframe_indicator", "") or "",
+        submission.get("logframe_target", "") or "",
+        submission.get("logframe_achievement", "") or "",
+        result_stmt,
+    )
     raw_confidence_score = confidence_score
     confidence_score = round(confidence_score * quality_multiplier, 1)
     confidence_label, confidence_meaning = interpret_score(confidence_score)
@@ -814,6 +938,7 @@ def evaluate_submission(submission: dict) -> dict:
         "raw_confidence_score":     raw_confidence_score,
         "content_quality_multiplier": quality_multiplier,
         "content_issues":           content_issues,
+        "logframe_linkage":         linkage_result,
         "clarity_score":            clarity_score,
         "confidence_label":      confidence_label,
         "clarity_label":         clarity_label,
