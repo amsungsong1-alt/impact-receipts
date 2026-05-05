@@ -197,6 +197,13 @@ CSS = """
 .isnot-col, .isnot-col li, .isnot-col ul, .isnot-col h4 {
     color: #C62828 !important;
 }
+.what-we-check {
+    background: #F1F8E9 !important;
+}
+.what-we-check, .what-we-check li, .what-we-check ul,
+.what-we-check h4, .what-we-check strong {
+    color: #1B5E20 !important;
+}
 
 html, body, [class*="css"] {
   font-family: 'Inter', sans-serif;
@@ -1100,24 +1107,19 @@ def render_screen_0():
     )
     st.markdown(
         """
-        <div style="background:#F1F8E9;border-radius:8px;padding:16px 20px;
+        <div class="what-we-check" style="border-radius:8px;padding:16px 20px;
                     margin:16px 0;border-left:4px solid #1B5E20;">
-          <h4 style="color:#1B5E20 !important;margin:0 0 10px 0;">&#128203; What we check</h4>
-          <ul style="color:#1B5E20 !important;margin:0;padding-left:18px;">
-            <li style="color:#1B5E20 !important;margin-bottom:6px;">
-              <strong style="color:#1B5E20 !important;">Logframe linkage</strong>
+          <h4 style="margin:0 0 10px 0;">&#128203; What we check</h4>
+          <ul style="margin:0;padding-left:18px;">
+            <li style="margin-bottom:6px;"><strong>Logframe linkage</strong>
               &mdash; does your result tie to an approved indicator?</li>
-            <li style="color:#1B5E20 !important;margin-bottom:6px;">
-              <strong style="color:#1B5E20 !important;">Evidence quality</strong>
+            <li style="margin-bottom:6px;"><strong>Evidence quality</strong>
               &mdash; direct, verified, recent, defensible?</li>
-            <li style="color:#1B5E20 !important;margin-bottom:6px;">
-              <strong style="color:#1B5E20 !important;">Beneficiary voice</strong>
+            <li style="margin-bottom:6px;"><strong>Beneficiary voice</strong>
               &mdash; were they part of the evidence?</li>
-            <li style="color:#1B5E20 !important;margin-bottom:6px;">
-              <strong style="color:#1B5E20 !important;">Definition clarity</strong>
+            <li style="margin-bottom:6px;"><strong>Definition clarity</strong>
               &mdash; would two readers interpret it the same way?</li>
-            <li style="color:#1B5E20 !important;">
-              <strong style="color:#1B5E20 !important;">Submission completeness</strong>
+            <li><strong>Submission completeness</strong>
               &mdash; is your package donor-ready?</li>
           </ul>
         </div>
@@ -1266,8 +1268,8 @@ def render_screen_1():
     st.selectbox(
         "Primary donor for this submission",
         key="donor_selected",
-        options=["USAID", "FCDO", "GIZ", "World Bank", "Other/Not specified"],
-        index=4,
+        options=["USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "Other/Not specified"],
+        index=6,
         help="Select your primary donor to receive donor-specific diagnostic guidance on your results.",
     )
 

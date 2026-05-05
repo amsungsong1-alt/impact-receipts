@@ -130,4 +130,73 @@ DONOR_DIAGNOSTICS = {
             ),
         },
     },
+    "RVO": {
+        "Directness": {
+            "low": (
+                "RVO (Netherlands Enterprise Agency) requires that reported results "
+                "trace directly to outputs in your approved Results Matrix. "
+                "Recommended fix: reference the specific output number from your "
+                "RVO Results Matrix and attach supporting output documentation "
+                "(e.g., training records, delivery receipts, site visit reports)."
+            ),
+            "high": (
+                "Output traceability meets RVO Results Matrix standards. "
+                "Ensure your Results Matrix is updated before submission."
+            ),
+        },
+        "Verification": {
+            "low": (
+                "RVO final report standards require independent verification for "
+                "results claimed in financial and narrative reports. Internal records "
+                "only are insufficient for closeout reporting. "
+                "Recommended fix: attach an external audit report or independent "
+                "spot-check signed by a non-programme verifier."
+            ),
+            "high": (
+                "Independent verification meets RVO final report standards. "
+                "Retain verifier contact details — RVO may request follow-up."
+            ),
+        },
+        "BeneficiaryVoice": {
+            "low": (
+                "RVO's Theory of Change requirements emphasise that beneficiaries "
+                "should be able to validate reported outcomes. No beneficiary voice "
+                "evidence detected. Recommended fix: include a structured feedback "
+                "mechanism (FGD, post-activity survey) before your RVO final report."
+            ),
+            "high": (
+                "Beneficiary voice evidence supports RVO Theory of Change validation "
+                "requirements."
+            ),
+        },
+    },
+    "AfDB": {
+        "Directness": {
+            "low": (
+                "African Development Bank reporting requires that results evidence "
+                "demonstrates a clear causal link between project activities and "
+                "reported development outcomes, per AfDB's Results Reporting "
+                "Framework. Recommended fix: reference your Project Completion "
+                "Report (PCR) results chain and include both output and outcome "
+                "data in your evidence description."
+            ),
+            "high": (
+                "Causal evidence meets AfDB Results Reporting Framework standards "
+                "for development outcome attribution."
+            ),
+        },
+        "Verification": {
+            "low": (
+                "AfDB fiduciary standards require that data supporting development "
+                "outcomes is independently verified. Self-reported data scores below "
+                "threshold for PCR submission. "
+                "Recommended fix: reference the AfDB supervision mission report "
+                "or independent evaluation that covers this result."
+            ),
+            "high": (
+                "Independent verification meets AfDB fiduciary standards for "
+                "Project Completion Reporting."
+            ),
+        },
+    },
 }
