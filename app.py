@@ -1145,7 +1145,7 @@ def render_screen_0():
                     background:transparent;">
           <p style="margin:0;font-size:0.85rem;color:#212121;">
             <strong style="color:#1B5E20;">&#128204; Real case from 2024:</strong>
-            A West African consultancy&rsquo;s final donor report was rejected three times
+            An African consultancy&rsquo;s final donor report was rejected three times
             for missing M&amp;E data and logframe gaps. 40+ hours of senior staff rework.
             Impact-Receipts catches these issues in 10 minutes.
           </p>
