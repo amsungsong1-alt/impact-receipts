@@ -850,7 +850,7 @@ def _render_slot_fields(slot: int):
 
     st.markdown("#### Logframe Linkage")
     st.caption(
-        "**Why this matters:** A real West African consultancy had their final donor report "
+        "**Why this matters:** A real African consultancy had their final donor report "
         "rejected 3 times in 2024 because results weren't tied to logframe indicators. "
         "40+ hours of rework. We don't want that to happen to you."
     )
