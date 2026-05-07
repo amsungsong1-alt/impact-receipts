@@ -760,26 +760,30 @@ def _render_live_score_preview(slot: int = 1):
         st.caption("Fill in the form fields above to see your live score.")
         return
 
-    conf_score  = ev.get("confidence_score", 0)
-    raw_conf    = ev.get("raw_confidence_score", conf_score)
+    conf_score  = ev.get("confidence_score", 0)       # post-multiplier (gate assessment)
+    raw_conf    = ev.get("raw_confidence_score", conf_score)  # pre-multiplier (matches sub-scores)
     multiplier  = ev.get("content_quality_multiplier", 1.0)
     clar_score  = ev.get("clarity_score", 0)
-    conf_label  = ev.get("confidence_label", "—")
     clar_label  = ev.get("clarity_label", "—")
     conf_comp   = ev.get("confidence_components", {})
     clar_comp   = ev.get("clarity_components", {})
 
+    # Labels derived from the raw confidence so they match the displayed number
+    raw_conf_label, _ = _evaluator.interpret_score(raw_conf) if hasattr(_evaluator, "interpret_score") else (ev.get("confidence_label", "—"), "")
+
     c1, c2 = st.columns(2)
     with c1:
-        st.metric("Confidence", f"{conf_score}/5.0", delta=conf_label, delta_color="off")
+        # Show raw score — always equals sum of sub-scores below
+        st.metric("Confidence", f"{raw_conf}/5.0", delta=raw_conf_label, delta_color="off")
     with c2:
         st.metric("Clarity", f"{clar_score}/5.0", delta=clar_label, delta_color="off")
 
+    # Penalty warning: effective score used for gate assessment
     if multiplier < 1.0:
         st.warning(
-            f"Content quality penalty applied (×{multiplier}). "
-            f"Raw sub-score total: {raw_conf}/5.0 → penalised to {conf_score}/5.0. "
-            "Fix flagged content issues to remove the penalty."
+            f"Content quality penalty (×{multiplier}) applies. "
+            f"Effective submission score: **{conf_score}/5.0**. "
+            "Fix the content issues below to remove the penalty."
         )
 
     bd1, bd2 = st.columns(2)
@@ -798,8 +802,6 @@ def _render_live_score_preview(slot: int = 1):
         _bar(vs, 2.0)
         st.caption(f"Recency {rs}/1.0")
         _bar(rs, 1.0)
-        if multiplier < 1.0:
-            st.caption(f"Sub-total {raw_conf}/5.0 → ×{multiplier} penalty → **{conf_score}/5.0**")
 
     with bd2:
         st.markdown("**Clarity**")
@@ -819,6 +821,7 @@ def _render_live_score_preview(slot: int = 1):
         st.caption(f"Governance {gov}/0.75")
         _bar(gov, 0.75)
 
+    # Gate assessment uses penalized conf_score
     state, state_sub = get_diagnostic_state(conf_score, clar_score)
     st.caption(f"Status: **{state}** — {state_sub}")
 
