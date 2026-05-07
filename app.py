@@ -1556,6 +1556,36 @@ def render_screen_1():
         st.toast("⏰ You've been working for 5+ minutes. Download your draft from Tab 4 before continuing.", icon="💾")
         st.session_state["save_reminded"] = True
 
+    # Global selectors — above tabs so they always run before tab content
+    st.selectbox(
+        "Sector (optional — helps tailor examples)",
+        key="sector",
+        options=SECTOR_OPTIONS,
+        help="Select your sector to see sector-specific example placeholders in the evidence description field.",
+    )
+    _sector_val = st.session_state.get("sector", SECTOR_OPTIONS[0])
+    if _sector_val == "Other":
+        st.text_input(
+            "Specify your sector",
+            key="sector_other",
+            placeholder="e.g., Disaster Response, Gender Equality, Financial Inclusion",
+        )
+
+    st.selectbox(
+        "Primary donor for this submission",
+        key="donor_selected",
+        options=["(No donor specified)", "USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "EU / EuropeAid"],
+        index=0,
+        help="Select your primary donor to receive tailored reporting tips and donor-specific diagnostic guidance.",
+    )
+    _donor_val = st.session_state.get("donor_selected", "(No donor specified)")
+    if _donor_val in DONOR_GUIDANCE:
+        _dg = DONOR_GUIDANCE[_donor_val]
+        with st.expander(f"💡 {_donor_val} reporting tips", expanded=True):
+            st.markdown(f"**Key emphasis:** {_dg['key_emphasis']}")
+            st.markdown(f"**Most common rejection:** {_dg['common_rejection']}")
+            st.markdown(f"**Tip:** {_dg['tip']}")
+
     tab1, tab2, tab3, tab4 = st.tabs([
         "📌 Result Basics",
         "🔗 Logframe Linkage",
@@ -1613,35 +1643,6 @@ def render_screen_1():
                 "(for final reports) or without the financial report (for quarterly reports). "
                 "Always confirm the package list with your donor before submission."
             )
-
-        st.selectbox(
-            "Sector (optional — helps tailor examples)",
-            key="sector",
-            options=SECTOR_OPTIONS,
-            help="Select your sector to see sector-specific example placeholders in the evidence description field.",
-        )
-        _sector_val = st.session_state.get("sector", SECTOR_OPTIONS[0])
-        if _sector_val == "Other":
-            st.text_input(
-                "Specify your sector",
-                key="sector_other",
-                placeholder="e.g., Disaster Response, Gender Equality, Financial Inclusion",
-            )
-
-        st.selectbox(
-            "Primary donor for this submission",
-            key="donor_selected",
-            options=["(No donor specified)", "USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "EU / EuropeAid"],
-            index=0,
-            help="Select your primary donor to receive tailored reporting tips and donor-specific diagnostic guidance.",
-        )
-        _donor_val = st.session_state.get("donor_selected", "(No donor specified)")
-        if _donor_val in DONOR_GUIDANCE:
-            _dg = DONOR_GUIDANCE[_donor_val]
-            with st.expander(f"💡 {_donor_val} reporting tips", expanded=True):
-                st.markdown(f"**Key emphasis:** {_dg['key_emphasis']}")
-                st.markdown(f"**Most common rejection:** {_dg['common_rejection']}")
-                st.markdown(f"**Tip:** {_dg['tip']}")
 
         col_h, col_add = st.columns([5, 1])
         with col_h:
