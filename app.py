@@ -760,12 +760,14 @@ def _render_live_score_preview(slot: int = 1):
         st.caption("Fill in the form fields above to see your live score.")
         return
 
-    conf_score = ev.get("confidence_score", 0)
-    clar_score = ev.get("clarity_score", 0)
-    conf_label = ev.get("confidence_label", "—")
-    clar_label = ev.get("clarity_label", "—")
-    conf_comp  = ev.get("confidence_components", {})
-    clar_comp  = ev.get("clarity_components", {})
+    conf_score  = ev.get("confidence_score", 0)
+    raw_conf    = ev.get("raw_confidence_score", conf_score)
+    multiplier  = ev.get("content_quality_multiplier", 1.0)
+    clar_score  = ev.get("clarity_score", 0)
+    conf_label  = ev.get("confidence_label", "—")
+    clar_label  = ev.get("clarity_label", "—")
+    conf_comp   = ev.get("confidence_components", {})
+    clar_comp   = ev.get("clarity_components", {})
 
     c1, c2 = st.columns(2)
     with c1:
@@ -773,29 +775,52 @@ def _render_live_score_preview(slot: int = 1):
     with c2:
         st.metric("Clarity", f"{clar_score}/5.0", delta=clar_label, delta_color="off")
 
-    st.markdown("**Score breakdown:**")
+    if multiplier < 1.0:
+        st.warning(
+            f"Content quality penalty applied (×{multiplier}). "
+            f"Raw sub-score total: {raw_conf}/5.0 → penalised to {conf_score}/5.0. "
+            "Fix flagged content issues to remove the penalty."
+        )
+
     bd1, bd2 = st.columns(2)
+
+    def _bar(val: float, max_val: float):
+        st.progress(min(val / max_val, 1.0) if max_val else 0.0)
+
     with bd1:
+        st.markdown("**Confidence**")
         ds = conf_comp.get("direct_score", 0)
         vs = conf_comp.get("verify_score", 0)
         rs = conf_comp.get("recency_score", 0)
-        st.caption(f"Directness:    {ds}/2.0")
-        st.caption(f"Verification:  {vs}/2.0")
-        st.caption(f"Recency:       {rs}/1.0")
+        st.caption(f"Directness {ds}/2.0")
+        _bar(ds, 2.0)
+        st.caption(f"Verification {vs}/2.0")
+        _bar(vs, 2.0)
+        st.caption(f"Recency {rs}/1.0")
+        _bar(rs, 1.0)
+        if multiplier < 1.0:
+            st.caption(f"Sub-total {raw_conf}/5.0 → ×{multiplier} penalty → **{conf_score}/5.0**")
+
     with bd2:
+        st.markdown("**Clarity**")
         def_s  = clar_comp.get("definition_score", 0)
         meas_s = clar_comp.get("measurement_score", 0)
         integ  = clar_comp.get("integrity_score", 0)
         scope  = clar_comp.get("scope_score", 0)
         gov    = clar_comp.get("governance_score", 0)
-        st.caption(f"Definition:    {def_s}/1.25")
-        st.caption(f"Measurement:   {meas_s}/1.25")
-        st.caption(f"Integrity:     {integ}/1.0")
-        st.caption(f"Scope:         {scope}/0.75")
-        st.caption(f"Governance:    {gov}/0.75")
+        st.caption(f"Definition {def_s}/1.25")
+        _bar(def_s, 1.25)
+        st.caption(f"Measurement {meas_s}/1.25")
+        _bar(meas_s, 1.25)
+        st.caption(f"Integrity {integ}/1.0")
+        _bar(integ, 1.0)
+        st.caption(f"Scope {scope}/0.75")
+        _bar(scope, 0.75)
+        st.caption(f"Governance {gov}/0.75")
+        _bar(gov, 0.75)
 
     state, state_sub = get_diagnostic_state(conf_score, clar_score)
-    st.caption(f"Current status: **{state}** — {state_sub}")
+    st.caption(f"Status: **{state}** — {state_sub}")
 
 
 # ---------------------------------------------------------------------------
