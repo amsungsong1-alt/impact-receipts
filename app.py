@@ -15,6 +15,7 @@ No API calls. All data stays on device.
 import json
 import os
 import re
+import time
 import urllib.parse
 from datetime import datetime, date
 
@@ -73,6 +74,44 @@ SECTOR_OPTIONS = [
     "Governance",
     "Other",
 ]
+
+DONOR_GUIDANCE = {
+    "USAID": {
+        "key_emphasis": "USAID is governed by ADS 201. Quantitative indicators with verifiable evidence are paramount. Use the 5 USAID DQA standards: Validity, Integrity, Precision, Reliability, Timeliness.",
+        "common_rejection": "Results not tied to PIRS (Performance Indicator Reference Sheets) or missing sex/age disaggregation. Always disaggregate by sex, age, and geography.",
+        "tip": "USAID requires evidence collected within 12 months for a full Recency score. Evidence older than this should be explicitly flagged and justified.",
+    },
+    "FCDO": {
+        "key_emphasis": "FCDO emphasises Value for Money (VfM) and Theory of Change. Results must connect to outcomes, not just outputs.",
+        "common_rejection": "Outputs reported without contribution analysis. Always state how your activities contributed to higher-level outcomes.",
+        "tip": "FCDO accepts qualitative evidence if triangulated (Bond Evidence Principles). Triangulation is essential — use at least two independent sources.",
+    },
+    "GIZ": {
+        "key_emphasis": "GIZ uses the Capacity WORKS framework. Results should reflect capacity development at individual, organisational, and system levels.",
+        "common_rejection": "Missing reflection on partner capacity. Document partner contributions and capacity gains explicitly in your narrative.",
+        "tip": "GIZ values qualitative learning narratives alongside quantitative KPIs. Don't strip out the story — include a lessons-learned section.",
+    },
+    "RVO": {
+        "key_emphasis": "RVO requires logframe-anchored reporting. Every result MUST tie to a Technical Proposal indicator.",
+        "common_rejection": "Missing M&E data tied to the original logframe — the #1 RVO rejection cause. Always include a logframe progress table.",
+        "tip": "RVO final reports require: narrative + financial + audit + logframe update. Confirm all four are in your submission package before sending.",
+    },
+    "World Bank": {
+        "key_emphasis": "World Bank uses Results Framework Indicators (RFIs) with strict numerical targets. Quantification is non-negotiable.",
+        "common_rejection": "Insufficient methodology disclosure. Document data collection methods, sample size, and data source in detail.",
+        "tip": "World Bank tier-1 indicators require third-party verification for project budgets above $5M.",
+    },
+    "AfDB": {
+        "key_emphasis": "AfDB Strategy 2024–2033 emphasises 'High 5s' alignment. Connect results to at least one High 5 priority explicitly.",
+        "common_rejection": "Results not linked to AfDB strategic pillars or missing country/regional development context.",
+        "tip": "AfDB values African-led monitoring and evaluation. Reference AfrEA or African Evidence Network methodology where possible.",
+    },
+    "EU / EuropeAid": {
+        "key_emphasis": "EU follows DG INTPA reporting standards. The Logical Framework Approach (LFA) is the foundation — all results must trace to the logframe.",
+        "common_rejection": "Assumptions and risks not updated in the logframe. Always revise the assumptions/risks column when reporting deviations.",
+        "tip": "EU expects gender mainstreaming and rights-based analysis to be explicitly visible in results narrative — not just mentioned in passing.",
+    },
+}
 
 SECTOR_PLACEHOLDERS = {
     "WASH": {
@@ -422,6 +461,33 @@ h1, h2, h3, h4 {
   display: inline-block;
   letter-spacing: 0.02em;
 }
+
+/* Mobile-first improvements */
+@media (max-width: 768px) {
+  .stButton button {
+    min-height: 48px !important;
+    font-size: 16px !important;
+    padding: 12px 16px !important;
+  }
+  .stTextInput input, .stTextArea textarea,
+  .stSelectbox div[role="combobox"] {
+    min-height: 44px !important;
+    font-size: 16px !important;
+  }
+  .main .block-container {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+  .stTabs [data-baseweb="tab-list"] {
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+  }
+  .stCheckbox label {
+    min-height: 36px !important;
+    display: flex !important;
+    align-items: center !important;
+  }
+}
 </style>
 """
 
@@ -453,6 +519,14 @@ _BASE_FORM_KEYS = [
     "external_review", "external_review_other",
     "verifier", "sector", "sector_other", "beneficiary_voice",
     "logframe_indicator", "logframe_target", "logframe_achievement",
+    # evidence sub-prompt checkboxes (informational, v3.3)
+    "signatures_verified", "date_stamped", "cross_ref",
+    "sample_doc", "clean_data", "version_ctrl",
+    "letterhead", "authority_signed", "recent_letter",
+    "gps_meta", "timestamp_photo", "consent_photo",
+    "followup_tracer", "response_rate", "bias_ack",
+    "receipts_dated", "reconciled_ev", "audit_trail_ev",
+    "independent_ev", "signed_audit", "recommendations_ev",
 ]
 
 _BV_OPTIONS = [
@@ -531,7 +605,7 @@ def _save_draft():
             draft[f"{dk}{s}"] = d.isoformat() if hasattr(d, "isoformat") else ""
     for gk in ("submission_type", "cl_narrative", "cl_financial", "cl_audit",
                "cl_logframe", "cl_annexes", "cl_beneficiary", "cl_sustainability",
-               "cl_budget"):
+               "cl_budget", "donor_selected", "donor_other"):
         draft[gk] = st.session_state.get(gk, "")
     os.makedirs("inputs", exist_ok=True)
     with open(_DRAFT_PATH, "w", encoding="utf-8") as f:
@@ -572,7 +646,7 @@ def _load_draft():
                     pass
     for gk in ("submission_type", "cl_narrative", "cl_financial", "cl_audit",
                "cl_logframe", "cl_annexes", "cl_beneficiary", "cl_sustainability",
-               "cl_budget"):
+               "cl_budget", "donor_selected", "donor_other"):
         if gk in draft:
             st.session_state[gk] = draft[gk]
 
@@ -1033,6 +1107,279 @@ def _render_slot_fields(slot: int):
 
 
 # ---------------------------------------------------------------------------
+# Screen 1 — Tab helper functions (v3.3)
+# ---------------------------------------------------------------------------
+
+def _tab_slot_setup(slot: int):
+    s = _slot_suffix(slot)
+    for key, default in [
+        (f"evidence_type{s}", EVIDENCE_TYPES[0]),
+        (f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0]),
+        (f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0]),
+    ]:
+        if key not in st.session_state:
+            st.session_state[key] = default
+    _sector = st.session_state.get("sector", SECTOR_OPTIONS[0])
+    _ph_key = "Other" if _sector in ("Other", "(No sector selected)") else _sector
+    _ph = SECTOR_PLACEHOLDERS.get(_ph_key, SECTOR_PLACEHOLDERS["Other"])
+    return s, _ph
+
+
+def _render_tab1_slot(slot: int):
+    s, _ph = _tab_slot_setup(slot)
+    st.text_area(
+        "Result statement",
+        key=f"result_statement{s}",
+        placeholder=_ph["result"],
+        height=100,
+        help="What did your project achieve? Include the verb (trained, distributed, reached), the number, the population, and the timeframe.",
+    )
+    _rs = st.session_state.get(f"result_statement{s}", "")
+    if _rs and len(_rs.strip()) < 20:
+        st.warning("Result statement is very short. Include: action verb + number + population + timeframe.")
+    elif _rs and not any(c.isdigit() for c in _rs):
+        st.caption("Tip: Add a number (e.g., '500 farmers trained') — quantified claims score higher.")
+    if _rs:
+        _def_count = sum([
+            bool(re.search(r'\d', _rs)),
+            bool(st.session_state.get(f"timeframe{s}", "")),
+            bool(st.session_state.get(f"target_group{s}", "")),
+        ])
+        _def_score = round((_def_count / 3) * 1.25, 2)
+        st.caption(f"Definition score contribution: **{_def_score}/1.25** (number, timeframe, target group)")
+    st.text_input(
+        "Target group", key=f"target_group{s}",
+        placeholder=_ph["target_group"],
+        help="Who specifically? Age, gender, role, geography. Avoid 'beneficiaries' alone.",
+    )
+    st.text_input(
+        "Timeframe", key=f"timeframe{s}",
+        placeholder="e.g., January - June 2025",
+        help="Specific dates or quarters. 'January–June 2025' is stronger than 'In 2025'.",
+    )
+    st.text_input(
+        "Geographic scope", key=f"geographic_scope{s}",
+        placeholder=_ph["geographic_scope"],
+        help="Districts, regions, or specific sites. 'Volta Region' beats 'rural areas'.",
+    )
+    st.caption("Specificity in these fields adds to your Clarity score. Generic terms cap it.")
+
+
+def _render_tab2_slot(slot: int):
+    s, _ph = _tab_slot_setup(slot)
+    st.markdown("#### Logframe Linkage")
+    st.caption(
+        "**Why this matters:** A real African consultancy had their final donor report "
+        "rejected 3 times in 2024 because results weren't tied to logframe indicators. "
+        "40+ hours of rework. We don't want that to happen to you."
+    )
+    st.text_input(
+        "Logframe indicator this result reports against",
+        key=f"logframe_indicator{s}",
+        placeholder=_ph.get("logframe_indicator", "e.g., Indicator 1.2: Number of [target group] achieving [outcome]"),
+        help=(
+            "Copy the exact indicator name and code from your approved Technical Proposal or logframe. "
+            "If you cannot quote it, your donor cannot match your result to your commitment."
+        ),
+    )
+    st.text_input(
+        "Original target for this indicator (from logframe)",
+        key=f"logframe_target{s}",
+        placeholder=_ph.get("logframe_target", "e.g., 250 youth trained by Q4 2025"),
+        help=(
+            "The target as approved in the original Technical Proposal. Donors compare achievements "
+            "against approved targets — not revised internal targets."
+        ),
+    )
+    st.text_input(
+        "Actual achievement (must match your result statement)",
+        key=f"logframe_achievement{s}",
+        placeholder=_ph.get("logframe_achievement", "e.g., [Actual number] by [date] — [%] of original target"),
+        help=(
+            "The actual delivered number, ideally with % achievement vs original target. "
+            "Must reconcile with your result statement above."
+        ),
+    )
+
+
+def _render_tab3_slot(slot: int):
+    s, _ph = _tab_slot_setup(slot)
+    st.text_area(
+        "Describe your supporting evidence", key=f"evidence_description{s}",
+        placeholder=_ph["evidence_description"],
+        height=120,
+        help="Describe the actual document or data: who collected it, how, and what's in it.",
+    )
+    _ed_val = st.session_state.get(f"evidence_description{s}", "")
+    if _ed_val and len(_ed_val.strip()) < 30:
+        st.warning("Evidence description is brief. Specify: who collected it, how, and what it contains.")
+    if _ed_val:
+        _meas_count = sum([
+            any(kw in _ed_val.lower() for kw in ["survey", "interview", "kobo", "questionnaire", "instrument"]),
+            any(kw in _ed_val.lower() for kw in ["sample", "random", "purposive", "stratified", "n="]),
+            bool(_ed_val.strip()),
+        ])
+        _meas_score = round((_meas_count / 3) * 1.25, 2)
+        st.caption(f"Measurement score contribution: **{_meas_score}/1.25** (method, sampling, description present)")
+
+    st.selectbox(
+        "Evidence type", key=f"evidence_type{s}",
+        options=EVIDENCE_TYPES,
+        help=EVIDENCE_TYPE_HELP,
+    )
+    ev_type = st.session_state.get(f"evidence_type{s}", EVIDENCE_TYPES[0])
+    ev_desc = st.session_state.get(f"evidence_description{s}", "")
+    _dl = _evaluator.get_directness_level(ev_type, ev_desc)
+    _ds = round((_dl / 5) * 2.0, 1)
+    st.caption(f"Directness score from this evidence type: **{_ds}/2.0**")
+
+    _sub_lbl = "📝 Strengthen this evidence (optional — helps defend in donor reviews)"
+    if ev_type == "Attendance sheets / participant registers":
+        with st.expander(_sub_lbl, expanded=False):
+            st.checkbox("Signatures verified against ID list", key=f"signatures_verified{s}")
+            st.checkbox("Sheets dated and stamped", key=f"date_stamped{s}")
+            st.checkbox("Cross-referenced with another source (e.g., facilitator notes)", key=f"cross_ref{s}")
+    elif ev_type == "Raw datasets or survey exports":
+        with st.expander(_sub_lbl, expanded=False):
+            st.checkbox("Sampling method documented", key=f"sample_doc{s}")
+            st.checkbox("Dataset cleaned and de-duplicated", key=f"clean_data{s}")
+            st.checkbox("Original raw export retained for audit", key=f"version_ctrl{s}")
+    elif ev_type == "Partner verification letters":
+        with st.expander(_sub_lbl, expanded=False):
+            st.checkbox("Letter on official partner letterhead", key=f"letterhead{s}")
+            st.checkbox("Signed by authorized partner representative", key=f"authority_signed{s}")
+            st.checkbox("Letter dated within 6 months of reporting period", key=f"recent_letter{s}")
+    elif ev_type == "Photos with metadata":
+        with st.expander(_sub_lbl, expanded=False):
+            st.checkbox("Photos contain GPS metadata", key=f"gps_meta{s}")
+            st.checkbox("Timestamps visible/verifiable", key=f"timestamp_photo{s}")
+            st.checkbox("Beneficiary consent obtained for photos", key=f"consent_photo{s}")
+    elif ev_type == "Tracer survey results":
+        with st.expander(_sub_lbl, expanded=False):
+            st.checkbox("Follow-up conducted at appropriate interval (3+ months)", key=f"followup_tracer{s}")
+            st.checkbox("Response rate documented (target: 60%+)", key=f"response_rate{s}")
+            st.checkbox("Sampling bias / non-response acknowledged", key=f"bias_ack{s}")
+    elif ev_type == "Financial records":
+        with st.expander(_sub_lbl, expanded=False):
+            st.checkbox("Receipts/transactions dated", key=f"receipts_dated{s}")
+            st.checkbox("Reconciled with bank/MoMo statements", key=f"reconciled_ev{s}")
+            st.checkbox("Audit trail intact (request → approval → payment)", key=f"audit_trail_ev{s}")
+    elif ev_type == "Third-party audits":
+        with st.expander(_sub_lbl, expanded=False):
+            st.checkbox("Auditor independent from implementer", key=f"independent_ev{s}")
+            st.checkbox("Audit report signed and dated", key=f"signed_audit{s}")
+            st.checkbox("Audit recommendations addressed/disclosed", key=f"recommendations_ev{s}")
+
+    if ev_type == "Other":
+        st.text_input("Specify evidence type", key=f"evidence_type_other{s}")
+
+    int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
+    st.selectbox(
+        "Internal review", key=f"internal_review{s}",
+        options=INTERNAL_REVIEW_OPTIONS,
+        help="Did anyone in your organization review or cross-check this data?",
+    )
+    int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
+    _int_vl = _evaluator.get_verification_level(int_rev, "No external review", "")
+    _int_vs = round((_int_vl / 5) * 2.0, 1)
+    if _int_vs > 0:
+        st.caption(f"Internal review adds **{_int_vs}/2.0** to Verification score")
+    else:
+        st.caption("⚠ No internal review: Verification score starts at 0. Adding a reviewer will improve this.")
+    if int_rev == "Other":
+        st.text_input("Specify internal reviewer", key=f"internal_review_other{s}")
+
+    ext_rev = st.session_state.get(f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0])
+    st.selectbox(
+        "External review", key=f"external_review{s}",
+        options=EXTERNAL_REVIEW_OPTIONS,
+        help="Did an outside party verify the data? Government, partner, auditor, or evaluator.",
+    )
+    ext_rev = st.session_state.get(f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0])
+    verifier_text = st.session_state.get(f"verifier{s}", "")
+    _full_vl = _evaluator.get_verification_level(int_rev, ext_rev, verifier_text)
+    _full_vs = round((_full_vl / 5) * 2.0, 1)
+    _added   = round(_full_vs - _int_vs, 1)
+    if _added > 0:
+        st.caption(f"External review adds **+{_added}** more → total Verification: **{_full_vs}/2.0**")
+    elif ext_rev == "No external review":
+        st.caption("⚠ No external review: adding independent verification can raise this score significantly.")
+    else:
+        st.caption(f"Total Verification: **{_full_vs}/2.0**")
+    if ext_rev == "Other":
+        st.text_input("Specify external reviewer", key=f"external_review_other{s}")
+
+    st.text_input(
+        "Who verified this?", key=f"verifier{s}",
+        placeholder="e.g., District Agriculture Officer, partner org M&E lead, external evaluator",
+        help="The person or organization that confirmed the data is accurate.",
+    )
+
+    st.markdown("#### Reporting Period")
+    st.caption("The period this submission covers. Evidence dates outside this range will be flagged.")
+    _rp_col_s, _rp_col_e = st.columns(2)
+    with _rp_col_s:
+        st.date_input("Reporting period start", key=f"reporting_start{s}",
+                      help="When does the period this report covers begin?")
+    with _rp_col_e:
+        st.date_input("Reporting period end", key=f"reporting_end{s}",
+                      help="When does the period this report covers end?")
+
+    st.date_input(
+        "When was this evidence collected?", key=f"evidence_date{s}",
+        help="When was the data collected? Use the most recent date if multiple sources.",
+    )
+    _ed = st.session_state.get(f"evidence_date{s}")
+    if _ed and hasattr(_evaluator, "get_recency_diagnostic"):
+        _rec_diag = _evaluator.get_recency_diagnostic(_ed)
+        if "0.4/1.0" in _rec_diag or "0.2/1.0" in _rec_diag:
+            st.warning(_rec_diag)
+        elif "0.6/1.0" in _rec_diag:
+            st.info(_rec_diag)
+        else:
+            st.success(_rec_diag)
+    _rp_s = st.session_state.get(f"reporting_start{s}")
+    _rp_e = st.session_state.get(f"reporting_end{s}")
+    if _ed and _rp_s and _rp_e and hasattr(_evaluator, "validate_reporting_period"):
+        _, _rp_msg, _rp_sev = _evaluator.validate_reporting_period(_ed, _rp_s, _rp_e)
+        if _rp_sev == "ERROR":
+            st.error(_rp_msg)
+        elif _rp_sev == "WARNING":
+            st.warning(_rp_msg)
+        elif _rp_msg:
+            st.success(_rp_msg)
+
+    st.markdown("#### Beneficiary Voice")
+    st.caption(
+        "Did the beneficiaries contribute to or validate this evidence? "
+        "Anchored in Bond Evidence Principles 2024 + 60 Decibels Lean Data."
+    )
+    st.selectbox(
+        "How were beneficiary voices captured?",
+        key=f"beneficiary_voice{s}",
+        options=_BV_OPTIONS,
+        help=(
+            "Bond Evidence Principle 1 (2024 refresh): Voice & Inclusion. "
+            "The strongest evidence includes beneficiary perspectives, not just provider reports."
+        ),
+    )
+    _bv_val = st.session_state.get(f"beneficiary_voice{s}", "")
+    _bv_score = (_evaluator.compute_beneficiary_voice_bonus(_bv_val)
+                 if hasattr(_evaluator, "compute_beneficiary_voice_bonus") else 0.0)
+    st.caption(f"Beneficiary Voice bonus: **+{_bv_score}/0.5** (Bond Evidence Principles 2024)")
+
+    prev_files = st.session_state.get(f"draft_uploaded_filenames{s}", [])
+    if prev_files:
+        st.caption(f"Previously attached: {', '.join(prev_files)} — please re-attach below.")
+    st.file_uploader(
+        "Attach supporting documents (optional)", key=f"uploaded_files_widget{s}",
+        accept_multiple_files=True,
+        type=["pdf", "docx", "xlsx", "csv", "jpg", "jpeg", "png", "txt"],
+        help="Attach raw evidence files — datasets, signed sheets, photos with metadata, partner letters.",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Screen 0 — Landing & Onboarding
 # ---------------------------------------------------------------------------
 
@@ -1201,157 +1548,207 @@ def render_screen_1():
 
     active = st.session_state.get("active_slots", 1)
 
-    # Submission Completeness Checklist (global)
-    with st.expander("📦 Submission Package Completeness Check (Recommended)", expanded=False):
-        st.caption(
-            "Most donor rejections happen because something was missing from the submission package "
-            "— not because the work was bad. Confirm what your donor expects."
-        )
-        st.selectbox(
-            "What type of submission is this for?",
-            options=[
-                "Quarterly progress report",
-                "Annual progress report",
-                "Mid-term review",
-                "Final / closeout report",
-                "Project proposal",
-                "Other",
-            ],
-            key="submission_type",
-        )
-        st.markdown("**Tick what your donor requires for this submission:**")
-        _cl1, _cl2 = st.columns(2)
-        with _cl1:
-            st.checkbox("Narrative / technical report",                      value=True, key="cl_narrative")
-            st.checkbox("Financial report",                                              key="cl_financial")
-            st.checkbox("Audit report (often required for final reports)",               key="cl_audit")
-            st.checkbox("Updated logframe with achievements",                            key="cl_logframe")
-        with _cl2:
-            st.checkbox("Annexes (evidence, datasets, photos)",                          key="cl_annexes")
-            st.checkbox("Beneficiary lists / disaggregated data",                        key="cl_beneficiary")
-            st.checkbox("Sustainability / exit plan",                                    key="cl_sustainability")
-            st.checkbox("Budget balance / variance report",                              key="cl_budget")
-        _n_ticked = sum(
-            st.session_state.get(k, False)
-            for k in ("cl_narrative", "cl_financial", "cl_audit", "cl_logframe",
-                      "cl_annexes", "cl_beneficiary", "cl_sustainability", "cl_budget")
-        )
-        _sub_type = st.session_state.get("submission_type", "")
-        if _sub_type == "Final / closeout report" and _n_ticked < 5:
-            st.warning(
-                f"Final / closeout reports typically require 5+ deliverables. "
-                f"You've ticked {_n_ticked}. Confirm with your donor what's required."
+    # Auto-save timer toast
+    if "screen1_start_time" not in st.session_state:
+        st.session_state["screen1_start_time"] = time.time()
+    _elapsed = time.time() - st.session_state.get("screen1_start_time", time.time())
+    if _elapsed > 300 and not st.session_state.get("save_reminded"):
+        st.toast("⏰ You've been working for 5+ minutes. Download your draft from Tab 4 before continuing.", icon="💾")
+        st.session_state["save_reminded"] = True
+
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📌 Result Basics",
+        "🔗 Logframe Linkage",
+        "📋 Evidence & Verification",
+        "✅ Review & Submit",
+    ])
+
+    with tab1:
+        st.caption("💾 Draft auto-saves as you type. Use Tab 4 to download for offline backup.")
+
+        with st.expander("📦 Submission Package Completeness Check (Recommended)", expanded=False):
+            st.caption(
+                "Most donor rejections happen because something was missing from the submission package "
+                "— not because the work was bad. Confirm what your donor expects."
             )
-        else:
-            st.info(f"{_n_ticked} deliverable(s) selected.")
-        st.caption(
-            "**Common rejection cause:** Submitting a narrative report without the audit report "
-            "(for final reports) or without the financial report (for quarterly reports). "
-            "Always confirm the package list with your donor before submission."
+            st.selectbox(
+                "What type of submission is this for?",
+                options=[
+                    "Quarterly progress report",
+                    "Annual progress report",
+                    "Mid-term review",
+                    "Final / closeout report",
+                    "Project proposal",
+                    "Other",
+                ],
+                key="submission_type",
+            )
+            st.markdown("**Tick what your donor requires for this submission:**")
+            _cl1, _cl2 = st.columns(2)
+            with _cl1:
+                st.checkbox("Narrative / technical report",                      value=True, key="cl_narrative")
+                st.checkbox("Financial report",                                              key="cl_financial")
+                st.checkbox("Audit report (often required for final reports)",               key="cl_audit")
+                st.checkbox("Updated logframe with achievements",                            key="cl_logframe")
+            with _cl2:
+                st.checkbox("Annexes (evidence, datasets, photos)",                          key="cl_annexes")
+                st.checkbox("Beneficiary lists / disaggregated data",                        key="cl_beneficiary")
+                st.checkbox("Sustainability / exit plan",                                    key="cl_sustainability")
+                st.checkbox("Budget balance / variance report",                              key="cl_budget")
+            _n_ticked = sum(
+                st.session_state.get(k, False)
+                for k in ("cl_narrative", "cl_financial", "cl_audit", "cl_logframe",
+                          "cl_annexes", "cl_beneficiary", "cl_sustainability", "cl_budget")
+            )
+            _sub_type = st.session_state.get("submission_type", "")
+            if _sub_type == "Final / closeout report" and _n_ticked < 5:
+                st.warning(
+                    f"Final / closeout reports typically require 5+ deliverables. "
+                    f"You've ticked {_n_ticked}. Confirm with your donor what's required."
+                )
+            else:
+                st.info(f"{_n_ticked} deliverable(s) selected.")
+            st.caption(
+                "**Common rejection cause:** Submitting a narrative report without the audit report "
+                "(for final reports) or without the financial report (for quarterly reports). "
+                "Always confirm the package list with your donor before submission."
+            )
+
+        st.selectbox(
+            "Sector (optional — helps tailor examples)",
+            key="sector",
+            options=SECTOR_OPTIONS,
+            help="Select your sector to see sector-specific example placeholders in the evidence description field.",
         )
+        _sector_val = st.session_state.get("sector", SECTOR_OPTIONS[0])
+        if _sector_val == "Other":
+            st.text_input(
+                "Specify your sector",
+                key="sector_other",
+                placeholder="e.g., Disaster Response, Gender Equality, Financial Inclusion",
+            )
 
-    # Sector selector (global, above all slots)
-    st.selectbox(
-        "Sector (optional — helps tailor examples)",
-        key="sector",
-        options=SECTOR_OPTIONS,
-        help="Select your sector to see sector-specific example placeholders in the evidence description field.",
-    )
-    _sector_val = st.session_state.get("sector", SECTOR_OPTIONS[0])
-    if _sector_val == "Other":
-        st.text_input(
-            "Specify your sector",
-            key="sector_other",
-            placeholder="e.g., Disaster Response, Gender Equality, Financial Inclusion",
+        st.selectbox(
+            "Primary donor for this submission",
+            key="donor_selected",
+            options=["(No donor specified)", "USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "EU / EuropeAid"],
+            index=0,
+            help="Select your primary donor to receive tailored reporting tips and donor-specific diagnostic guidance.",
         )
+        _donor_val = st.session_state.get("donor_selected", "(No donor specified)")
+        if _donor_val in DONOR_GUIDANCE:
+            _dg = DONOR_GUIDANCE[_donor_val]
+            with st.expander(f"💡 {_donor_val} reporting tips", expanded=True):
+                st.markdown(f"**Key emphasis:** {_dg['key_emphasis']}")
+                st.markdown(f"**Most common rejection:** {_dg['common_rejection']}")
+                st.markdown(f"**Tip:** {_dg['tip']}")
 
-    st.selectbox(
-        "Primary donor for this submission",
-        key="donor_selected",
-        options=["USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "Other/Not specified"],
-        index=6,
-        help="Select your primary donor to receive donor-specific diagnostic guidance on your results.",
-    )
+        col_h, col_add = st.columns([5, 1])
+        with col_h:
+            label = "Tell us about your result" if active == 1 else f"Tell us about your results ({active} added)"
+            st.markdown(f"## {label}")
+        with col_add:
+            if active < 3:
+                st.markdown("<div style='padding-top:22px'></div>", unsafe_allow_html=True)
+                if st.button("＋ Add Result", use_container_width=True):
+                    st.session_state["active_slots"] = active + 1
+                    st.rerun()
 
-    # Header row with optional "+" button
-    col_h, col_add = st.columns([5, 1])
-    with col_h:
-        label = "Tell us about your result" if active == 1 else f"Tell us about your results ({active} added)"
-        st.markdown(f"## {label}")
-    with col_add:
-        if active < 3:
-            st.markdown("<div style='padding-top:22px'></div>", unsafe_allow_html=True)
-            if st.button("＋ Add Result", use_container_width=True):
-                st.session_state["active_slots"] = active + 1
+        for slot in range(1, active + 1):
+            if active > 1:
+                st.markdown(f"---\n#### Result {slot}")
+            _render_tab1_slot(slot)
+
+    with tab2:
+        st.caption("💾 Draft auto-saves as you type.")
+        for slot in range(1, active + 1):
+            if active > 1:
+                st.markdown(f"---\n#### Result {slot}")
+            _render_tab2_slot(slot)
+
+    with tab3:
+        st.caption("💾 Draft auto-saves as you type.")
+        for slot in range(1, active + 1):
+            if active > 1:
+                st.markdown(f"---\n#### Result {slot}")
+            _render_tab3_slot(slot)
+
+    with tab4:
+        st.caption("Review your scores, download your draft, and submit when ready.")
+
+        with st.expander("📊 Live Score Preview", expanded=True):
+            _render_live_score_preview(1)
+
+        st.divider()
+
+        if st.button("Run My Confidence Check", type="primary", use_container_width=True):
+            mandatory = [
+                st.session_state.get("result_statement", ""),
+                st.session_state.get("target_group", ""),
+                st.session_state.get("timeframe", ""),
+                st.session_state.get("geographic_scope", ""),
+                st.session_state.get("evidence_description", ""),
+            ]
+            ev_type = st.session_state.get("evidence_type", "")
+            ev_other = st.session_state.get("evidence_type_other", "").strip()
+            if ev_type == "Other" and not ev_other:
+                st.warning("Please specify your evidence type in Tab 3 — Evidence & Verification.")
+            elif not all(mandatory):
+                st.warning("Complete Result Basics (Tab 1) and Evidence (Tab 3) before running the check.")
+            else:
+                if not st.session_state.get("has_seen_tutorial"):
+                    st.session_state["tutorial_step"] = 2
+                for slot in range(1, active + 1):
+                    s = _slot_suffix(slot)
+                    raw = st.session_state.get(f"uploaded_files_widget{s}") or []
+                    st.session_state[f"uploaded_files{s}"] = [f.name for f in raw]
+                st.session_state["active_slots_run"] = active
+                st.session_state["evaluations"]       = None
+                st.session_state["submissions_snapshot"] = None
+                st.session_state["screen"] = 2
                 st.rerun()
 
-    # Live Score Preview (slot 1)
-    with st.expander("📊 Live Score Preview", expanded=False):
-        _render_live_score_preview(1)
+        st.caption("Your progress is auto-saved across all tabs.")
 
-    # Render each slot
-    for slot in range(1, active + 1):
-        if active > 1:
-            st.markdown(f"---\n#### Result {slot}")
-        _render_slot_fields(slot)
+        _save_draft()
+        if os.path.exists(_DRAFT_PATH):
+            try:
+                with open(_DRAFT_PATH, encoding="utf-8") as _df:
+                    _draft_bytes = _df.read().encode("utf-8")
+                st.download_button(
+                    "📥 Download Draft (JSON)",
+                    data=_draft_bytes,
+                    file_name="impact_receipts_draft.json",
+                    mime="application/json",
+                    use_container_width=True,
+                    help="Download your draft to restore later via 'Resume Previous Session' on the landing page.",
+                )
+            except Exception:
+                pass
 
-    # Auto-save on every rerun
+        st.divider()
+
+        if st.session_state.get("confirm_reset"):
+            st.warning("Clear all inputs and start over?")
+            cf1, cf2 = st.columns(2)
+            with cf1:
+                if st.button("Yes, clear everything", type="primary", use_container_width=True):
+                    st.session_state["confirm_reset"] = False
+                    _clear_draft()
+                    _go_to_screen(1, reset=True)
+            with cf2:
+                if st.button("Cancel", use_container_width=True):
+                    st.session_state["confirm_reset"] = False
+                    st.rerun()
+        else:
+            if st.button("Start Fresh", use_container_width=False):
+                st.session_state["confirm_reset"] = True
+                st.rerun()
+
+        if st.button("Back", use_container_width=False):
+            _go_to_screen(0)
+
     _save_draft()
-
-    st.divider()
-
-    # Start Fresh with confirmation
-    if st.session_state.get("confirm_reset"):
-        st.warning("Clear all inputs and start over?")
-        cf1, cf2 = st.columns(2)
-        with cf1:
-            if st.button("Yes, clear everything", type="primary", use_container_width=True):
-                st.session_state["confirm_reset"] = False
-                _clear_draft()
-                _go_to_screen(1, reset=True)
-        with cf2:
-            if st.button("Cancel", use_container_width=True):
-                st.session_state["confirm_reset"] = False
-                st.rerun()
-    else:
-        if st.button("Start Fresh", use_container_width=False):
-            st.session_state["confirm_reset"] = True
-            st.rerun()
-
-    st.divider()
-
-    if st.button("Run My Confidence Check", type="primary", use_container_width=True):
-        mandatory = [
-            st.session_state.get("result_statement", ""),
-            st.session_state.get("target_group", ""),
-            st.session_state.get("timeframe", ""),
-            st.session_state.get("geographic_scope", ""),
-            st.session_state.get("evidence_description", ""),
-        ]
-        # Validate "Other" evidence type has a description
-        ev_type = st.session_state.get("evidence_type", "")
-        ev_other = st.session_state.get("evidence_type_other", "").strip()
-        if ev_type == "Other" and not ev_other:
-            st.warning("Please specify your evidence type in the 'Specify evidence type' field.")
-        elif not all(mandatory):
-            st.warning("Add the missing details for Result 1 to run your confidence check.")
-        else:
-            if not st.session_state.get("has_seen_tutorial"):
-                st.session_state["tutorial_step"] = 2
-            for slot in range(1, active + 1):
-                s = _slot_suffix(slot)
-                raw = st.session_state.get(f"uploaded_files_widget{s}") or []
-                st.session_state[f"uploaded_files{s}"] = [f.name for f in raw]
-            st.session_state["active_slots_run"] = active
-            st.session_state["evaluations"]       = None
-            st.session_state["submissions_snapshot"] = None
-            st.session_state["screen"] = 2
-            st.rerun()
-
-    st.caption("Your progress is auto-saved.")
-    if st.button("Back", use_container_width=False):
-        _go_to_screen(0)
-
     _render_tagline_footer()
 
 

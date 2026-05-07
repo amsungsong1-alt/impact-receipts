@@ -199,4 +199,31 @@ DONOR_DIAGNOSTICS = {
             ),
         },
     },
+    "EU / EuropeAid": {
+        "Directness": {
+            "low": (
+                "EU DG INTPA reporting requires that results evidence traces directly "
+                "to the Logical Framework Approach (LFA) results chain. Your current "
+                "Directness score suggests the evidence-to-result link is unclear. "
+                "Recommended fix: reference the specific Result or Output from your "
+                "logframe and attach supporting output documentation."
+            ),
+            "high": (
+                "Evidence traceability meets EU LFA result chain standards. "
+                "Ensure your logframe is updated to reflect this result before submission."
+            ),
+        },
+        "Verification": {
+            "low": (
+                "EU grant management standards require that reported results are "
+                "independently verifiable. Internal records only are insufficient "
+                "for final reporting. Recommended fix: attach an external audit "
+                "or partner verification letter signed by a non-programme representative."
+            ),
+            "high": (
+                "Independent verification meets EU grant reporting standards. "
+                "Retain verifier documentation — EU auditors may request it."
+            ),
+        },
+    },
 }
