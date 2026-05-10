@@ -698,7 +698,7 @@ def get_diagnostic_state(
 
 _TUTORIAL_COPY = {
     0: {
-        "title": "👋 Welcome to Impact-Receipts.",
+        "title": "👋 Welcome to Impact Integrity Diagnostics",
         "body": (
             "This tool stress-tests your reported results in 10 minutes.\n\n"
             "Here's how it works:\n"
@@ -1442,7 +1442,7 @@ def render_screen_0():
           <h1>Know which reported results are strong, weak, or need fixing — before your donor sees them.</h1>
           <p class="hero-tagline">Stress-test a result before you submit it.</p>
           <p class="hero-sub">
-            The Impact Integrity Diagnostic is built for MEL Officers and Reporting Leads at NGOs
+            The Impact Integrity Diagnostic is built for Monitoring, Evaluation &amp; Learning Officers and Reporting Leads at NGOs
             and donor-funded projects in Africa &mdash; those compiling final reports for USAID,
             FCDO, GIZ, RVO, World Bank, AfDB, EU/EuropeAid, and others.
           </p>
