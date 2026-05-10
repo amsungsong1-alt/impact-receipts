@@ -1415,16 +1415,26 @@ def _render_tab3_slot(slot: int):
 
 def render_screen_0():
     _logo_path = pathlib.Path(__file__).parent / "logo.png.png"
-    _logo_b64 = base64.b64encode(_logo_path.read_bytes()).decode()
-    _logo_tag = (
-        f'<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">'
-        f'<img src="data:image/png;base64,{_logo_b64}" alt="Impact-Receipts" style="height:56px;">'
-        f'<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
-        f'<span style="color:#1B5E20;">Impact Integrity</span><br>'
-        f'<span style="color:#B8860B;">Diagnostic</span>'
-        f'</span>'
-        f'</div>'
-    )
+    try:
+        _logo_b64 = base64.b64encode(_logo_path.read_bytes()).decode()
+        _logo_tag = (
+            f'<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">'
+            f'<img src="data:image/png;base64,{_logo_b64}" alt="Impact-Receipts" style="height:56px;">'
+            f'<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
+            f'<span style="color:#1B5E20;">Impact Integrity</span><br>'
+            f'<span style="color:#B8860B;">Diagnostic</span>'
+            f'</span>'
+            f'</div>'
+        )
+    except FileNotFoundError:
+        _logo_tag = (
+            '<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">'
+            '<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
+            '<span style="color:#1B5E20;">Impact Integrity</span><br>'
+            '<span style="color:#B8860B;">Diagnostic</span>'
+            '</span>'
+            '</div>'
+        )
     st.markdown(
         f"""
         <div class="hero-block">
