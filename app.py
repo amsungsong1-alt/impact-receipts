@@ -12,8 +12,10 @@ Evaluation logic is fully local — see evaluator.py.
 No API calls. All data stays on device.
 """
 
+import base64
 import json
 import os
+import pathlib
 import re
 import time
 import urllib.parse
@@ -1412,14 +1414,27 @@ def _render_tab3_slot(slot: int):
 # ---------------------------------------------------------------------------
 
 def render_screen_0():
+    _logo_path = pathlib.Path(__file__).parent / "logo.png.png"
+    _logo_b64 = base64.b64encode(_logo_path.read_bytes()).decode()
+    _logo_tag = (
+        f'<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">'
+        f'<img src="data:image/png;base64,{_logo_b64}" alt="Impact-Receipts" style="height:56px;">'
+        f'<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
+        f'<span style="color:#1B5E20;">Impact Integrity</span><br>'
+        f'<span style="color:#B8860B;">Diagnostic</span>'
+        f'</span>'
+        f'</div>'
+    )
     st.markdown(
-        """
+        f"""
         <div class="hero-block">
+          {_logo_tag}
           <h1>Know which reported results are strong, weak, or need fixing — before your donor sees them.</h1>
           <p class="hero-tagline">Stress-test a result before you submit it.</p>
           <p class="hero-sub">
-            Built for MEL Officers and Reporting Leads at NGOs and donor-funded projects in Africa
-            &mdash; those compiling final reports for USAID, FCDO, GIZ, RVO, World Bank, and AfDB.
+            The Impact Integrity Diagnostic is built for MEL Officers and Reporting Leads at NGOs
+            and donor-funded projects in Africa &mdash; those compiling final reports for USAID,
+            FCDO, GIZ, RVO, World Bank, AfDB, EU/EuropeAid, and others.
           </p>
           <p class="brand-promise">We help you submit with confidence. Not by judging your work &mdash;
           by showing you exactly where it&rsquo;s strong and where it needs strengthening.</p>
