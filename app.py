@@ -46,6 +46,15 @@ EVIDENCE_TYPES = [
     "Other",
 ]
 
+# --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+PII_EVIDENCE_TYPES = [
+    "Attendance sheets / participant registers",
+    "Photos with metadata",
+    "Raw datasets or survey exports",
+    "Tracer survey results",
+]
+# --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+
 EVIDENCE_TYPE_HELP = (
     "Choose the type that best describes your primary evidence document.\n\n"
     "• Attendance sheets / participant registers — Signed records of participants by name, date, and session. "
@@ -508,6 +517,7 @@ def _init_session_state():
         "tutorial_step":       0,
         "sector":              SECTOR_OPTIONS[0],
         "confirm_reset":       False,
+        "gov_dpp_uploaded":    False,
     }
     for key, default in defaults.items():
         if key not in st.session_state:
@@ -529,6 +539,8 @@ _BASE_FORM_KEYS = [
     "followup_tracer", "response_rate", "bias_ack",
     "receipts_dated", "reconciled_ev", "audit_trail_ev",
     "independent_ev", "signed_audit", "recommendations_ev",
+    # governance & compliance (v3.2)
+    "gov_consent_status", "gov_anonymization_status", "gov_compliance_law_status",
 ]
 
 _BV_OPTIONS = [
@@ -605,6 +617,13 @@ def _save_draft():
         for dk in ("reporting_start", "reporting_end"):
             d = st.session_state.get(f"{dk}{s}")
             draft[f"{dk}{s}"] = d.isoformat() if hasattr(d, "isoformat") else ""
+    # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+    for _gs in range(1, active + 1):
+        _s = _slot_suffix(_gs)
+        for _gk in ["gov_consent_status", "gov_anonymization_status", "gov_compliance_law_status"]:
+            draft[f"{_gk}{_s}"] = st.session_state.get(f"{_gk}{_s}", "")
+    draft["gov_dpp_uploaded"] = st.session_state.get("gov_dpp_uploaded", False)
+    # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
     for gk in ("submission_type", "cl_narrative", "cl_financial", "cl_audit",
                "cl_logframe", "cl_annexes", "cl_beneficiary", "cl_sustainability",
                "cl_budget", "donor_selected", "donor_other"):
@@ -754,6 +773,54 @@ def _render_tutorial(step: int):
 # Live score preview
 # ---------------------------------------------------------------------------
 
+# --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+def _compute_governance_score(slot: int):
+    """Returns (governance_score 0-15, pii_selected bool, gaps list)."""
+    s = _slot_suffix(slot)
+    ev_type = st.session_state.get(f"evidence_type{s}", "")
+    pii_selected = ev_type in PII_EVIDENCE_TYPES
+
+    consent = st.session_state.get(f"gov_consent_status{s}", "")
+    anon    = st.session_state.get(f"gov_anonymization_status{s}", "")
+    law     = st.session_state.get(f"gov_compliance_law_status{s}", "")
+    dpp     = st.session_state.get("gov_dpp_uploaded", False)
+
+    score = 0
+    gaps  = []
+
+    if consent == "Yes — written consent forms on file":
+        score += 5
+    elif consent == "Yes — verbal consent documented":
+        score += 3
+    elif consent.startswith("Partial"):
+        score += 1
+    elif consent.startswith("Not applicable"):
+        score += 3
+    else:
+        gaps.append("Consent not obtained")
+
+    if anon == "Yes — fully anonymized":
+        score += 4
+    elif anon == "Partially anonymized":
+        score += 2
+    elif anon == "Not applicable":
+        score += 3
+    else:
+        gaps.append("Evidence not anonymized")
+
+    if law.startswith("Yes"):
+        score += 3
+    elif law.startswith("Unsure"):
+        score += 1
+    elif law.startswith("No"):
+        gaps.append("Data law compliance not confirmed")
+
+    if dpp:
+        score += 5
+
+    return min(15, score), pii_selected, gaps
+# --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+
 def _render_live_score_preview(slot: int = 1):
     sub = _build_submission_from_session(slot)
     try:
@@ -827,6 +894,43 @@ def _render_live_score_preview(slot: int = 1):
     state, state_sub = get_diagnostic_state(conf_score, clar_score)
     st.caption(f"Status: **{state}** — {state_sub}")
 
+    # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+    gov_score, pii_selected, gov_gaps = _compute_governance_score(slot)
+    conf_100 = round(raw_conf * 20, 1)
+    gov_adjustment = round(gov_score * 0.3, 1)
+    if gov_score == 0 and pii_selected:
+        gov_adjustment -= 8
+    adjusted_conf = min(100.0, conf_100 + gov_adjustment)
+
+    st.session_state["_gov_score_computed"] = gov_score
+    st.session_state["_gov_gaps_computed"]  = gov_gaps
+    st.session_state["_gov_pii_computed"]   = pii_selected
+    st.session_state["_conf_adj_computed"]  = adjusted_conf
+
+    st.markdown("---")
+    st.markdown("#### 🛡️ Governance & Compliance")
+    _gc1, _gc2 = st.columns([1, 2])
+    with _gc1:
+        st.metric("Governance Score", f"{gov_score} / 15")
+    with _gc2:
+        st.metric("Governance-Adjusted Confidence", f"{adjusted_conf:.0f} / 100")
+    if gov_score >= 12:
+        st.success("🟢 Strong Governance")
+    elif gov_score >= 7:
+        st.warning("🟡 Partial Compliance — Review Recommended")
+    else:
+        st.error("🔴 Governance Risk — Address Before Submission")
+    if gov_score == 0 and pii_selected:
+        st.warning(
+            "⚠️ **Governance Gap:** Sensitive evidence types selected but no "
+            "compliance measures confirmed."
+        )
+    if gov_gaps:
+        st.markdown("**Gaps to address:**")
+        for _gap in gov_gaps:
+            st.markdown(f"- {_gap}")
+    # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+
 
 # ---------------------------------------------------------------------------
 # JSON inputs export / import
@@ -844,6 +948,11 @@ def _build_inputs_json(timestamp: str) -> str:
         slot_dict["evidence_date"] = ed.isoformat() if hasattr(ed, "isoformat") else ""
         raw_files = st.session_state.get(f"uploaded_files_widget{s}") or []
         slot_dict["uploaded_filenames"] = [f.name for f in raw_files if hasattr(f, "name")]
+        # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+        for _gk in ["gov_consent_status", "gov_anonymization_status", "gov_compliance_law_status"]:
+            slot_dict[_gk] = st.session_state.get(f"{_gk}{s}", "")
+        slot_dict["gov_dpp_uploaded"] = st.session_state.get("gov_dpp_uploaded", False)
+        # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
         slots_data.append(slot_dict)
 
     payload = {
@@ -931,6 +1040,11 @@ def _render_slot_fields(slot: int):
         (f"evidence_type{s}", EVIDENCE_TYPES[0]),
         (f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0]),
         (f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0]),
+        # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+        (f"gov_consent_status{s}", "Not applicable (no personal data)"),
+        (f"gov_anonymization_status{s}", "Not applicable"),
+        (f"gov_compliance_law_status{s}", "Not applicable"),
+        # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
     ]:
         if key not in st.session_state:
             st.session_state[key] = default
@@ -1146,6 +1260,11 @@ def _tab_slot_setup(slot: int):
         (f"evidence_type{s}", EVIDENCE_TYPES[0]),
         (f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0]),
         (f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0]),
+        # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+        (f"gov_consent_status{s}", "Not applicable (no personal data)"),
+        (f"gov_anonymization_status{s}", "Not applicable"),
+        (f"gov_compliance_law_status{s}", "Not applicable"),
+        # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
     ]:
         if key not in st.session_state:
             st.session_state[key] = default
@@ -1397,6 +1516,80 @@ def _render_tab3_slot(slot: int):
     _bv_score = (_evaluator.compute_beneficiary_voice_bonus(_bv_val)
                  if hasattr(_evaluator, "compute_beneficiary_voice_bonus") else 0.0)
     st.caption(f"Beneficiary Voice bonus: **+{_bv_score}/0.5** (Bond Evidence Principles 2024)")
+
+    # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+    st.markdown("---")
+    st.subheader("🛡️ Compliance & Ethics Check")
+    st.caption("*Ensure your evidence is not just credible — but legally safe.*")
+
+    _ev_type_now = st.session_state.get(f"evidence_type{s}", "")
+    _pii_triggered = _ev_type_now in PII_EVIDENCE_TYPES
+    if _pii_triggered:
+        st.warning(
+            "⚠️ **PII Alert:** One or more of your selected evidence types may "
+            "contain Personally Identifiable Information (PII). Please answer the "
+            "compliance checks below before proceeding."
+        )
+
+    with st.expander(
+        "📋 Data Governance Checklist (expand to complete)",
+        expanded=_pii_triggered,
+    ):
+        st.selectbox(
+            "Do you have documented consent from beneficiaries for their data "
+            "to be shared with the donor?",
+            options=[
+                "Yes — written consent forms on file",
+                "Yes — verbal consent documented",
+                "Partial — some beneficiaries consented",
+                "No — consent not obtained",
+                "Not applicable (no personal data)",
+            ],
+            key=f"gov_consent_status{s}",
+        )
+        st.selectbox(
+            "Has this evidence been anonymized or de-identified where required?",
+            options=[
+                "Yes — fully anonymized",
+                "Partially anonymized",
+                "No — not anonymized",
+                "Not applicable",
+            ],
+            key=f"gov_anonymization_status{s}",
+        )
+        st.selectbox(
+            "Does your evidence collection method comply with the data protection "
+            "law in your project's country?",
+            options=[
+                "Yes — compliant (e.g. Ghana Act 843, Nigeria NDPA, Kenya DPA)",
+                "Unsure — we haven't checked",
+                "No — we are not compliant",
+                "Not applicable",
+            ],
+            key=f"gov_compliance_law_status{s}",
+        )
+
+    st.markdown(
+        "#### 📁 Upload Organisational Data Protection Policy "
+        "(optional — earns Governance Bonus)"
+    )
+    _dpp_file = st.file_uploader(
+        "Upload your data protection policy (PDF or DOCX)",
+        type=["pdf", "docx"],
+        key=f"gov_dpp_upload{s}",
+    )
+    if _dpp_file is not None:
+        st.session_state["gov_dpp_uploaded"] = True
+        st.caption(
+            "✅ Policy uploaded. **+5 Governance Bonus** applied to your "
+            "Confidence Score for this session."
+        )
+    else:
+        st.caption(
+            "Uploading your policy grants a +5 Governance Bonus to your "
+            "Confidence Score for this session."
+        )
+    # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
     prev_files = st.session_state.get(f"draft_uploaded_filenames{s}", [])
     if prev_files:
