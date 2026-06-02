@@ -886,6 +886,17 @@ def _compute_governance_score(slot: int):
     return min(15, score), pii_selected, gaps
 # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
+def _nav_to_tab(idx: int):
+    """Inject JS to programmatically click a Streamlit tab by index."""
+    import streamlit.components.v1 as _stc
+    _stc.html(
+        f'<script>setTimeout(function(){{'
+        f'var t=window.parent.document.querySelectorAll(\'[data-baseweb="tab"]\');'
+        f'if(t.length>{idx}){{t[{idx}].click();}}'
+        f'}}, 150);</script>',
+        height=0,
+    )
+
 def _render_live_score_preview(slot: int = 1):
     sub = _build_submission_from_session(slot)
     try:
@@ -922,8 +933,7 @@ def _render_live_score_preview(slot: int = 1):
         # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
         if st.button("→ Fix: Go to Result Basics", key="fix_content_quality"):
             st.session_state["current_tab"] = 0
-            st.info("👉 Click the **📌 Result Basics** tab above to fix content quality issues.")
-            st.rerun()
+            _nav_to_tab(0)
         # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
     bd1, bd2 = st.columns(2)
@@ -969,18 +979,15 @@ def _render_live_score_preview(slot: int = 1):
     if state in ("MISLEADING", "FUNDAMENTALLY WEAK"):
         if st.button("→ Fix: Sharpen Result Statement", key="fix_misleading"):
             st.session_state["current_tab"] = 0
-            st.info("👉 Click the **📌 Result Basics** tab above.")
-            st.rerun()
+            _nav_to_tab(0)
     if state in ("UNDEREVIDENCED", "FUNDAMENTALLY WEAK"):
         if st.button("→ Fix: Strengthen Evidence", key="fix_underevidenced"):
             st.session_state["current_tab"] = 2
-            st.info("👉 Click the **📋 Evidence & Verification** tab above.")
-            st.rerun()
+            _nav_to_tab(2)
     if state == "NEEDS REFINEMENT":
         if st.button("→ Fix: Review Specific Gaps", key="fix_refinement"):
             st.session_state["current_tab"] = 1
-            st.info("👉 Click the **🔗 Logframe Linkage** tab above.")
-            st.rerun()
+            _nav_to_tab(1)
     # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
     # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
