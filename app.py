@@ -31,6 +31,28 @@ from prompts import (
 )
 from donor_templates import DONOR_DIAGNOSTICS
 
+# --- UX: INSTANT REPORT CHECK IMPORTS (v3.2) ---
+import anthropic as _anthropic
+try:
+    import fitz as _fitz
+    _HAS_FITZ = True
+except ImportError:
+    _fitz = None
+    _HAS_FITZ = False
+try:
+    import docx as _docx
+    _HAS_DOCX = True
+except ImportError:
+    _docx = None
+    _HAS_DOCX = False
+try:
+    import pandas as _pd
+    _HAS_PANDAS = True
+except ImportError:
+    _pd = None
+    _HAS_PANDAS = False
+# --- END UX: INSTANT REPORT CHECK IMPORTS (v3.2) ---
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -54,6 +76,44 @@ PII_EVIDENCE_TYPES = [
     "Tracer survey results",
 ]
 # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+
+# --- UX: INSTANT REPORT CHECK (v3.2) ---
+INSTANT_CHECK_SYSTEM_PROMPT = """
+You are a MEL (Monitoring, Evaluation and Learning) data extraction assistant.
+Extract the following fields from the report text provided.
+Return ONLY a valid JSON object with these exact keys:
+{
+  "result_statement": "",
+  "target_group": "",
+  "timeframe": "",
+  "geographic_scope": "",
+  "sector": "",
+  "primary_donor": "",
+  "logframe_indicator": "",
+  "original_target": "",
+  "actual_achievement": "",
+  "evidence_description": "",
+  "verifier_name": ""
+}
+If a field cannot be found, return an empty string for that key.
+Return ONLY the JSON. No preamble, no explanation, no markdown fences.
+""".strip()
+
+_INSTANT_KEY_MAP = {
+    "result_statement":   "result_statement",
+    "target_group":       "target_group",
+    "timeframe":          "timeframe",
+    "geographic_scope":   "geographic_scope",
+    "sector":             "sector",
+    "primary_donor":      "donor_selected",
+    "logframe_indicator": "logframe_indicator",
+    "original_target":    "logframe_target",
+    "actual_achievement": "logframe_achievement",
+    "evidence_description": "evidence_description",
+    "verifier_name":      "verifier",
+}
+_UX_TAB_NAMES = ["Result Basics", "Logframe Linkage", "Evidence & Verification", "Review & Submit"]
+# --- END UX: INSTANT REPORT CHECK (v3.2) ---
 
 EVIDENCE_TYPE_HELP = (
     "Choose the type that best describes your primary evidence document.\n\n"
@@ -518,6 +578,11 @@ def _init_session_state():
         "sector":              SECTOR_OPTIONS[0],
         "confirm_reset":       False,
         "gov_dpp_uploaded":    False,
+        # --- UX (v3.2) ---
+        "current_tab":         0,
+        "remembered_donor":    "",
+        "remembered_sector":   "",
+        # --- END UX (v3.2) ---
     }
     for key, default in defaults.items():
         if key not in st.session_state:
@@ -854,6 +919,12 @@ def _render_live_score_preview(slot: int = 1):
             f"Effective submission score: **{conf_score}/5.0**. "
             "Fix the content issues below to remove the penalty."
         )
+        # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
+        if st.button("→ Fix: Go to Result Basics", key="fix_content_quality"):
+            st.session_state["current_tab"] = 0
+            st.info("👉 Click the **📌 Result Basics** tab above to fix content quality issues.")
+            st.rerun()
+        # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
     bd1, bd2 = st.columns(2)
 
@@ -893,6 +964,24 @@ def _render_live_score_preview(slot: int = 1):
     # Gate assessment uses penalized conf_score
     state, state_sub = get_diagnostic_state(conf_score, clar_score)
     st.caption(f"Status: **{state}** — {state_sub}")
+
+    # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
+    if state in ("MISLEADING", "FUNDAMENTALLY WEAK"):
+        if st.button("→ Fix: Sharpen Result Statement", key="fix_misleading"):
+            st.session_state["current_tab"] = 0
+            st.info("👉 Click the **📌 Result Basics** tab above.")
+            st.rerun()
+    if state in ("UNDEREVIDENCED", "FUNDAMENTALLY WEAK"):
+        if st.button("→ Fix: Strengthen Evidence", key="fix_underevidenced"):
+            st.session_state["current_tab"] = 2
+            st.info("👉 Click the **📋 Evidence & Verification** tab above.")
+            st.rerun()
+    if state == "NEEDS REFINEMENT":
+        if st.button("→ Fix: Review Specific Gaps", key="fix_refinement"):
+            st.session_state["current_tab"] = 1
+            st.info("👉 Click the **🔗 Logframe Linkage** tab above.")
+            st.rerun()
+    # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
     # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
     gov_score, pii_selected, gov_gaps = _compute_governance_score(slot)
@@ -987,7 +1076,13 @@ def _load_from_inputs_json(data: dict):
         st.session_state[f"draft_uploaded_filenames{s}"] = slot_dict.get("uploaded_filenames", [])
 
     ts = data.get("timestamp", "unknown")
-    st.success(f"Loaded inputs from {ts}. Adjust and re-run.")
+    # --- UX: SMART DEFAULTS (v3.2) ---
+    _prefill_count = sum(
+        1 for _sd in data.get("slots", [{}])
+        for _k, _v in _sd.items() if _v and _k in _BASE_FORM_KEYS
+    )
+    st.success(f"✅ Draft loaded — {_prefill_count} fields pre-filled. Review and update as needed.")
+    # --- END UX: SMART DEFAULTS (v3.2) ---
     st.session_state["screen"] = 1
     st.rerun()
 
@@ -1180,11 +1275,14 @@ def _render_slot_fields(slot: int):
     if ext_rev == "Other":
         st.text_input("Specify external reviewer", key=f"external_review_other{s}")
 
-    st.text_input(
-        "Who verified this?", key=f"verifier{s}",
-        placeholder="e.g., District Agriculture Officer, partner org M&E lead, external evaluator",
-        help="The person or organization that confirmed the data is accurate.",
-    )
+    # --- UX: CONDITIONAL FIELDS (v3.2) ---
+    if st.session_state.get(f"internal_review{s}") != "Not reviewed":
+        st.text_input(
+            "Who verified this?", key=f"verifier{s}",
+            placeholder="e.g., District Agriculture Officer, partner org M&E lead, external evaluator",
+            help="The person or organization that confirmed the data is accurate.",
+        )
+    # --- END UX: CONDITIONAL FIELDS (v3.2) ---
 
     st.markdown("#### Reporting Period")
     st.caption("The period this submission covers. Evidence dates outside this range will be flagged.")
@@ -1271,6 +1369,11 @@ def _tab_slot_setup(slot: int):
     _sector = st.session_state.get("sector", SECTOR_OPTIONS[0])
     _ph_key = "Other" if _sector in ("Other", "(No sector selected)") else _sector
     _ph = SECTOR_PLACEHOLDERS.get(_ph_key, SECTOR_PLACEHOLDERS["Other"])
+    # --- UX: SMART DEFAULTS (v3.2) ---
+    for _dk in [f"reporting_start{s}", f"reporting_end{s}", f"evidence_date{s}"]:
+        if _dk not in st.session_state:
+            st.session_state[_dk] = date.today()
+    # --- END UX: SMART DEFAULTS (v3.2) ---
     return s, _ph
 
 
@@ -1515,7 +1618,10 @@ def _render_tab3_slot(slot: int):
     _bv_val = st.session_state.get(f"beneficiary_voice{s}", "")
     _bv_score = (_evaluator.compute_beneficiary_voice_bonus(_bv_val)
                  if hasattr(_evaluator, "compute_beneficiary_voice_bonus") else 0.0)
-    st.caption(f"Beneficiary Voice bonus: **+{_bv_score}/0.5** (Bond Evidence Principles 2024)")
+    # --- UX: CONDITIONAL FIELDS (v3.2) ---
+    if _bv_val and _bv_val != "No beneficiary voice captured":
+        st.caption(f"Beneficiary Voice bonus: **+{_bv_score}/0.5** (Bond Evidence Principles 2024)")
+    # --- END UX: CONDITIONAL FIELDS (v3.2) ---
 
     # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
     st.markdown("---")
@@ -1794,6 +1900,55 @@ def render_screen_1():
 
     active = st.session_state.get("active_slots", 1)
 
+    # --- UX: DYNAMIC SIDEBAR (v3.2) ---
+    with st.sidebar:
+        st.markdown("### 📋 Submission Summary")
+        st.caption("Updates as you fill in the form")
+        _sb_s = _slot_suffix(1)
+
+        def _sb_field(icon, label, key, trunc=None):
+            val = str(st.session_state.get(key, "")).strip()
+            if trunc and len(val) > trunc:
+                val = val[:trunc] + "…"
+            if val and val not in ("(No donor specified)", "(No sector selected)"):
+                st.markdown(f"{icon} **{label}:** {val}")
+            else:
+                st.caption(f"{icon} {label}: —")
+
+        _sb_field("🎯", "Result",      "result_statement",  80)
+        _sb_field("👥", "Target Group", "target_group")
+        _sb_field("📍", "Geography",   "geographic_scope")
+        _sb_field("📅", "Timeframe",   "timeframe")
+        _sb_field("🏢", "Donor",       "donor_selected")
+        _sb_field("📊", "Indicator",   "logframe_indicator", 60)
+        _t = st.session_state.get("logframe_target", "")
+        _a = st.session_state.get("logframe_achievement", "")
+        if _t or _a:
+            _t_d = _t if _t else "—"; _a_d = _a if _a else "—"
+            st.markdown(f"🎯 Target→Actual: **{_t_d} → {_a_d}**")
+        else:
+            st.caption("🎯 Target→Actual: —")
+        _sb_field("📎", "Evidence Type", f"evidence_type{_sb_s}")
+        _sb_field("✅", "Verifier", f"verifier{_sb_s}")
+
+        st.markdown("---")
+        try:
+            _sb_sub = _build_submission_from_session(1)
+            _sb_ev  = _evaluator.evaluate_submission(_sb_sub)
+            _sb_c   = _sb_ev.get("raw_confidence_score", 0)
+            _sb_cl  = _sb_ev.get("clarity_score", 0)
+            def _sbe(v): return "🟢" if v >= 4.0 else "🟡" if v >= 3.0 else "🔴"
+            st.markdown(f"**Confidence:** {_sbe(_sb_c)} {_sb_c}/5.0")
+            st.markdown(f"**Clarity:** {_sbe(_sb_cl)} {_sb_cl}/5.0")
+        except Exception:
+            st.caption("Fill in the form to see live scores")
+
+        st.markdown("---")
+        if st.button("💾 Save Draft", key="sidebar_save_draft", use_container_width=True):
+            _save_draft()
+            st.toast("Draft saved!", icon="💾")
+    # --- END UX: DYNAMIC SIDEBAR (v3.2) ---
+
     # Auto-save timer toast
     if "screen1_start_time" not in st.session_state:
         st.session_state["screen1_start_time"] = time.time()
@@ -1831,6 +1986,28 @@ def render_screen_1():
             st.markdown(f"**Key emphasis:** {_dg['key_emphasis']}")
             st.markdown(f"**Most common rejection:** {_dg['common_rejection']}")
             st.markdown(f"**Tip:** {_dg['tip']}")
+
+    # --- UX: SMART DEFAULTS (v3.2) ---
+    st.session_state["remembered_sector"] = st.session_state.get("sector", "")
+    st.session_state["remembered_donor"]  = st.session_state.get("donor_selected", "")
+    # --- END UX: SMART DEFAULTS (v3.2) ---
+
+    # --- UX: PROGRESS BAR (v3.2) ---
+    _cur_tab = st.session_state.get("current_tab", 0)
+    _tab_cols = st.columns(4)
+    for _ti, (_tc, _tn) in enumerate(zip(_tab_cols, _UX_TAB_NAMES)):
+        with _tc:
+            if _ti == _cur_tab:
+                st.markdown(
+                    f'<div style="text-align:center;padding:4px 2px;border-bottom:3px solid #1B5E20;color:#1B5E20;font-size:0.8rem;font-weight:700;">● {_tn}</div>',
+                    unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    f'<div style="text-align:center;padding:4px 2px;color:#9E9E9E;font-size:0.8rem;">{_ti+1}. {_tn}</div>',
+                    unsafe_allow_html=True)
+    st.progress(value=_cur_tab / 3.0)
+    st.caption(f"Step {_cur_tab + 1} of 4 — {_UX_TAB_NAMES[_cur_tab]}")
+    # --- END UX: PROGRESS BAR (v3.2) ---
 
     tab1, tab2, tab3, tab4 = st.tabs([
         "📌 Result Basics",
@@ -1901,6 +2078,86 @@ def render_screen_1():
                     st.session_state["active_slots"] = active + 1
                     st.rerun()
 
+        # --- UX: INSTANT REPORT CHECK (v3.2) ---
+        st.radio(
+            "How would you like to fill in the form?",
+            ["✍️ Fill in manually", "⚡ Instant Report Check"],
+            horizontal=True,
+            key="entry_mode",
+        )
+        if st.session_state.get("entry_mode") == "⚡ Instant Report Check":
+            with st.expander(
+                "⚡ Instant Report Check — Upload your draft report to auto-fill this form",
+                expanded=True,
+            ):
+                st.caption(
+                    "Upload your donor report template, narrative report, or results data. "
+                    "We’ll extract key information and pre-fill the form for you."
+                )
+                _irc_file = st.file_uploader(
+                    "Upload report file",
+                    type=["pdf", "docx", "csv", "xlsx", "json"],
+                    key="instant_report_upload",
+                )
+                if st.button("🔍 Run Instant Check", key="run_instant_check") and _irc_file:
+                    with st.spinner("Extracting content…"):
+                        try:
+                            _fname = _irc_file.name.lower()
+                            _raw = _irc_file.read()
+                            _extracted = ""
+                            if _fname.endswith(".json"):
+                                import json as _json
+                                _extracted = _json.dumps(_json.loads(_raw), indent=2)[:4000]
+                            elif _fname.endswith(".csv"):
+                                if _HAS_PANDAS:
+                                    import io
+                                    _extracted = _pd.read_csv(io.BytesIO(_raw)).to_string(max_rows=100)[:4000]
+                                else:
+                                    _extracted = _raw.decode("utf-8", errors="ignore")[:4000]
+                            elif _fname.endswith(".xlsx"):
+                                if _HAS_PANDAS:
+                                    import io
+                                    _extracted = _pd.read_excel(io.BytesIO(_raw)).to_string(max_rows=100)[:4000]
+                                else:
+                                    st.warning("pandas not available — cannot parse Excel. Try CSV or JSON.")
+                            elif _fname.endswith(".pdf"):
+                                if _HAS_FITZ:
+                                    import io
+                                    _doc = _fitz.open(stream=io.BytesIO(_raw), filetype="pdf")
+                                    _extracted = " ".join(p.get_text() for p in _doc)[:4000]
+                                else:
+                                    st.warning("PyMuPDF not installed. Install it to parse PDFs.")
+                            elif _fname.endswith(".docx"):
+                                if _HAS_DOCX:
+                                    import io
+                                    _doc2 = _docx.Document(io.BytesIO(_raw))
+                                    _extracted = "\n".join(p.text for p in _doc2.paragraphs)[:4000]
+                                else:
+                                    st.warning("python-docx not installed. Install it to parse DOCX files.")
+                            if _extracted:
+                                _irc_client = _anthropic.Anthropic()
+                                _irc_resp = _irc_client.messages.create(
+                                    model="claude-haiku-4-5-20251001",
+                                    max_tokens=1024,
+                                    system=INSTANT_CHECK_SYSTEM_PROMPT,
+                                    messages=[{"role": "user", "content": _extracted}],
+                                )
+                                import json as _ijson
+                                _irc_data = _ijson.loads(_irc_resp.content[0].text)
+                                _irc_filled = 0
+                                for _ek, _sk in _INSTANT_KEY_MAP.items():
+                                    _ev = _irc_data.get(_ek, "")
+                                    if _ev:
+                                        st.session_state[_sk] = _ev
+                                        _irc_filled += 1
+                                st.success(f"⚡ Instant Check complete — {_irc_filled} fields extracted and pre-filled. Scroll down to review.")
+                                st.json(_irc_data)
+                            else:
+                                st.warning("Could not extract text from this file. Try a different format.")
+                        except Exception as _irc_exc:
+                            st.error(f"Extraction failed: {_irc_exc}. Please fill the form manually.")
+        # --- END UX: INSTANT REPORT CHECK (v3.2) ---
+
         for slot in range(1, active + 1):
             if active > 1:
                 st.markdown(f"---\n#### Result {slot}")
@@ -1922,6 +2179,22 @@ def render_screen_1():
 
     with tab4:
         st.caption("Review your scores, download your draft, and submit when ready.")
+
+        # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
+        try:
+            _banner_sub = _build_submission_from_session(1)
+            _banner_ev  = _evaluator.evaluate_submission(_banner_sub)
+            _banner_c   = round(_banner_ev.get("raw_confidence_score", 0) * 20, 1)
+            _banner_cl  = round(_banner_ev.get("clarity_score", 0) * 20, 1)
+            if _banner_c >= 75 and _banner_cl >= 75:
+                st.success("✅ Strong Submission — Your result meets quality thresholds for donor submission.")
+            elif _banner_c >= 50 or _banner_cl >= 50:
+                st.warning("⚠️ Submission Needs Work — Address the items below before submitting.")
+            else:
+                st.error("🔴 High Risk — This result is likely to be queried or rejected. Fix critical issues first.")
+        except Exception:
+            pass
+        # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
         with st.expander("📊 Live Score Preview", expanded=True):
             _render_live_score_preview(1)
