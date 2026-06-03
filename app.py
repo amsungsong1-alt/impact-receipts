@@ -2142,7 +2142,18 @@ def render_screen_1():
                                 else:
                                     st.warning("python-docx not installed. Install it to parse DOCX files.")
                             if _extracted:
-                                _irc_client = _anthropic.Anthropic()
+                                _irc_api_key = (
+                                    st.secrets.get("ANTHROPIC_API_KEY")
+                                    if hasattr(st, "secrets") else None
+                                ) or os.environ.get("ANTHROPIC_API_KEY")
+                                if not _irc_api_key:
+                                    st.error(
+                                        "⚠️ **ANTHROPIC_API_KEY not set.** "
+                                        "Add it to your .env file (locally) or Streamlit Cloud secrets. "
+                                        "See: https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management"
+                                    )
+                                    st.stop()
+                                _irc_client = _anthropic.Anthropic(api_key=_irc_api_key)
                                 _irc_resp = _irc_client.messages.create(
                                     model="claude-haiku-4-5-20251001",
                                     max_tokens=1024,
