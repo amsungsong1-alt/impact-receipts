@@ -804,6 +804,12 @@ def _init_session_state():
         "remembered_donor":    "",
         "remembered_sector":   "",
         # --- END UX (v3.2) ---
+        # --- v3.3 additions ---
+        "donor_other":         "",
+        "report_level":        "(Not specified)",
+        "_tab1_auto_advanced": False,
+        "_tab2_auto_advanced": False,
+        # --- END v3.3 ---
     }
     for key, default in defaults.items():
         if key not in st.session_state:
@@ -827,6 +833,8 @@ _BASE_FORM_KEYS = [
     "independent_ev", "signed_audit", "recommendations_ev",
     # governance & compliance (v3.2)
     "gov_consent_status", "gov_anonymization_status", "gov_compliance_law_status",
+    # v3.3
+    "donor_other", "report_level",
 ]
 
 _BV_OPTIONS = [
@@ -852,7 +860,8 @@ def _reset_all_slots():
         for k in ["evidence_date", "uploaded_files", "draft_uploaded_filenames"]:
             st.session_state.pop(f"{k}{s}", None)
     for k in ["active_slots", "evaluations", "submissions_snapshot",
-              "evaluation", "submission_snapshot", "error_message", "active_slots_run"]:
+              "evaluation", "submission_snapshot", "error_message", "active_slots_run",
+              "_tab1_auto_advanced", "_tab2_auto_advanced"]:
         st.session_state.pop(k, None)
 
 
@@ -1613,6 +1622,18 @@ def _tab_slot_setup(slot: int):
     return s, _ph
 
 
+# --- v3.3 field-validation marker sets ---
+_DEMO_MARKERS = {"farmer", "women", "woman", "youth", "child", "children", "household",
+    "teacher", "worker", "patient", "student", "beneficiar", "community",
+    "resident", "family", "families", "men", "girl", "boy", "aged", "adult"}
+_DATE_MARKERS = {"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep",
+    "oct", "nov", "dec", "q1", "q2", "q3", "q4", "quarter", "2023", "2024",
+    "2025", "2026", "2027", "month", "year", "period", "week"}
+_LOC_MARKERS  = {"district", "region", "province", "state", "county", "city", "town",
+    "village", "community", "ward", "national", "local", "ghana", "nigeria",
+    "kenya", "uganda", "ethiopia", "senegal", "africa", "northern", "southern",
+    "eastern", "western", "central", "zone", "area", "site"}
+
 def _render_tab1_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
     st.text_area(
@@ -1650,6 +1671,27 @@ def _render_tab1_slot(slot: int):
         placeholder=_ph["geographic_scope"],
         help="Districts, regions, or specific sites. 'Volta Region' beats 'rural areas'.",
     )
+    _tg = st.session_state.get(f"target_group{s}", "").strip()
+    _rs_filled = bool(st.session_state.get(f"result_statement{s}", "").strip())
+    _tg_hint = _ph.get("target_group", "")
+    if _rs_filled and not _tg:
+        st.caption(f"💡 Hint: {_tg_hint}")
+    elif len(_tg) > 5 and not any(m in _tg.lower() for m in _DEMO_MARKERS):
+        st.warning("Target group should describe who was reached — include population type, age, or role.")
+
+    _tf = st.session_state.get(f"timeframe{s}", "").strip()
+    if _rs_filled and not _tf:
+        st.caption("💡 Hint: e.g., January – June 2025 or Q1 2026")
+    elif len(_tf) > 3 and not any(m in _tf.lower() for m in _DATE_MARKERS):
+        st.warning("Timeframe should include a date range or period, e.g. January–June 2025.")
+
+    _gs = st.session_state.get(f"geographic_scope{s}", "").strip()
+    _gs_hint = _ph.get("geographic_scope", "")
+    if _rs_filled and not _gs:
+        st.caption(f"💡 Hint: {_gs_hint}")
+    elif len(_gs) > 5 and not any(m in _gs.lower() for m in _LOC_MARKERS):
+        st.warning("Geographic scope should name specific districts, regions, or locations.")
+
     st.caption("Specificity in these fields adds to your Clarity score. Generic terms cap it.")
 
 
@@ -2212,13 +2254,27 @@ def render_screen_1():
         )
 
     st.selectbox(
+        "Type / Level of Report",
+        key="report_level",
+        options=["(Not specified)", "Baseline Report", "Mid-term Review", "End-line Evaluation",
+                 "Annual Progress Report", "Quarterly Progress Report", "Final Report", "Other"],
+        help="Select the type of report you are preparing. This helps tailor the diagnostic guidance.",
+    )
+
+    st.selectbox(
         "Primary donor for this submission",
         key="donor_selected",
-        options=["(No donor specified)", "USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "EU / EuropeAid"],
+        options=["(No donor specified)", "USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "EU / EuropeAid", "Other"],
         index=0,
         help="Select your primary donor to receive tailored reporting tips and donor-specific diagnostic guidance.",
     )
     _donor_val = st.session_state.get("donor_selected", "(No donor specified)")
+    if _donor_val == "Other":
+        st.text_input(
+            "Specify donor name",
+            key="donor_other",
+            placeholder="e.g., DFID, KfW, Bill & Melinda Gates Foundation",
+        )
     if _donor_val in DONOR_GUIDANCE:
         _dg = DONOR_GUIDANCE[_donor_val]
         with st.expander(f"💡 {_donor_val} reporting tips", expanded=True):
@@ -2366,12 +2422,37 @@ def render_screen_1():
                 st.markdown(f"---\n#### Result {slot}")
             _render_tab1_slot(slot)
 
+        # --- v3.3: auto-advance to Logframe tab when tab1 complete ---
+        _t1_done = all([
+            st.session_state.get("result_statement", "").strip(),
+            st.session_state.get("target_group", "").strip(),
+            st.session_state.get("timeframe", "").strip(),
+            st.session_state.get("geographic_scope", "").strip(),
+        ])
+        if _t1_done and not st.session_state.get("_tab1_auto_advanced"):
+            st.session_state["_tab1_auto_advanced"] = True
+            st.session_state["current_tab"] = 1
+            _nav_to_tab(1)
+        # --- END v3.3 ---
+
     with tab2:
         st.caption("💾 Draft auto-saves as you type.")
         for slot in range(1, active + 1):
             if active > 1:
                 st.markdown(f"---\n#### Result {slot}")
             _render_tab2_slot(slot)
+
+        # --- v3.3: auto-advance to Evidence tab when logframe complete ---
+        _t2_done = all([
+            st.session_state.get("logframe_indicator", "").strip(),
+            st.session_state.get("logframe_target", "").strip(),
+            st.session_state.get("logframe_achievement", "").strip(),
+        ])
+        if _t2_done and not st.session_state.get("_tab2_auto_advanced"):
+            st.session_state["_tab2_auto_advanced"] = True
+            st.session_state["current_tab"] = 2
+            _nav_to_tab(2)
+        # --- END v3.3 ---
 
     with tab3:
         st.caption("💾 Draft auto-saves as you type.")
