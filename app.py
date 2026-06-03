@@ -120,44 +120,93 @@ _INSTANT_KEY_MAP = {
 }
 _UX_TAB_NAMES = ["Result Basics", "Logframe Linkage", "Evidence & Verification", "Review & Submit"]
 
+# IRC field map: extracted key → session_state key
+# Excludes selectbox widgets (sector, donor_selected) that render before tab1
 _IRC_FIELD_MAP = {
-    "project_name":     "result_statement",
-    "reporting_period": "timeframe",
-    "implementing_org": "verifier",
-    "country":          "geographic_scope",
-    # "donor" and "sector" omitted — those are selectbox widgets rendered
-    # before tab1 content; setting them after instantiation raises StreamlitAPIException
+    # Result Basics tab
+    "result_statement":   "result_statement",
+    "target_group":       "target_group",
+    "timeframe":          "timeframe",
+    "geographic_scope":   "geographic_scope",
+    # Logframe Linkage tab
+    "logframe_indicator": "logframe_indicator",
+    "logframe_target":    "logframe_target",
+    "logframe_achievement": "logframe_achievement",
+    # Evidence & Verification tab
+    "evidence_description": "evidence_description",
+    "verifier":           "verifier",
 }
 
 _IRC_PATTERNS = {
-    "project_name": [
+    # --- Result Basics ---
+    "result_statement": [
+        r"(?:key\s+)?result\s+statement\s*[:\-]\s*(.+)",
+        r"reported\s+result\s*[:\-]\s*(.+)",
+        r"(?:key\s+)?result\s*[:\-]\s*(.+)",
+        r"output\s+(?:statement|achieved)\s*[:\-]\s*(.+)",
+        r"outcome\s+(?:statement|achieved)\s*[:\-]\s*(.+)",
+        r"achievement\s*[:\-]\s*(.+)",
         r"project\s+(?:name|title)\s*[:\-]\s*(.+)",
         r"programme\s+(?:name|title)\s*[:\-]\s*(.+)",
     ],
-    "donor": [
-        r"donor\s*[:\-]\s*(.+)",
-        r"funder\s*[:\-]\s*(.+)",
-        r"funded\s+by\s*[:\-]\s*(.+)",
-        r"client\s*[:\-]\s*(.+)",
+    "target_group": [
+        r"target\s+(?:group|population|beneficiaries|community)\s*[:\-]\s*(.+)",
+        r"beneficiar(?:y|ies)\s*[:\-]\s*(.+)",
+        r"primary\s+(?:beneficiar(?:y|ies)|target)\s*[:\-]\s*(.+)",
+        r"direct\s+beneficiar(?:y|ies)\s*[:\-]\s*(.+)",
     ],
-    "reporting_period": [
+    "timeframe": [
         r"reporting\s+period\s*[:\-]\s*(.+)",
         r"period\s+covered\s*[:\-]\s*(.+)",
+        r"implementation\s+period\s*[:\-]\s*(.+)",
+        r"timeframe\s*[:\-]\s*(.+)",
         r"report\s+period\s*[:\-]\s*(.+)",
+        r"(?:project|programme)\s+(?:duration|period)\s*[:\-]\s*(.+)",
     ],
-    "implementing_org": [
+    "geographic_scope": [
+        r"geographic(?:al)?\s+(?:scope|coverage|area)\s*[:\-]\s*(.+)",
+        r"country\s*[:\-]\s*(.+)",
+        r"(?:project\s+)?location\s*[:\-]\s*(.+)",
+        r"region\s*[:\-]\s*(.+)",
+        r"(?:target\s+)?(?:district|county|province|state)s?\s*[:\-]\s*(.+)",
+    ],
+    # --- Logframe Linkage ---
+    "logframe_indicator": [
+        r"(?:logframe\s+)?indicator\s*(?:name|description)?\s*[:\-]\s*(.+)",
+        r"(?:key\s+)?performance\s+indicator\s*[:\-]\s*(.+)",
+        r"output\s+indicator\s*[:\-]\s*(.+)",
+        r"outcome\s+indicator\s*[:\-]\s*(.+)",
+        r"KPI\s*[:\-]\s*(.+)",
+        r"M&E\s+indicator\s*[:\-]\s*(.+)",
+    ],
+    "logframe_target": [
+        r"(?:annual|cumulative|indicator)?\s*target\s*[:\-]\s*(.+)",
+        r"planned\s+(?:result|output|target)\s*[:\-]\s*(.+)",
+        r"(?:project|programme)\s+target\s*[:\-]\s*(.+)",
+    ],
+    "logframe_achievement": [
+        r"(?:actual|cumulative)?\s*achievement\s*[:\-]\s*(.+)",
+        r"actual\s+(?:result|output|figure)\s*[:\-]\s*(.+)",
+        r"(?:result|output)\s+achieved\s*[:\-]\s*(.+)",
+        r"delivered\s*[:\-]\s*(.+)",
+        r"number\s+(?:reached|trained|served|treated|supported)\s*[:\-]\s*(.+)",
+    ],
+    # --- Evidence & Verification ---
+    "evidence_description": [
+        r"(?:supporting\s+)?evidence\s*(?:description|type|source)?\s*[:\-]\s*(.+)",
+        r"data\s+source\s*[:\-]\s*(.+)",
+        r"verification\s+(?:source|method|means)\s*[:\-]\s*(.+)",
+        r"means\s+of\s+verification\s*[:\-]\s*(.+)",
+        r"data\s+collection\s+(?:method|tool|instrument)\s*[:\-]\s*(.+)",
+        r"(?:key\s+)?evidence\s+collected\s*[:\-]\s*(.+)",
+    ],
+    "verifier": [
+        r"verified\s+by\s*[:\-]\s*(.+)",
+        r"verification\s+by\s*[:\-]\s*(.+)",
         r"implementing\s+(?:organization|organisation|partner|agency)\s*[:\-]\s*(.+)",
         r"submitted\s+by\s*[:\-]\s*(.+)",
         r"prepared\s+by\s*[:\-]\s*(.+)",
-    ],
-    "country": [
-        r"country\s*[:\-]\s*(.+)",
-        r"location\s*[:\-]\s*(.+)",
-        r"region\s*[:\-]\s*(.+)",
-    ],
-    "sector": [
-        r"sector\s*[:\-]\s*(.+)",
-        r"thematic\s+area\s*[:\-]\s*(.+)",
+        r"(?:MEL|M&E)\s+officer\s*[:\-]\s*(.+)",
     ],
 }
 
