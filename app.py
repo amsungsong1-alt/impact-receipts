@@ -84,40 +84,93 @@ PII_EVIDENCE_TYPES = [
 # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
 # --- UX: INSTANT REPORT CHECK (v3.2) ---
-INSTANT_CHECK_SYSTEM_PROMPT = """
-You are a MEL (Monitoring, Evaluation and Learning) data extraction assistant.
-Extract the following fields from the report text provided.
-Return ONLY a valid JSON object with these exact keys:
-{
-  "result_statement": "",
-  "target_group": "",
-  "timeframe": "",
-  "geographic_scope": "",
-  "sector": "",
-  "primary_donor": "",
-  "logframe_indicator": "",
-  "original_target": "",
-  "actual_achievement": "",
-  "evidence_description": "",
-  "verifier_name": ""
-}
-If a field cannot be found, return an empty string for that key.
-Return ONLY the JSON. No preamble, no explanation, no markdown fences.
-""".strip()
+INSTANT_CHECK_SYSTEM_PROMPT = r'''You are an expert MEL (Monitoring, Evaluation, and Learning) data extraction engine for the Impact Integrity Diagnostic tool. Your job is to read donor-funded project progress reports and extract structured data to pre-fill a submission verification form.
 
-_INSTANT_KEY_MAP = {
-    "result_statement":   "result_statement",
-    "target_group":       "target_group",
-    "timeframe":          "timeframe",
-    "geographic_scope":   "geographic_scope",
-    "sector":             "sector",
-    "primary_donor":      "donor_selected",
-    "logframe_indicator": "logframe_indicator",
-    "original_target":    "logframe_target",
-    "actual_achievement": "logframe_achievement",
-    "evidence_description": "evidence_description",
-    "verifier_name":      "verifier",
-}
+## YOUR TASK
+
+Extract data from the progress report provided by the user and return a single, valid JSON object — no preamble, no markdown fences, no explanation. Return only the JSON.
+
+## EXTRACTION RULES
+
+### Rule 1 — Always Extract, Never Invent
+Extract only what is explicitly stated or can be directly inferred from the document text. Do not fabricate data. If a field is genuinely absent from the document, return "Not found" as the value (string, not null).
+
+### Rule 2 — Infer Intelligently
+For fields not explicitly labelled, infer from context. Examples:
+- If the report mentions "USAID / Feed the Future", the Primary Donor is "USAID / Feed the Future Ghana".
+- If activities span January–March 2026, the Reporting Period Start is "2026/01/01" and End is "2026/03/31".
+- If the report says "reviewed by MEL Officer", Internal Review is "Reviewed by MEL Officer".
+
+### Rule 3 — Date Format
+All dates must be formatted as YYYY/MM/DD.
+
+### Rule 4 — Geographic Scope
+Return as a JSON array of strings, one entry per district/region/location mentioned.
+
+### Rule 5 — Evidence Type Selection
+Map the described evidence to the closest standard type from this list:
+- "Attendance sheets / participant registers"
+- "Raw datasets or survey exports"
+- "Partner verification letters"
+- "Photos with metadata"
+- "Tracer survey results"
+- "Financial records"
+- "Third-party audits"
+- "Other"
+If multiple types apply, list the most dominant one.
+
+### Rule 6 — Submission Type Selection
+Choose from: "Narrative / technical report", "Donor progress report", "Annual report", "Evaluation report", "Baseline / endline report", "Learning brief"
+
+### Rule 7 — Compliance Flags
+For the three compliance fields (consent, anonymisation, data protection), if the document does not explicitly address them, return "Not found" — do NOT assume compliance.
+
+### Rule 8 — Logframe Linkage
+Extract the PRIMARY indicator that the main result statement reports against. If multiple indicators are listed, select the one with the highest strategic prominence (usually the reach/beneficiary count indicator at Output level).
+
+### Rule 9 — Evidence Narrative
+For "evidence_narrative", write a 2–4 sentence synthesis describing HOW the result was achieved and WHAT evidence exists, drawing from the activities and M&E sections. Do not copy-paste — synthesise.
+
+### Rule 10 — Result Statement
+The result statement should be the single clearest achievement sentence from the Executive Summary or KPI table. It must contain: (a) a number, (b) a target group, (c) a timeframe, and (d) a % achievement or comparison to target if available.
+
+## REQUIRED JSON OUTPUT STRUCTURE
+
+Return exactly this structure. Do not add or remove keys.
+
+{
+  "result_basics": {
+    "result_statement": "<string>",
+    "target_group": "<string>",
+    "timeframe": "<string>",
+    "geographic_scope": ["<string>"],
+    "sector": "<string>",
+    "primary_donor": "<string>"
+  },
+  "logframe_linkage": {
+    "indicator_name": "<string>",
+    "original_target": "<string>",
+    "actual_achievement": "<string>"
+  },
+  "evidence_verification": {
+    "evidence_narrative": "<string>",
+    "evidence_type": "<string>",
+    "internal_review": "<string>",
+    "external_review": "<string>",
+    "reporting_period_start": "<YYYY/MM/DD>",
+    "reporting_period_end": "<YYYY/MM/DD>",
+    "evidence_collection_date": "<YYYY/MM/DD>",
+    "consent_documented": "<string>",
+    "data_anonymised": "<string>",
+    "data_protection_compliant": "<string>"
+  },
+  "extraction_metadata": {
+    "implementing_org": "<string>",
+    "report_prepared_by": "<string>",
+    "confidence_note": "<one sentence describing extraction confidence and any gaps>"
+  }
+}'''
+
 _UX_TAB_NAMES = ["Result Basics", "Logframe Linkage", "Evidence & Verification", "Review & Submit"]
 
 # IRC field map: extracted key → session_state key
@@ -248,6 +301,36 @@ def _extract_report_fields(uploaded_file):
             fields[field] = ""
             not_found.append(field)
     return fields, found, not_found
+
+
+def _irc_parse_date(s):
+    """Parse YYYY/MM/DD string to date, return None on failure."""
+    if not s or s == "Not found":
+        return None
+    try:
+        return date.fromisoformat(s.replace("/", "-"))
+    except (ValueError, AttributeError):
+        return None
+
+
+def _irc_match_option(value, options):
+    """Fuzzy-match extracted string to a selectbox options list. Returns matched option or None."""
+    if not value or value == "Not found":
+        return None
+    vl = value.lower().strip()
+    for opt in options:
+        if vl == opt.lower().strip():
+            return opt
+    for opt in options:
+        ol = opt.lower()
+        if vl in ol or ol in vl:
+            return opt
+    vwords = vl.split()
+    for opt in options:
+        owords = opt.lower().split()
+        if vwords and (vwords[0] in owords or (owords and owords[0] in vwords)):
+            return opt
+    return None
 # --- END UX: INSTANT REPORT CHECK (v3.2) ---
 
 EVIDENCE_TYPE_HELP = (
@@ -2233,8 +2316,8 @@ def render_screen_1():
                 expanded=True,
             ):
                 st.caption(
-                    "Upload your donor report template, narrative report, or results data. "
-                    "Key fields will be extracted using pattern matching — no AI, no assumptions."
+                    "Upload your donor report (PDF or DOCX). "
+                    "Claude will extract key fields and pre-fill the form intelligently."
                 )
                 _irc_file = st.file_uploader(
                     "Upload report file",
@@ -2242,29 +2325,106 @@ def render_screen_1():
                     key="instant_report_upload",
                 )
                 if st.button("🔍 Run Instant Check", key="run_instant_check") and _irc_file:
-                    with st.spinner("Scanning document…"):
-                        _irc_result, _irc_found, _irc_not_found = _extract_report_fields(_irc_file)
-                        if _irc_result is None:
-                            st.warning(_irc_found)
-                        else:
-                            _irc_filled = 0
-                            for _ef, _sf in _IRC_FIELD_MAP.items():
-                                _ev = _irc_result.get(_ef, "")
-                                if _ev:
-                                    st.session_state[_sf] = _ev
-                                    _irc_filled += 1
-                            if _irc_filled:
-                                st.success(f"✅ Extracted {_irc_filled} field(s) from your document.")
-                            if _irc_not_found:
-                                _nf_str = ", ".join(_irc_not_found)
-                                st.info(
-                                    f"ℹ️ {len(_irc_not_found)} field(s) not found — "
-                                    f"fill manually: {_nf_str}"
+                    with st.spinner("Extracting content with AI…"):
+                        try:
+                            # Step 1: extract raw text
+                            _raw_fields, _rf_found, _rf_not_found = _extract_report_fields(_irc_file)
+                            if _raw_fields is None:
+                                st.warning(_rf_found)
+                            else:
+                                # Reconstruct full text from the file for AI
+                                import io as _io2
+                                _irc_file.seek(0)
+                                _raw2 = _irc_file.read()
+                                _fname2 = _irc_file.name.lower()
+                                _full_text = ""
+                                if _fname2.endswith(".pdf") and _HAS_PDFPLUMBER:
+                                    with _pdfplumber.open(_io2.BytesIO(_raw2)) as _p2:
+                                        for _pg2 in _p2.pages:
+                                            _pt2 = _pg2.extract_text()
+                                            if _pt2: _full_text += _pt2 + "\n"
+                                elif _fname2.endswith(".docx") and _HAS_DOCX:
+                                    _d2 = _docx.Document(_io2.BytesIO(_raw2))
+                                    _full_text = "\n".join(p.text for p in _d2.paragraphs)
+
+                                # Step 2: call Claude API
+                                _irc_api_key = (
+                                    st.secrets.get("ANTHROPIC_API_KEY")
+                                    if hasattr(st, "secrets") else None
+                                ) or os.environ.get("ANTHROPIC_API_KEY")
+                                if not _irc_api_key:
+                                    st.error("⚠️ ANTHROPIC_API_KEY not set. Add it to .env or Streamlit secrets.")
+                                    st.stop()
+                                _irc_client = _anthropic.Anthropic(api_key=_irc_api_key)
+                                _irc_resp = _irc_client.messages.create(
+                                    model="claude-haiku-4-5-20251001",
+                                    max_tokens=2048,
+                                    system=INSTANT_CHECK_SYSTEM_PROMPT,
+                                    messages=[{"role": "user", "content":
+                                        f"Please extract all fields from this progress report and return the JSON object only:\n\n{_full_text[:6000]}"}],
                                 )
-                            st.caption(
-                                "⚠️ Only data explicitly found in your document has been extracted. "
-                                "Nothing has been assumed or invented."
-                            )
+                                import json as _ijson2
+                                _irc_data = _ijson2.loads(_irc_resp.content[0].text)
+
+                                # Step 3: map to session state
+                                _rb  = _irc_data.get("result_basics", {})
+                                _ll  = _irc_data.get("logframe_linkage", {})
+                                _ev  = _irc_data.get("evidence_verification", {})
+                                _em  = _irc_data.get("extraction_metadata", {})
+                                _filled = 0
+
+                                def _set(key, val):
+                                    nonlocal _filled
+                                    if val and val != "Not found":
+                                        st.session_state[key] = val
+                                        _filled += 1
+
+                                # Result Basics (text fields only — sector/donor are selectboxes before tabs)
+                                _set("result_statement", _rb.get("result_statement"))
+                                _set("target_group",     _rb.get("target_group"))
+                                _set("timeframe",        _rb.get("timeframe"))
+                                _geo = _rb.get("geographic_scope")
+                                if _geo and _geo != "Not found":
+                                    _set("geographic_scope", ", ".join(_geo) if isinstance(_geo, list) else _geo)
+
+                                # Logframe Linkage
+                                _set("logframe_indicator",  _ll.get("indicator_name"))
+                                _set("logframe_target",     _ll.get("original_target"))
+                                _set("logframe_achievement",_ll.get("actual_achievement"))
+
+                                # Evidence & Verification
+                                _set("evidence_description", _ev.get("evidence_narrative"))
+                                _vm = _irc_match_option(_ev.get("evidence_type",""), EVIDENCE_TYPES)
+                                if _vm: st.session_state["evidence_type"] = _vm; _filled += 1
+                                _irm = _irc_match_option(_ev.get("internal_review",""), INTERNAL_REVIEW_OPTIONS)
+                                if _irm: st.session_state["internal_review"] = _irm; _filled += 1
+                                _erm = _irc_match_option(_ev.get("external_review",""), EXTERNAL_REVIEW_OPTIONS)
+                                if _erm: st.session_state["external_review"] = _erm; _filled += 1
+                                for _dk, _sk in [("reporting_period_start","reporting_start"),
+                                                  ("reporting_period_end","reporting_end"),
+                                                  ("evidence_collection_date","evidence_date")]:
+                                    _pd = _irc_parse_date(_ev.get(_dk,""))
+                                    if _pd: st.session_state[_sk] = _pd; _filled += 1
+
+                                # Verifier (from metadata)
+                                _ver = _em.get("implementing_org") or _em.get("report_prepared_by","")
+                                _set("verifier", _ver)
+
+                                # Results
+                                st.success(f"⚡ Instant Check complete — {_filled} fields extracted and pre-filled.")
+                                _conf = _em.get("confidence_note","")
+                                if _conf and _conf != "Not found":
+                                    st.info(f"ℹ️ {_conf}")
+                                _compliance = ["consent_documented","data_anonymised","data_protection_compliant"]
+                                _gaps = [f for f in _compliance if _ev.get(f,"") == "Not found"]
+                                if _gaps:
+                                    _gap_labels = {"consent_documented":"Consent documentation",
+                                                   "data_anonymised":"Data anonymisation",
+                                                   "data_protection_compliant":"Data protection compliance"}
+                                    _gap_str = ", ".join(_gap_labels.get(g,g) for g in _gaps)
+                                    st.warning(f"⚠️ {len(_gaps)} compliance gap(s) not found in document: {_gap_str}. Review before submission.")
+                        except Exception as _irc_exc:
+                            st.error(f"Extraction failed: {_irc_exc}. Please fill the form manually.")
         # --- END UX: INSTANT REPORT CHECK (v3.2) ---
 
         for slot in range(1, active + 1):
