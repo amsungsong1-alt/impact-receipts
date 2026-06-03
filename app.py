@@ -64,6 +64,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 EVIDENCE_TYPES = [
+    "— Select evidence type —",
     "Attendance sheets / participant registers",
     "Raw datasets or survey exports",
     "Partner verification letters",
@@ -1071,7 +1072,9 @@ def _compute_governance_score(slot: int):
     score = 0
     gaps  = []
 
-    if consent == "Yes — written consent forms on file":
+    if consent == "— Not selected —":
+        pass  # 0 pts, no gap — user has not answered yet
+    elif consent == "Yes — written consent forms on file":
         score += 5
     elif consent == "Yes — verbal consent documented":
         score += 3
@@ -1082,7 +1085,9 @@ def _compute_governance_score(slot: int):
     else:
         gaps.append("Consent not obtained")
 
-    if anon == "Yes — fully anonymized":
+    if anon == "— Not selected —":
+        pass  # 0 pts, no gap
+    elif anon == "Yes — fully anonymized":
         score += 4
     elif anon == "Partially anonymized":
         score += 2
@@ -1091,7 +1096,9 @@ def _compute_governance_score(slot: int):
     else:
         gaps.append("Evidence not anonymized")
 
-    if law.startswith("Yes"):
+    if law == "— Not selected —":
+        pass  # 0 pts, no gap
+    elif law.startswith("Yes"):
         score += 3
     elif law.startswith("Unsure"):
         score += 1
@@ -1358,12 +1365,12 @@ def _render_slot_fields(slot: int):
 
     for key, default in [
         (f"evidence_type{s}", EVIDENCE_TYPES[0]),
-        (f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0]),
-        (f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0]),
+        (f"internal_review{s}", "Not reviewed"),
+        (f"external_review{s}", "No external review"),
         # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
-        (f"gov_consent_status{s}", "Not applicable (no personal data)"),
-        (f"gov_anonymization_status{s}", "Not applicable"),
-        (f"gov_compliance_law_status{s}", "Not applicable"),
+        (f"gov_consent_status{s}", "— Not selected —"),
+        (f"gov_anonymization_status{s}", "— Not selected —"),
+        (f"gov_compliance_law_status{s}", "— Not selected —"),
         # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
     ]:
         if key not in st.session_state:
@@ -1581,12 +1588,12 @@ def _tab_slot_setup(slot: int):
     s = _slot_suffix(slot)
     for key, default in [
         (f"evidence_type{s}", EVIDENCE_TYPES[0]),
-        (f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0]),
-        (f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0]),
+        (f"internal_review{s}", "Not reviewed"),
+        (f"external_review{s}", "No external review"),
         # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
-        (f"gov_consent_status{s}", "Not applicable (no personal data)"),
-        (f"gov_anonymization_status{s}", "Not applicable"),
-        (f"gov_compliance_law_status{s}", "Not applicable"),
+        (f"gov_consent_status{s}", "— Not selected —"),
+        (f"gov_anonymization_status{s}", "— Not selected —"),
+        (f"gov_compliance_law_status{s}", "— Not selected —"),
         # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
     ]:
         if key not in st.session_state:
@@ -1594,11 +1601,6 @@ def _tab_slot_setup(slot: int):
     _sector = st.session_state.get("sector", SECTOR_OPTIONS[0])
     _ph_key = "Other" if _sector in ("Other", "(No sector selected)") else _sector
     _ph = SECTOR_PLACEHOLDERS.get(_ph_key, SECTOR_PLACEHOLDERS["Other"])
-    # --- UX: SMART DEFAULTS (v3.2) ---
-    for _dk in [f"reporting_start{s}", f"reporting_end{s}", f"evidence_date{s}"]:
-        if _dk not in st.session_state:
-            st.session_state[_dk] = date.today()
-    # --- END UX: SMART DEFAULTS (v3.2) ---
     return s, _ph
 
 
@@ -1870,6 +1872,7 @@ def _render_tab3_slot(slot: int):
             "Do you have documented consent from beneficiaries for their data "
             "to be shared with the donor?",
             options=[
+                "— Not selected —",
                 "Yes — written consent forms on file",
                 "Yes — verbal consent documented",
                 "Partial — some beneficiaries consented",
@@ -1881,6 +1884,7 @@ def _render_tab3_slot(slot: int):
         st.selectbox(
             "Has this evidence been anonymized or de-identified where required?",
             options=[
+                "— Not selected —",
                 "Yes — fully anonymized",
                 "Partially anonymized",
                 "No — not anonymized",
@@ -1892,6 +1896,7 @@ def _render_tab3_slot(slot: int):
             "Does your evidence collection method comply with the data protection "
             "law in your project's country?",
             options=[
+                "— Not selected —",
                 "Yes — compliant (e.g. Ghana Act 843, Nigeria NDPA, Kenya DPA)",
                 "Unsure — we haven't checked",
                 "No — we are not compliant",
