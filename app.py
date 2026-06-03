@@ -46,6 +46,12 @@ except ImportError:
     _docx = None
     _HAS_DOCX = False
 try:
+    import pdfplumber as _pdfplumber
+    _HAS_PDFPLUMBER = True
+except ImportError:
+    _pdfplumber = None
+    _HAS_PDFPLUMBER = False
+try:
     import pandas as _pd
     _HAS_PANDAS = True
 except ImportError:
@@ -113,6 +119,86 @@ _INSTANT_KEY_MAP = {
     "verifier_name":      "verifier",
 }
 _UX_TAB_NAMES = ["Result Basics", "Logframe Linkage", "Evidence & Verification", "Review & Submit"]
+
+_IRC_FIELD_MAP = {
+    "project_name":     "result_statement",
+    "donor":            "donor_selected",
+    "reporting_period": "timeframe",
+    "implementing_org": "verifier",
+    "country":          "geographic_scope",
+    "sector":           "sector",
+}
+
+_IRC_PATTERNS = {
+    "project_name": [
+        r"project\s+(?:name|title)\s*[:\-]\s*(.+)",
+        r"programme\s+(?:name|title)\s*[:\-]\s*(.+)",
+    ],
+    "donor": [
+        r"donor\s*[:\-]\s*(.+)",
+        r"funder\s*[:\-]\s*(.+)",
+        r"funded\s+by\s*[:\-]\s*(.+)",
+        r"client\s*[:\-]\s*(.+)",
+    ],
+    "reporting_period": [
+        r"reporting\s+period\s*[:\-]\s*(.+)",
+        r"period\s+covered\s*[:\-]\s*(.+)",
+        r"report\s+period\s*[:\-]\s*(.+)",
+    ],
+    "implementing_org": [
+        r"implementing\s+(?:organization|organisation|partner|agency)\s*[:\-]\s*(.+)",
+        r"submitted\s+by\s*[:\-]\s*(.+)",
+        r"prepared\s+by\s*[:\-]\s*(.+)",
+    ],
+    "country": [
+        r"country\s*[:\-]\s*(.+)",
+        r"location\s*[:\-]\s*(.+)",
+        r"region\s*[:\-]\s*(.+)",
+    ],
+    "sector": [
+        r"sector\s*[:\-]\s*(.+)",
+        r"thematic\s+area\s*[:\-]\s*(.+)",
+    ],
+}
+
+
+def _extract_report_fields(uploaded_file):
+    """Rule-based extraction. No AI. Returns (fields, found_list, not_found_list) or (None, error_str, [])."""
+    import re as _re, io as _io
+    text = ""
+    fname = uploaded_file.name.lower()
+    raw = uploaded_file.read()
+    if fname.endswith(".pdf"):
+        if not _HAS_PDFPLUMBER:
+            return None, "pdfplumber not installed. Run: pip install pdfplumber", []
+        with _pdfplumber.open(_io.BytesIO(raw)) as _pdf:
+            for _pg in _pdf.pages:
+                _pt = _pg.extract_text()
+                if _pt:
+                    text += _pt + "\n"
+    elif fname.endswith(".docx"):
+        if not _HAS_DOCX:
+            return None, "python-docx not installed. Run: pip install python-docx", []
+        _dobj = _docx.Document(_io.BytesIO(raw))
+        text = "\n".join(p.text for p in _dobj.paragraphs)
+    else:
+        return None, "Unsupported file type. Upload a PDF or DOCX.", []
+    if not text.strip():
+        return None, "Could not extract text. The file may be scanned/image-based.", []
+    fields, found, not_found = {}, [], []
+    for field, pats in _IRC_PATTERNS.items():
+        matched = False
+        for pat in pats:
+            m = _re.search(pat, text, _re.IGNORECASE)
+            if m:
+                fields[field] = m.group(1).strip()[:120]
+                found.append(field)
+                matched = True
+                break
+        if not matched:
+            fields[field] = ""
+            not_found.append(field)
+    return fields, found, not_found
 # --- END UX: INSTANT REPORT CHECK (v3.2) ---
 
 EVIDENCE_TYPE_HELP = (
@@ -2099,81 +2185,37 @@ def render_screen_1():
             ):
                 st.caption(
                     "Upload your donor report template, narrative report, or results data. "
-                    "We’ll extract key information and pre-fill the form for you."
+                    "Key fields will be extracted using pattern matching — no AI, no assumptions."
                 )
                 _irc_file = st.file_uploader(
                     "Upload report file",
-                    type=["pdf", "docx", "csv", "xlsx", "json"],
+                    type=["pdf", "docx"],
                     key="instant_report_upload",
                 )
                 if st.button("🔍 Run Instant Check", key="run_instant_check") and _irc_file:
-                    with st.spinner("Extracting content…"):
-                        try:
-                            _fname = _irc_file.name.lower()
-                            _raw = _irc_file.read()
-                            _extracted = ""
-                            if _fname.endswith(".json"):
-                                import json as _json
-                                _extracted = _json.dumps(_json.loads(_raw), indent=2)[:4000]
-                            elif _fname.endswith(".csv"):
-                                if _HAS_PANDAS:
-                                    import io
-                                    _extracted = _pd.read_csv(io.BytesIO(_raw)).to_string(max_rows=100)[:4000]
-                                else:
-                                    _extracted = _raw.decode("utf-8", errors="ignore")[:4000]
-                            elif _fname.endswith(".xlsx"):
-                                if _HAS_PANDAS:
-                                    import io
-                                    _extracted = _pd.read_excel(io.BytesIO(_raw)).to_string(max_rows=100)[:4000]
-                                else:
-                                    st.warning("pandas not available — cannot parse Excel. Try CSV or JSON.")
-                            elif _fname.endswith(".pdf"):
-                                if _HAS_FITZ:
-                                    import io
-                                    _doc = _fitz.open(stream=io.BytesIO(_raw), filetype="pdf")
-                                    _extracted = " ".join(p.get_text() for p in _doc)[:4000]
-                                else:
-                                    st.warning("PyMuPDF not installed. Install it to parse PDFs.")
-                            elif _fname.endswith(".docx"):
-                                if _HAS_DOCX:
-                                    import io
-                                    _doc2 = _docx.Document(io.BytesIO(_raw))
-                                    _extracted = "\n".join(p.text for p in _doc2.paragraphs)[:4000]
-                                else:
-                                    st.warning("python-docx not installed. Install it to parse DOCX files.")
-                            if _extracted:
-                                _irc_api_key = (
-                                    st.secrets.get("ANTHROPIC_API_KEY")
-                                    if hasattr(st, "secrets") else None
-                                ) or os.environ.get("ANTHROPIC_API_KEY")
-                                if not _irc_api_key:
-                                    st.error(
-                                        "⚠️ **ANTHROPIC_API_KEY not set.** "
-                                        "Add it to your .env file (locally) or Streamlit Cloud secrets. "
-                                        "See: https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management"
-                                    )
-                                    st.stop()
-                                _irc_client = _anthropic.Anthropic(api_key=_irc_api_key)
-                                _irc_resp = _irc_client.messages.create(
-                                    model="claude-haiku-4-5-20251001",
-                                    max_tokens=1024,
-                                    system=INSTANT_CHECK_SYSTEM_PROMPT,
-                                    messages=[{"role": "user", "content": _extracted}],
+                    with st.spinner("Scanning document…"):
+                        _irc_result, _irc_found, _irc_not_found = _extract_report_fields(_irc_file)
+                        if _irc_result is None:
+                            st.warning(_irc_found)
+                        else:
+                            _irc_filled = 0
+                            for _ef, _sf in _IRC_FIELD_MAP.items():
+                                _ev = _irc_result.get(_ef, "")
+                                if _ev:
+                                    st.session_state[_sf] = _ev
+                                    _irc_filled += 1
+                            if _irc_filled:
+                                st.success(f"✅ Extracted {_irc_filled} field(s) from your document.")
+                            if _irc_not_found:
+                                _nf_str = ", ".join(_irc_not_found)
+                                st.info(
+                                    f"ℹ️ {len(_irc_not_found)} field(s) not found — "
+                                    f"fill manually: {_nf_str}"
                                 )
-                                import json as _ijson
-                                _irc_data = _ijson.loads(_irc_resp.content[0].text)
-                                _irc_filled = 0
-                                for _ek, _sk in _INSTANT_KEY_MAP.items():
-                                    _ev = _irc_data.get(_ek, "")
-                                    if _ev:
-                                        st.session_state[_sk] = _ev
-                                        _irc_filled += 1
-                                st.success(f"⚡ Instant Check complete — {_irc_filled} fields extracted and pre-filled. Scroll down to review.")
-                                st.json(_irc_data)
-                            else:
-                                st.warning("Could not extract text from this file. Try a different format.")
-                        except Exception as _irc_exc:
-                            st.error(f"Extraction failed: {_irc_exc}. Please fill the form manually.")
+                            st.caption(
+                                "⚠️ Only data explicitly found in your document has been extracted. "
+                                "Nothing has been assumed or invented."
+                            )
         # --- END UX: INSTANT REPORT CHECK (v3.2) ---
 
         for slot in range(1, active + 1):
