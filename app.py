@@ -2348,10 +2348,11 @@ def render_screen_1():
                                     _full_text = "\n".join(p.text for p in _d2.paragraphs)
 
                                 # Step 2: call Claude API
-                                _irc_api_key = (
-                                    st.secrets.get("ANTHROPIC_API_KEY")
-                                    if hasattr(st, "secrets") else None
-                                ) or os.environ.get("ANTHROPIC_API_KEY")
+                                try:
+                                    _irc_api_key = st.secrets.get("ANTHROPIC_API_KEY")
+                                except Exception:
+                                    _irc_api_key = None
+                                _irc_api_key = _irc_api_key or os.environ.get("ANTHROPIC_API_KEY")
                                 if not _irc_api_key:
                                     st.error("⚠️ ANTHROPIC_API_KEY not set. Add it to .env or Streamlit secrets.")
                                     st.stop()
