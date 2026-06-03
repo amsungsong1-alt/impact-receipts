@@ -122,11 +122,11 @@ _UX_TAB_NAMES = ["Result Basics", "Logframe Linkage", "Evidence & Verification",
 
 _IRC_FIELD_MAP = {
     "project_name":     "result_statement",
-    "donor":            "donor_selected",
     "reporting_period": "timeframe",
     "implementing_org": "verifier",
     "country":          "geographic_scope",
-    "sector":           "sector",
+    # "donor" and "sector" omitted — those are selectbox widgets rendered
+    # before tab1 content; setting them after instantiation raises StreamlitAPIException
 }
 
 _IRC_PATTERNS = {
