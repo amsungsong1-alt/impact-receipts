@@ -504,6 +504,81 @@ EXTERNAL_REVIEW_OPTIONS = [
     "Other",
 ]
 
+SUBMISSION_CHECKLIST = {
+    "Project proposal": [
+        ("cl_proposal",       "Narrative / technical proposal"),
+        ("cl_budget",         "Budget / financial plan"),
+        ("cl_logframe",       "Logframe / results framework"),
+        ("cl_annexes",        "Annexes (supporting docs)"),
+        ("cl_implementation", "Implementation plan"),
+        ("cl_org_docs",       "Organisational documents"),
+    ],
+    "Baseline report": [
+        ("cl_methodology",    "Baseline methodology & tools"),
+        ("cl_findings",       "Baseline findings report"),
+        ("cl_disaggregated",  "Disaggregated / beneficiary data"),
+        ("cl_logframe",       "Updated indicators / logframe"),
+        ("cl_annexes",        "Annexes with tools or datasets"),
+    ],
+    "Quarterly progress report": [
+        ("cl_narrative",      "Narrative / technical report"),
+        ("cl_logframe",       "Updated logframe with achievements"),
+        ("cl_disaggregated",  "Beneficiary / disaggregated data"),
+        ("cl_annexes",        "Annexes / evidence"),
+        ("cl_variance",       "Budget variance report (if requested)"),
+    ],
+    "Annual progress report": [
+        ("cl_narrative",      "Narrative / technical report"),
+        ("cl_financial",      "Financial report"),
+        ("cl_logframe",       "Updated logframe with achievements"),
+        ("cl_disaggregated",  "Beneficiary / disaggregated data"),
+        ("cl_annexes",        "Annexes / evidence"),
+        ("cl_sustainability", "Sustainability / next-step plan"),
+    ],
+    "Mid-term review": [
+        ("cl_findings",       "Review / field verification report"),
+        ("cl_logframe",       "Progress against logframe"),
+        ("cl_annexes",        "Annexes / evidence"),
+        ("cl_action_plan",    "Action plan (if required)"),
+    ],
+    "End-line evaluation": [
+        ("cl_evaluation",     "Evaluation report"),
+        ("cl_methodology",    "Methodology documentation"),
+        ("cl_findings",       "Findings with disaggregated outcomes"),
+        ("cl_annexes",        "Annexes / evidence"),
+        ("cl_learning",       "Learning / dissemination summary"),
+    ],
+    "Final/closeout report": [
+        ("cl_narrative",      "Final narrative report"),
+        ("cl_financial",      "Final financial report"),
+        ("cl_audit",          "Audit report (if required)"),
+        ("cl_logframe",       "Updated logframe / achievements"),
+        ("cl_disaggregated",  "Beneficiary / disaggregated data"),
+        ("cl_sustainability", "Sustainability / exit plan"),
+        ("cl_annexes",        "Annexes"),
+    ],
+    "Financial report": [
+        ("cl_expense_summary","Expense summary"),
+        ("cl_variance",       "Budget vs actual / variance explanation"),
+        ("cl_schedules",      "Supporting financial schedules"),
+        ("cl_bank_recon",     "Bank / ledger reconciliation"),
+    ],
+    "MEL plan": [
+        ("cl_indicators",     "Indicators & targets"),
+        ("cl_data_sources",   "Data sources & collection methods"),
+        ("cl_reporting_cal",  "Reporting calendar"),
+        ("cl_roles",          "Roles & responsibilities"),
+        ("cl_data_quality",   "Data quality procedures"),
+        ("cl_methodology",    "Data collection tools / methodology"),
+    ],
+    "Others (Special/Ad-hoc reports)": [
+        ("cl_narrative",      "Narrative / technical report"),
+        ("cl_annexes",        "Donor-specific annexes"),
+        ("cl_case_studies",   "Case studies / special studies"),
+        ("cl_safeguarding",   "Safeguarding / compliance reports"),
+    ],
+}
+
 # ---------------------------------------------------------------------------
 # CSS — injected once at app load
 # ---------------------------------------------------------------------------
@@ -835,6 +910,13 @@ _BASE_FORM_KEYS = [
     "gov_consent_status", "gov_anonymization_status", "gov_compliance_law_status",
     # v3.3
     "donor_other", "report_level",
+    # v3.3 checklist keys
+    "cl_proposal", "cl_implementation", "cl_org_docs", "cl_methodology",
+    "cl_findings", "cl_disaggregated", "cl_variance", "cl_action_plan",
+    "cl_evaluation", "cl_learning", "cl_expense_summary", "cl_schedules",
+    "cl_bank_recon", "cl_indicators", "cl_data_sources", "cl_reporting_cal",
+    "cl_roles", "cl_data_quality", "cl_case_studies", "cl_safeguarding",
+    "cl_beneficiary",
 ]
 
 _BV_OPTIONS = [
@@ -2254,14 +2336,6 @@ def render_screen_1():
         )
 
     st.selectbox(
-        "Type / Level of Report",
-        key="report_level",
-        options=["(Not specified)", "Baseline Report", "Mid-term Review", "End-line Evaluation",
-                 "Annual Progress Report", "Quarterly Progress Report", "Final Report", "Other"],
-        help="Select the type of report you are preparing. This helps tailor the diagnostic guidance.",
-    )
-
-    st.selectbox(
         "Primary donor for this submission",
         key="donor_selected",
         options=["(No donor specified)", "USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "EU / EuropeAid", "Other"],
@@ -2322,40 +2396,40 @@ def render_screen_1():
             st.selectbox(
                 "What type of submission is this for?",
                 options=[
+                    "Choose an option...",
                     "Quarterly progress report",
                     "Annual progress report",
+                    "Baseline report",
                     "Mid-term review",
-                    "Final / closeout report",
+                    "End-line evaluation",
+                    "Final/closeout report",
                     "Project proposal",
-                    "Other",
+                    "Financial report",
+                    "MEL plan",
+                    "Others (Special/Ad-hoc reports)",
                 ],
                 key="submission_type",
             )
-            st.markdown("**Tick what your donor requires for this submission:**")
-            _cl1, _cl2 = st.columns(2)
-            with _cl1:
-                st.checkbox("Narrative / technical report",                      value=True, key="cl_narrative")
-                st.checkbox("Financial report",                                              key="cl_financial")
-                st.checkbox("Audit report (often required for final reports)",               key="cl_audit")
-                st.checkbox("Updated logframe with achievements",                            key="cl_logframe")
-            with _cl2:
-                st.checkbox("Annexes (evidence, datasets, photos)",                          key="cl_annexes")
-                st.checkbox("Beneficiary lists / disaggregated data",                        key="cl_beneficiary")
-                st.checkbox("Sustainability / exit plan",                                    key="cl_sustainability")
-                st.checkbox("Budget balance / variance report",                              key="cl_budget")
-            _n_ticked = sum(
-                st.session_state.get(k, False)
-                for k in ("cl_narrative", "cl_financial", "cl_audit", "cl_logframe",
-                          "cl_annexes", "cl_beneficiary", "cl_sustainability", "cl_budget")
-            )
             _sub_type = st.session_state.get("submission_type", "")
-            if _sub_type == "Final / closeout report" and _n_ticked < 5:
-                st.warning(
-                    f"Final / closeout reports typically require 5+ deliverables. "
-                    f"You've ticked {_n_ticked}. Confirm with your donor what's required."
-                )
+            _checklist_items = SUBMISSION_CHECKLIST.get(_sub_type, [])
+            if _checklist_items:
+                st.markdown(f"**Tick what your donor requires for a {_sub_type}:**")
+                _chk_cols = [_checklist_items[i::2] for i in range(2)]
+                _cl1, _cl2 = st.columns(2)
+                for _col, _chunk in zip([_cl1, _cl2], _chk_cols):
+                    with _col:
+                        for _ckey, _clabel in _chunk:
+                            st.checkbox(_clabel, key=_ckey)
+                _n_ticked = sum(st.session_state.get(k, False) for k, _ in _checklist_items)
+                _n_total  = len(_checklist_items)
+                if _n_ticked == _n_total:
+                    st.success(f"✅ All {_n_total} required items confirmed for {_sub_type}.")
+                else:
+                    st.info(f"{_n_ticked} of {_n_total} required item(s) confirmed.")
+            elif _sub_type and _sub_type not in ("Choose an option...", ""):
+                st.info("No standard checklist defined for this submission type.")
             else:
-                st.info(f"{_n_ticked} deliverable(s) selected.")
+                st.caption("Select a submission type above to see the required items checklist.")
             st.caption(
                 "**Common rejection cause:** Submitting a narrative report without the audit report "
                 "(for final reports) or without the financial report (for quarterly reports). "
