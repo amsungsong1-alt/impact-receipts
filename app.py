@@ -64,7 +64,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 EVIDENCE_TYPES = [
-    "— Select evidence type —",
+    "Choose an option...",
     "Attendance sheets / participant registers",
     "Raw datasets or survey exports",
     "Partner verification letters",
@@ -489,6 +489,7 @@ _DIAGNOSTIC_BADGE = {
 }
 
 INTERNAL_REVIEW_OPTIONS = [
+    "Choose an option...",
     "Reviewed by MEL Officer",
     "Collected only (no review)",
     "Not reviewed",
@@ -496,6 +497,7 @@ INTERNAL_REVIEW_OPTIONS = [
 ]
 
 EXTERNAL_REVIEW_OPTIONS = [
+    "Choose an option...",
     "Verified by independent third party",
     "External partner review",
     "No external review",
@@ -828,6 +830,7 @@ _BASE_FORM_KEYS = [
 ]
 
 _BV_OPTIONS = [
+    "Choose an option...",
     "No beneficiary voice captured",
     "Direct beneficiary feedback collected (e.g., Lean Data survey, focus groups, NPS)",
     "Beneficiary representatives consulted (community leaders, beneficiary committees)",
@@ -1072,7 +1075,7 @@ def _compute_governance_score(slot: int):
     score = 0
     gaps  = []
 
-    if consent == "— Not selected —":
+    if consent == "Choose an option...":
         pass  # 0 pts, no gap — user has not answered yet
     elif consent == "Yes — written consent forms on file":
         score += 5
@@ -1085,7 +1088,7 @@ def _compute_governance_score(slot: int):
     else:
         gaps.append("Consent not obtained")
 
-    if anon == "— Not selected —":
+    if anon == "Choose an option...":
         pass  # 0 pts, no gap
     elif anon == "Yes — fully anonymized":
         score += 4
@@ -1096,7 +1099,7 @@ def _compute_governance_score(slot: int):
     else:
         gaps.append("Evidence not anonymized")
 
-    if law == "— Not selected —":
+    if law == "Choose an option...":
         pass  # 0 pts, no gap
     elif law.startswith("Yes"):
         score += 3
@@ -1365,12 +1368,12 @@ def _render_slot_fields(slot: int):
 
     for key, default in [
         (f"evidence_type{s}", EVIDENCE_TYPES[0]),
-        (f"internal_review{s}", "Not reviewed"),
-        (f"external_review{s}", "No external review"),
+        (f"internal_review{s}", "Choose an option..."),
+        (f"external_review{s}", "Choose an option..."),
         # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
-        (f"gov_consent_status{s}", "— Not selected —"),
-        (f"gov_anonymization_status{s}", "— Not selected —"),
-        (f"gov_compliance_law_status{s}", "— Not selected —"),
+        (f"gov_consent_status{s}", "Choose an option..."),
+        (f"gov_anonymization_status{s}", "Choose an option..."),
+        (f"gov_compliance_law_status{s}", "Choose an option..."),
         # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
     ]:
         if key not in st.session_state:
@@ -1521,17 +1524,23 @@ def _render_slot_fields(slot: int):
     _rp_col_s, _rp_col_e = st.columns(2)
     with _rp_col_s:
         st.date_input(
-            "Reporting period start", key=f"reporting_start{s}",
+            "Reporting period start",
+            value=st.session_state.get(f"reporting_start{s}"),
+            key=f"reporting_start{s}",
             help="When does the period this report covers begin?",
         )
     with _rp_col_e:
         st.date_input(
-            "Reporting period end", key=f"reporting_end{s}",
+            "Reporting period end",
+            value=st.session_state.get(f"reporting_end{s}"),
+            key=f"reporting_end{s}",
             help="When does the period this report covers end?",
         )
 
     st.date_input(
-        "When was this evidence collected?", key=f"evidence_date{s}",
+        "When was this evidence collected?",
+        value=st.session_state.get(f"evidence_date{s}"),
+        key=f"evidence_date{s}",
         help="When was the data collected? Use the most recent date if multiple sources.",
     )
     _ed = st.session_state.get(f"evidence_date{s}")
@@ -1591,9 +1600,9 @@ def _tab_slot_setup(slot: int):
         (f"internal_review{s}", "Not reviewed"),
         (f"external_review{s}", "No external review"),
         # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
-        (f"gov_consent_status{s}", "— Not selected —"),
-        (f"gov_anonymization_status{s}", "— Not selected —"),
-        (f"gov_compliance_law_status{s}", "— Not selected —"),
+        (f"gov_consent_status{s}", "Choose an option..."),
+        (f"gov_anonymization_status{s}", "Choose an option..."),
+        (f"gov_compliance_law_status{s}", "Choose an option..."),
         # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
     ]:
         if key not in st.session_state:
@@ -1846,7 +1855,7 @@ def _render_tab3_slot(slot: int):
     _bv_score = (_evaluator.compute_beneficiary_voice_bonus(_bv_val)
                  if hasattr(_evaluator, "compute_beneficiary_voice_bonus") else 0.0)
     # --- UX: CONDITIONAL FIELDS (v3.2) ---
-    if _bv_val and _bv_val != "No beneficiary voice captured":
+    if _bv_val and _bv_val not in ("No beneficiary voice captured", "Choose an option..."):
         st.caption(f"Beneficiary Voice bonus: **+{_bv_score}/0.5** (Bond Evidence Principles 2024)")
     # --- END UX: CONDITIONAL FIELDS (v3.2) ---
 
@@ -1872,7 +1881,7 @@ def _render_tab3_slot(slot: int):
             "Do you have documented consent from beneficiaries for their data "
             "to be shared with the donor?",
             options=[
-                "— Not selected —",
+                "Choose an option...",
                 "Yes — written consent forms on file",
                 "Yes — verbal consent documented",
                 "Partial — some beneficiaries consented",
@@ -1884,7 +1893,7 @@ def _render_tab3_slot(slot: int):
         st.selectbox(
             "Has this evidence been anonymized or de-identified where required?",
             options=[
-                "— Not selected —",
+                "Choose an option...",
                 "Yes — fully anonymized",
                 "Partially anonymized",
                 "No — not anonymized",
@@ -1896,7 +1905,7 @@ def _render_tab3_slot(slot: int):
             "Does your evidence collection method comply with the data protection "
             "law in your project's country?",
             options=[
-                "— Not selected —",
+                "Choose an option...",
                 "Yes — compliant (e.g. Ghana Act 843, Nigeria NDPA, Kenya DPA)",
                 "Unsure — we haven't checked",
                 "No — we are not compliant",
