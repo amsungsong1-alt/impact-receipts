@@ -31,6 +31,29 @@ from prompts import (
 )
 from donor_templates import DONOR_DIAGNOSTICS
 
+# --- Payment / auth / DB utilities ---
+try:
+    from utils.db import (
+        get_user, upsert_user, increment_checks, mark_paid,
+        is_still_paid, save_example, get_examples,
+    )
+    from utils.paystack import initialize_payment, verify_payment
+    from utils.anonymize import anonymize as _anonymize_value
+    _UTILS_AVAILABLE = True
+except ImportError:
+    _UTILS_AVAILABLE = False
+    def get_user(e): return None
+    def upsert_user(e): return None
+    def increment_checks(e): pass
+    def mark_paid(e, days=30): pass
+    def is_still_paid(u): return False
+    def save_example(f, s, v): pass
+    def get_examples(f, s, k=5): return []
+    def initialize_payment(e, a, p="per_use"): return ""
+    def verify_payment(r): return {"status": "error", "amount": 0, "plan": ""}
+    def _anonymize_value(v): return None
+# --- End utils imports ---
+
 # --- UX: INSTANT REPORT CHECK IMPORTS (v3.2) ---
 import anthropic as _anthropic
 try:
@@ -62,6 +85,12 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+
+# --- Payment / usage constants (edit amounts here) ---
+FREE_CHECKS_LIMIT     = 3          # free manual checks per user
+PRICE_PER_CHECK_GHS   = 500        # pesewas  (GHS 5.00)
+PRICE_MONTHLY_GHS     = 5000       # pesewas  (GHS 50.00/month)
+# --- End payment constants ---
 
 EVIDENCE_TYPES = [
     "Choose an option...",
@@ -881,6 +910,11 @@ def _init_session_state():
         # --- END UX (v3.2) ---
         # --- v3.3 additions ---
         "donor_other":         "",
+        # --- auth / payment ---
+        "user_email":          "",
+        "is_paid":             False,
+        "consent_examples":    False,
+        # --- end auth ---
         "report_level":        "(Not specified)",
         "_tab1_auto_advanced": False,
         "_tab2_auto_advanced": False,
@@ -1215,6 +1249,33 @@ def _nav_to_tab(idx: int):
         f'}}, 150);</script>',
         height=0,
     )
+
+def _render_paywall():
+    """Show upgrade/payment options when free limit is reached."""
+    email = st.session_state.get("user_email", "")
+    st.error(f"🔒 You've used all {FREE_CHECKS_LIMIT} free checks.")
+    st.markdown(
+        "Upgrade to run more checks and unlock the Instant Report Check "
+        "(AI-powered auto-fill from uploaded documents)."
+    )
+    _c1, _c2 = st.columns(2)
+    with _c1:
+        st.markdown(f"**Pay-per-use:** GHS {PRICE_PER_CHECK_GHS/100:.0f}")
+        if st.button("Pay for 1 Check", key="pay_once"):
+            _url = initialize_payment(email, PRICE_PER_CHECK_GHS, "per_use")
+            if _url:
+                st.link_button("Complete Payment →", _url)
+            else:
+                st.error("Payment service unavailable. Try again shortly.")
+    with _c2:
+        st.markdown(f"**Monthly unlimited:** GHS {PRICE_MONTHLY_GHS/100:.0f}/month")
+        if st.button("Subscribe Monthly", key="pay_monthly"):
+            _url = initialize_payment(email, PRICE_MONTHLY_GHS, "monthly")
+            if _url:
+                st.link_button("Complete Payment →", _url)
+            else:
+                st.error("Payment service unavailable. Try again shortly.")
+
 
 def _render_live_score_preview(slot: int = 1):
     sub = _build_submission_from_session(slot)
@@ -2139,6 +2200,28 @@ def render_screen_0():
             if not st.session_state.get("has_seen_tutorial"):
                 st.session_state["tutorial_step"] = 1
             _go_to_screen(1, reset=True)
+    # --- Email gate: must enter email before first check ---
+    if not st.session_state.get("user_email"):
+        st.markdown("---")
+        st.markdown("#### 📧 Enter your email to get started")
+        st.caption("No password needed. We use your email to track your free checks.")
+        with st.form("email_gate_form"):
+            _gate_email = st.text_input("Email address", placeholder="you@organisation.org")
+            if st.form_submit_button("Continue →", use_container_width=True):
+                if "@" in _gate_email and "." in _gate_email.split("@")[-1]:
+                    _e = _gate_email.strip().lower()
+                    st.session_state["user_email"] = _e
+                    upsert_user(_e)
+                    # restore paid status from DB
+                    _u = get_user(_e)
+                    if _u and is_still_paid(_u):
+                        st.session_state["is_paid"] = True
+                    st.rerun()
+                else:
+                    st.warning("Please enter a valid email address.")
+        st.stop()
+    # --- End email gate ---
+
     with col_b:
         if st.button("Run My Confidence Check", use_container_width=True):
             if not st.session_state.get("has_seen_tutorial"):
@@ -2479,12 +2562,18 @@ def render_screen_1():
                     "Upload your donor report (PDF or DOCX). "
                     "Claude AI extracts and pre-fills fields across all tabs. Needs ANTHROPIC_API_KEY in .env."
                 )
+                _irc_paid_flag = (st.session_state.get("is_paid") or
+                                  is_still_paid(get_user(st.session_state.get("user_email",""))))
+                if not _irc_paid_flag:
+                    st.info("🔒 **Instant Report Check is a paid feature.** "
+                            "Upgrade to auto-fill all form fields from your uploaded document.")
+                    _render_paywall()
                 _irc_file = st.file_uploader(
                     "Upload report file",
                     type=["pdf", "docx"],
                     key="instant_report_upload",
                 )
-                if st.button("🔍 Run Instant Check", key="run_instant_check") and _irc_file:
+                if _irc_paid_flag and st.button("🔍 Run Instant Check", key="run_instant_check") and _irc_file:
                     with st.spinner("Extracting with AI…"):
                         try:
                             # Step 1: extract raw text
@@ -2522,12 +2611,25 @@ def render_screen_1():
                                     if _irc_filled: st.success(f"✅ {_irc_filled} field(s) extracted (rule-based).")
                                 else:
                                     _irc_client = _anthropic.Anthropic(api_key=_irc_key)
+                                    # Build few-shot block
+                                    _fewshot = {}
+                                    _irc_sector = st.session_state.get("sector", "Other")
+                                    for _ff in ["result_statement","target_group","timeframe",
+                                                "geographic_scope","logframe_indicator",
+                                                "logframe_target","logframe_achievement","evidence_description"]:
+                                        _fex = get_examples(_ff, _irc_sector, k=3)
+                                        if _fex: _fewshot[_ff] = _fex
+                                    import json as _ijsonfs
+                                    _fewshot_str = _ijsonfs.dumps(_fewshot, indent=2) if _fewshot else ""
+                                    _irc_msgs = [{"role": "user", "content": [
+                                        *([{"type":"text","text":f"Field examples for better extraction:\n{_fewshot_str}","cache_control":{"type":"ephemeral"}}] if _fewshot_str else []),
+                                        {"type":"text","text":f"Extract all fields from this report:\n\n{_full_text[:6000]}"}
+                                    ]}]
                                     _irc_resp = _irc_client.messages.create(
                                         model="claude-haiku-4-5-20251001",
                                         max_tokens=2048,
                                         system=INSTANT_CHECK_SYSTEM_PROMPT,
-                                        messages=[{"role": "user", "content":
-                                            f"Extract all fields from this report:\n\n{_full_text[:6000]}"}],
+                                        messages=_irc_msgs,
                                     )
                                     import json as _ijson3
                                     _irc_data = _ijson3.loads(_irc_resp.content[0].text)
@@ -2654,7 +2756,22 @@ def render_screen_1():
 
         st.divider()
 
-        if st.button("Run My Confidence Check", type="primary", use_container_width=True):
+        # Consent checkbox for example library
+        st.checkbox(
+            "📚 Allow my anonymised entries to improve extraction quality for other MEL officers. "
+            "(Act 843 / NDPA compliant — no names or organisations are stored.)",
+            key="consent_examples",
+        )
+        # --- Usage tracking ---
+        _email_now = st.session_state.get("user_email", "")
+        _u_now = get_user(_email_now) if _email_now else None
+        _checks_now = (_u_now or {}).get("free_checks_used", 0)
+        _paid_now = st.session_state.get("is_paid") or is_still_paid(_u_now)
+        _check_allowed = _paid_now or _checks_now < FREE_CHECKS_LIMIT
+        if not _check_allowed:
+            _render_paywall()
+        # --- End usage tracking ---
+        if _check_allowed and st.button("Run My Confidence Check", type="primary", use_container_width=True):
             mandatory = [
                 st.session_state.get("result_statement", ""),
                 st.session_state.get("target_group", ""),
@@ -2678,6 +2795,21 @@ def render_screen_1():
                 st.session_state["active_slots_run"] = active
                 st.session_state["evaluations"]       = None
                 st.session_state["submissions_snapshot"] = None
+                # --- Save anonymised examples on consent ---
+                if st.session_state.get("consent_examples") and _email_now:
+                    _ex_sector = st.session_state.get("sector", "Other")
+                    for _ex_field in ["result_statement", "target_group", "timeframe",
+                                      "geographic_scope", "logframe_indicator",
+                                      "logframe_target", "logframe_achievement",
+                                      "evidence_description"]:
+                        _ex_val = st.session_state.get(_ex_field, "")
+                        _ex_clean = _anonymize_value(_ex_val)
+                        if _ex_clean:
+                            save_example(_ex_field, _ex_sector, _ex_clean)
+                # --- Track usage ---
+                if not _paid_now and _email_now:
+                    increment_checks(_email_now)
+                # --- End tracking ---
                 st.session_state["screen"] = 2
                 st.rerun()
 
@@ -3600,6 +3732,23 @@ def main():
 
     st.markdown(CSS, unsafe_allow_html=True)
     _init_session_state()
+
+    # --- Paystack payment callback handler ---
+    _paystack_ref = st.query_params.get("paystack_ref", "")
+    if _paystack_ref and st.session_state.get("user_email"):
+        _pay_result = verify_payment(_paystack_ref)
+        if _pay_result.get("status") == "success":
+            _days = 30 if _pay_result.get("plan") == "monthly" else 1
+            mark_paid(st.session_state["user_email"], days=_days)
+            st.session_state["is_paid"] = True
+            try:
+                st.query_params.clear()
+            except Exception:
+                pass
+            st.success("✅ Payment confirmed! Your check is now unlocked.")
+        elif _pay_result.get("status") == "failed":
+            st.warning("Payment was not completed. Please try again.")
+    # --- End Paystack handler ---
 
     screen = st.session_state["screen"]
     if screen == 1:
