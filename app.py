@@ -1107,7 +1107,7 @@ _TUTORIAL_COPY = {
     1: {
         "title": "📝 Each field below contributes to your score.",
         "body": (
-            "Watch the **Live Score Preview** panel update as you type.\n"
+            "Watch the **Live Score Preview** panel (Review & Submit tab) update as you type.\n"
             "We'll show you exactly which inputs boost which scores."
         ),
     },
