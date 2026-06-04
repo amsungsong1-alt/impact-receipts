@@ -1361,6 +1361,10 @@ def _build_inputs_json(timestamp: str) -> str:
             slot_dict[k] = st.session_state.get(f"{k}{s}", "")
         ed = st.session_state.get(f"evidence_date{s}")
         slot_dict["evidence_date"] = ed.isoformat() if hasattr(ed, "isoformat") else ""
+        rs = st.session_state.get(f"reporting_start{s}")
+        slot_dict["reporting_start"] = rs.isoformat() if hasattr(rs, "isoformat") else ""
+        re_ = st.session_state.get(f"reporting_end{s}")
+        slot_dict["reporting_end"] = re_.isoformat() if hasattr(re_, "isoformat") else ""
         raw_files = st.session_state.get(f"uploaded_files_widget{s}") or []
         slot_dict["uploaded_filenames"] = [f.name for f in raw_files if hasattr(f, "name")]
         # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
@@ -1399,6 +1403,18 @@ def _load_from_inputs_json(data: dict):
                 st.session_state[f"evidence_date{s}"] = date.fromisoformat(raw_date)
             except (ValueError, TypeError):
                 pass
+        for _dk2, _sk2 in [("reporting_start", f"reporting_start{s}"),
+                            ("reporting_end",   f"reporting_end{s}")]:
+            _rd2 = slot_dict.get(_dk2, "")
+            if _rd2:
+                try:
+                    st.session_state[_sk2] = date.fromisoformat(_rd2)
+                except (ValueError, TypeError):
+                    pass
+        # restore governance fields not in _BASE_FORM_KEYS loop
+        _gov_dpp = slot_dict.get("gov_dpp_uploaded")
+        if _gov_dpp is not None:
+            st.session_state["gov_dpp_uploaded"] = bool(_gov_dpp)
         st.session_state[f"draft_uploaded_filenames{s}"] = slot_dict.get("uploaded_filenames", [])
 
     ts = data.get("timestamp", "unknown")
@@ -3138,6 +3154,7 @@ def render_screen_2():
         st.markdown(
             '<a href="mailto:info@impact-receipts.com'
             '?subject=Stage%202%20Diagnostic%20Enquiry%20-%20Test"'
+            ' target="_top"'
             ' style="display:inline-block;background:#1B5E20;color:white;padding:10px 24px;'
             'border-radius:8px;text-decoration:none;font-weight:700;font-size:0.95rem;">'
             '✉️ Request a Stage 2 Conversation</a>',
