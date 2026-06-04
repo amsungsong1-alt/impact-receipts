@@ -2461,7 +2461,7 @@ def render_screen_1():
             ):
                 st.caption(
                     "Upload your donor report (PDF or DOCX). "
-                    "Key fields are extracted using pattern matching — no API key needed."
+                    "Claude AI extracts and pre-fills fields across all tabs. Needs ANTHROPIC_API_KEY in .env."
                 )
                 _irc_file = st.file_uploader(
                     "Upload report file",
@@ -2469,26 +2469,105 @@ def render_screen_1():
                     key="instant_report_upload",
                 )
                 if st.button("🔍 Run Instant Check", key="run_instant_check") and _irc_file:
-                    with st.spinner("Scanning document…"):
-                        _irc_result, _irc_found, _irc_not_found = _extract_report_fields(_irc_file)
-                        if _irc_result is None:
-                            st.warning(_irc_found)
-                        else:
-                            _irc_filled = 0
-                            for _ef, _sf in _IRC_FIELD_MAP.items():
-                                _ev2 = _irc_result.get(_ef, "")
-                                if _ev2:
-                                    st.session_state[_sf] = _ev2
-                                    _irc_filled += 1
-                            if _irc_filled:
-                                st.success(f"✅ {_irc_filled} field(s) extracted and pre-filled. Scroll down to review.")
-                            if _irc_not_found:
-                                _nf_str = ", ".join(_irc_not_found)
-                                st.info(f"ℹ️ {len(_irc_not_found)} field(s) not found — fill manually: {_nf_str}")
-                            st.caption(
-                                "⚠️ Only data explicitly found in your document has been extracted. "
-                                "Nothing has been assumed or invented."
-                            )
+                    with st.spinner("Extracting with AI…"):
+                        try:
+                            # Step 1: extract raw text
+                            _raw_fields, _rf_found, _rf_not_found = _extract_report_fields(_irc_file)
+                            if _raw_fields is None:
+                                st.warning(_rf_found)
+                            else:
+                                import io as _io3
+                                _irc_file.seek(0)
+                                _raw3 = _irc_file.read()
+                                _fname3 = _irc_file.name.lower()
+                                _full_text = ""
+                                if _fname3.endswith(".pdf") and _HAS_PDFPLUMBER:
+                                    with _pdfplumber.open(_io3.BytesIO(_raw3)) as _p3:
+                                        for _pg3 in _p3.pages:
+                                            _pt3 = _pg3.extract_text()
+                                            if _pt3: _full_text += _pt3 + "\n"
+                                elif _fname3.endswith(".docx") and _HAS_DOCX:
+                                    _d3 = _docx.Document(_io3.BytesIO(_raw3))
+                                    _full_text = "\n".join(p.text for p in _d3.paragraphs)
+
+                                # Step 2: Claude API extraction
+                                try:
+                                    _irc_key = st.secrets.get("ANTHROPIC_API_KEY")
+                                except Exception:
+                                    _irc_key = None
+                                _irc_key = _irc_key or os.environ.get("ANTHROPIC_API_KEY")
+                                if not _irc_key:
+                                    st.error("⚠️ ANTHROPIC_API_KEY not set. Rule-based extraction only.")
+                                    # Fallback to rule-based
+                                    _irc_filled = 0
+                                    for _ef, _sf in _IRC_FIELD_MAP.items():
+                                        _v = _raw_fields.get(_ef, "")
+                                        if _v: st.session_state[_sf] = _v; _irc_filled += 1
+                                    if _irc_filled: st.success(f"✅ {_irc_filled} field(s) extracted (rule-based).")
+                                else:
+                                    _irc_client = _anthropic.Anthropic(api_key=_irc_key)
+                                    _irc_resp = _irc_client.messages.create(
+                                        model="claude-haiku-4-5-20251001",
+                                        max_tokens=2048,
+                                        system=INSTANT_CHECK_SYSTEM_PROMPT,
+                                        messages=[{"role": "user", "content":
+                                            f"Extract all fields from this report:\n\n{_full_text[:6000]}"}],
+                                    )
+                                    import json as _ijson3
+                                    _irc_data = _ijson3.loads(_irc_resp.content[0].text)
+                                    _rb  = _irc_data.get("result_basics", {})
+                                    _ll  = _irc_data.get("logframe_linkage", {})
+                                    _ev3 = _irc_data.get("evidence_verification", {})
+                                    _em  = _irc_data.get("extraction_metadata", {})
+                                    _irc_filled = 0
+                                    _skipped = []
+
+                                    def _irc_set(key, val):
+                                        nonlocal _irc_filled
+                                        if val and val != "Not found":
+                                            st.session_state[key] = val; _irc_filled += 1
+                                        else:
+                                            _skipped.append(key)
+
+                                    _irc_set("result_statement", _rb.get("result_statement"))
+                                    _irc_set("target_group",     _rb.get("target_group"))
+                                    _irc_set("timeframe",        _rb.get("timeframe"))
+                                    _geo3 = _rb.get("geographic_scope")
+                                    if _geo3 and _geo3 != "Not found":
+                                        _irc_set("geographic_scope", ", ".join(_geo3) if isinstance(_geo3, list) else _geo3)
+                                    _irc_set("logframe_indicator",   _ll.get("indicator_name"))
+                                    _irc_set("logframe_target",      _ll.get("original_target"))
+                                    _irc_set("logframe_achievement", _ll.get("actual_achievement"))
+                                    _irc_set("evidence_description", _ev3.get("evidence_narrative"))
+                                    _vmt = _irc_match_option(_ev3.get("evidence_type",""), EVIDENCE_TYPES)
+                                    if _vmt: st.session_state["evidence_type"] = _vmt; _irc_filled += 1
+                                    _irmt = _irc_match_option(_ev3.get("internal_review",""), INTERNAL_REVIEW_OPTIONS)
+                                    if _irmt: st.session_state["internal_review"] = _irmt; _irc_filled += 1
+                                    _ermt = _irc_match_option(_ev3.get("external_review",""), EXTERNAL_REVIEW_OPTIONS)
+                                    if _ermt: st.session_state["external_review"] = _ermt; _irc_filled += 1
+                                    for _dkk, _skk in [("reporting_period_start","reporting_start"),
+                                                        ("reporting_period_end","reporting_end"),
+                                                        ("evidence_collection_date","evidence_date")]:
+                                        _pdd = _irc_parse_date(_ev3.get(_dkk,""))
+                                        if _pdd: st.session_state[_skk] = _pdd; _irc_filled += 1
+                                    _ver3 = _em.get("implementing_org") or _em.get("report_prepared_by","")
+                                    _irc_set("verifier", _ver3)
+
+                                    st.success(f"⚡ Instant Check complete — {_irc_filled} fields auto-filled.")
+                                    if _skipped:
+                                        _skip_str = ", ".join(_skipped[:6])
+                                        st.info(f"ℹ️ Left blank (not found in document): {_skip_str}")
+                                    _conf3 = _em.get("confidence_note","")
+                                    if _conf3 and _conf3 != "Not found":
+                                        st.info(f"ℹ️ {_conf3}")
+                                    _clist = ["consent_documented","data_anonymised","data_protection_compliant"]
+                                    _cgaps = [f for f in _clist if _ev3.get(f,"") == "Not found"]
+                                    if _cgaps:
+                                        _glab = {"consent_documented":"Consent","data_anonymised":"Anonymisation","data_protection_compliant":"Data protection"}
+                                        _gap_str3 = ", ".join(_glab.get(g,g) for g in _cgaps)
+                                        st.warning(f"⚠️ Compliance gaps not found: {_gap_str3}")
+                        except Exception as _irc_exc:
+                            st.error(f"Extraction failed: {_irc_exc}. Please fill the form manually.")
         # --- END UX: INSTANT REPORT CHECK (v3.2) ---
 
         for slot in range(1, active + 1):
@@ -3043,6 +3122,30 @@ def render_screen_2():
         unsafe_allow_html=True,
     )
 
+
+    # --- Stage 2 Engagement Card ---
+    st.markdown("---")
+    with st.container(border=True):
+        st.markdown("#### 🎯 Recommended Next Step: Stage 2 Diagnostic Engagement")
+        st.info(
+            "This diagnostic provides a first-pass profile of your submission readiness posture. "
+            "A Stage 2 Engagement with Impact-Receipts offers a structured deep-dive: facilitated "
+            "sessions with your MEL/Reporting lead, prioritised fixes to strengthen the compliance, "
+            "ethics, governance, and confidence level of your reported results, and support in aligning "
+            "your submission with the relevant donor-required checklists. This moves your submission "
+            "from a first-pass profile toward submission-ready integrity."
+        )
+        st.markdown(
+            '<a href="mailto:info@impact-receipts.com'
+            '?subject=Stage%202%20Diagnostic%20Enquiry%20-%20Test"'
+            ' style="display:inline-block;background:#1B5E20;color:white;padding:10px 24px;'
+            'border-radius:8px;text-decoration:none;font-weight:700;font-size:0.95rem;">'
+            '✉️ Request a Stage 2 Conversation</a>',
+            unsafe_allow_html=True,
+        )
+        st.caption("Tip: download your report below and attach it to the email before sending.")
+    # --- End Stage 2 Card ---
+
     timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
     html_report = _build_html_report(subs[0], evs[0], timestamp) if n == 1 else \
                   _build_combined_html_report(subs, evs, timestamp)
@@ -3050,12 +3153,29 @@ def render_screen_2():
     col_dl, col_json, col_add, col_fresh = st.columns([2, 1.5, 1, 1])
     with col_dl:
         st.download_button(
-            label="Download Your Report (.html)",
+            label="⬇️ Download HTML Report",
             data=html_report,
             file_name=f"impact_receipts_{timestamp}.html",
             mime="text/html",
             use_container_width=True,
         )
+        try:
+            from xhtml2pdf import pisa as _pisa
+            import io as _io2
+            _pdf_buf = _io2.BytesIO()
+            _pisa.CreatePDF(src=html_report, dest=_pdf_buf)
+            if _pdf_buf.tell() > 0:
+                _pdf_buf.seek(0)
+                st.download_button(
+                    label="📄 Download PDF Report",
+                    data=_pdf_buf.getvalue(),
+                    file_name=f"impact_receipts_{timestamp}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="pdf_download_btn",
+                )
+        except ImportError:
+            st.caption("PDF: install xhtml2pdf to enable one-click PDF download.")
     with col_json:
         st.download_button(
             label="Save Inputs (JSON)",
@@ -3208,6 +3328,50 @@ def _build_markdown_report(submission: dict, evaluation: dict, timestamp: str) -
     return "\n".join(lines)
 
 
+
+def _governance_radar_values(ev):
+    """Return (confidence, clarity, ethics_pct, compliance_pct) each 0–100."""
+    conf = min(100.0, round(ev.get("raw_confidence_score", 0) * 20, 1))
+    clar = min(100.0, round(ev.get("clarity_score", 0) * 20, 1))
+    gov  = st.session_state.get("_gov_score_computed", 0)
+    eth  = round(gov / 15 * 100, 1)
+    comp = round(gov / 15 * 100, 1)
+    return conf, clar, eth, comp
+
+
+def _build_radar_b64(conf, clar, eth, comp):
+    """Build a 4-axis radar chart as base64 PNG using matplotlib."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import io as _io_r
+        import base64 as _b64
+        labels = ["Confidence", "Clarity", "Ethics", "Compliance"]
+        vals   = [v / 100 for v in [conf, clar, eth, comp]]
+        vals  += vals[:1]
+        angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
+        angles += angles[:1]
+        fig, ax = plt.subplots(figsize=(4, 4), subplot_kw=dict(polar=True))
+        ax.fill(angles, vals, color="#1B5E20", alpha=0.25)
+        ax.plot(angles, vals, color="#1B5E20", linewidth=2)
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels(labels, fontsize=9)
+        ax.set_ylim(0, 1)
+        ax.set_yticks([0.25, 0.5, 0.75, 1.0])
+        ax.set_yticklabels(["25", "50", "75", "100"], fontsize=7, color="#9E9E9E")
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        buf = _io_r.BytesIO()
+        fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
+        plt.close(fig)
+        buf.seek(0)
+        return _b64.b64encode(buf.read()).decode()
+    except Exception:
+        return ""
+
+
 def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> str:
     conf_score = evaluation.get("confidence_score", 0)
     clar_score = evaluation.get("clarity_score", 0)
@@ -3279,6 +3443,24 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
     scope  = clar_comp.get("scope_score", 0)
     gov    = clar_comp.get("governance_score", 0)
 
+    # --- Radar chart for report ---
+    _r_conf, _r_clar, _r_eth, _r_comp = _governance_radar_values(evaluation)
+    _radar_b64 = _build_radar_b64(_r_conf, _r_clar, _r_eth, _r_comp)
+    _radar_img = (f'<img src="data:image/png;base64,{_radar_b64}" '
+                  f'alt="Radar Chart" style="width:280px;display:block;margin:0 auto 16px;" />'
+                  ) if _radar_b64 else ""
+    _meta_donor  = st.session_state.get("donor_selected", "Not specified")
+    _meta_sector = st.session_state.get("sector", "Not specified")
+    _meta_rtype  = st.session_state.get("submission_type", "Not specified")
+    _meta_html = (
+        "<table style='margin-bottom:20px;'><tbody>"
+        f"<tr><td style='padding:5px 12px;font-weight:700;'>Donor</td><td style='padding:5px 12px;'>{_meta_donor}</td></tr>"
+        f"<tr><td style='padding:5px 12px;font-weight:700;'>Sector</td><td style='padding:5px 12px;'>{_meta_sector}</td></tr>"
+        f"<tr><td style='padding:5px 12px;font-weight:700;'>Report Type</td><td style='padding:5px 12px;'>{_meta_rtype}</td></tr>"
+        "</tbody></table>"
+    )
+    # --- End radar ---
+
     fixes_html = ""
     if conf_fixes:
         fixes_html += ("<h3 style='color:#1B5E20;'>Strengthen your evidence (Confidence)</h3>"
@@ -3314,7 +3496,8 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
 <body>
 <h1>Impact-Receipts Evaluation Report</h1>
 <p style="color:#616161;font-size:0.88rem;">Generated: {timestamp}</p>
-
+{_meta_html}
+{_radar_img}
 <h2>Result Statement</h2>
 <p>{submission.get('result_statement', '-')}</p>
 <p><strong>Target Group:</strong> {submission.get('target_group', '-')}<br/>
@@ -3361,6 +3544,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
 
 <div class="footer">
   Evaluated using {METHODOLOGY_STACK}.<br/>
+  Contact: <a href="mailto:info@impact-receipts.com">info@impact-receipts.com</a><br/>
   Tip: Print this page (Ctrl+P) and choose &ldquo;Save as PDF&rdquo; to get a PDF copy.
 </div>
 </body>
