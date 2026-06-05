@@ -94,7 +94,7 @@ PRICE_MONTHLY_GHS     = 5000       # pesewas  (GHS 50.00/month)
 # --- End payment constants ---
 
 EVIDENCE_TYPES = [
-    "Choose an option...",
+    "Select evidence type...",
     "Attendance sheets / participant registers",
     "Raw datasets or survey exports",
     "Partner verification letters",
@@ -906,6 +906,17 @@ h1, h2, h3, h4 {
     align-items: center !important;
   }
 }
+/* Active tab: bold + underline */
+.stTabs [data-baseweb="tab"][aria-selected="true"] button {
+    font-weight: 700;
+    text-decoration: underline;
+}
+/* Form labels: consistent weight */
+.stTextInput label, .stTextArea label, .stSelectbox label,
+.stDateInput label, .stFileUploader label, .stNumberInput label {
+    font-size: 0.875rem !important;
+    font-weight: 600 !important;
+}
 </style>
 """
 
@@ -1067,6 +1078,7 @@ def _save_draft():
     os.makedirs("inputs", exist_ok=True)
     with open(_DRAFT_PATH, "w", encoding="utf-8") as f:
         json.dump(draft, f, indent=2, ensure_ascii=False)
+    st.session_state["_last_saved_time"] = datetime.now().strftime("%H:%M")
 
 
 def _load_draft():
@@ -1224,7 +1236,7 @@ def _compute_governance_score(slot: int):
     score = 0
     gaps  = []
 
-    if consent == "Choose an option...":
+    if consent in ("Choose an option...", "Select consent status..."):
         pass  # 0 pts, no gap — user has not answered yet
     elif consent == "Yes — written consent forms on file":
         score += 5
@@ -1237,7 +1249,7 @@ def _compute_governance_score(slot: int):
     else:
         gaps.append("Consent not obtained")
 
-    if anon == "Choose an option...":
+    if anon in ("Choose an option...", "Select anonymization status..."):
         pass  # 0 pts, no gap
     elif anon == "Yes — fully anonymized":
         score += 4
@@ -1248,7 +1260,7 @@ def _compute_governance_score(slot: int):
     else:
         gaps.append("Evidence not anonymized")
 
-    if law == "Choose an option...":
+    if law in ("Choose an option...", "Select compliance status..."):
         pass  # 0 pts, no gap
     elif law.startswith("Yes"):
         score += 3
@@ -1439,9 +1451,9 @@ def _render_live_score_preview(slot: int = 1):
     _disp_law     = st.session_state.get(f"gov_compliance_law_status{s}", "")
     _disp_dpp     = st.session_state.get("gov_dpp_uploaded", False)
     _answered = sum([
-        _disp_consent not in ("", "Choose an option..."),
-        _disp_anon    not in ("", "Choose an option..."),
-        _disp_law     not in ("", "Choose an option..."),
+        _disp_consent not in ("", "Choose an option...", "Select consent status..."),
+        _disp_anon    not in ("", "Choose an option...", "Select anonymization status..."),
+        _disp_law     not in ("", "Choose an option...", "Select compliance status..."),
     ])
 
     st.markdown("---")
@@ -1615,9 +1627,9 @@ def _render_slot_fields(slot: int):
         (f"internal_review{s}", "Choose an option..."),
         (f"external_review{s}", "Choose an option..."),
         # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
-        (f"gov_consent_status{s}", "Choose an option..."),
-        (f"gov_anonymization_status{s}", "Choose an option..."),
-        (f"gov_compliance_law_status{s}", "Choose an option..."),
+        (f"gov_consent_status{s}", "Select consent status..."),
+        (f"gov_anonymization_status{s}", "Select anonymization status..."),
+        (f"gov_compliance_law_status{s}", "Select compliance status..."),
         # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
     ]:
         if key not in st.session_state:
@@ -1630,9 +1642,9 @@ def _render_slot_fields(slot: int):
     st.text_area(
         "Result statement",
         key=f"result_statement{s}",
-        placeholder=_ph["result"],
+        placeholder="e.g., Trained 487 farmers · 3 districts · Jan–Jun 2025",
         height=100,
-        help="What did your project achieve? Include the verb (trained, distributed, reached), the number, the population, and the timeframe.",
+        help=f"What did your project achieve? Include the action verb, number, target group, location, and timeframe.\n\nFull example: {_ph['result']}",
     )
     _rs = st.session_state.get(f"result_statement{s}", "")
     if _rs and len(_rs.strip()) < 20:
@@ -1844,9 +1856,9 @@ def _tab_slot_setup(slot: int):
         (f"internal_review{s}", "Not reviewed"),
         (f"external_review{s}", "No external review"),
         # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
-        (f"gov_consent_status{s}", "Choose an option..."),
-        (f"gov_anonymization_status{s}", "Choose an option..."),
-        (f"gov_compliance_law_status{s}", "Choose an option..."),
+        (f"gov_consent_status{s}", "Select consent status..."),
+        (f"gov_anonymization_status{s}", "Select anonymization status..."),
+        (f"gov_compliance_law_status{s}", "Select compliance status..."),
         # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
     ]:
         if key not in st.session_state:
@@ -1874,9 +1886,9 @@ def _render_tab1_slot(slot: int):
     st.text_area(
         "Result statement",
         key=f"result_statement{s}",
-        placeholder=_ph["result"],
+        placeholder="e.g., Trained 487 farmers · 3 districts · Jan–Jun 2025",
         height=100,
-        help="What did your project achieve? Include the verb (trained, distributed, reached), the number, the population, and the timeframe.",
+        help=f"What did your project achieve? Include the action verb, number, target group, location, and timeframe.\n\nFull example: {_ph['result']}",
     )
     _rs = st.session_state.get(f"result_statement{s}", "")
     if _rs and len(_rs.strip()) < 20:
@@ -2186,7 +2198,7 @@ def _render_tab3_slot(slot: int):
                 "Do you have documented consent from beneficiaries for their data "
                 "to be shared with the donor?",
                 options=[
-                    "Choose an option...",
+                    "Select consent status...",
                     "Yes — written consent forms on file",
                     "Yes — verbal consent documented",
                     "Partial — some beneficiaries consented",
@@ -2198,7 +2210,7 @@ def _render_tab3_slot(slot: int):
             st.selectbox(
                 "Has this evidence been anonymized or de-identified where required?",
                 options=[
-                    "Choose an option...",
+                    "Select anonymization status...",
                     "Yes — fully anonymized",
                     "Partially anonymized",
                     "No — not anonymized",
@@ -2210,7 +2222,7 @@ def _render_tab3_slot(slot: int):
                 "Does your evidence collection method comply with the data protection "
                 "law in your project's country?",
                 options=[
-                    "Choose an option...",
+                    "Select compliance status...",
                     "Yes — compliant (e.g. Ghana Act 843, Nigeria NDPA, Kenya DPA)",
                     "Unsure — we haven't checked",
                     "No — we are not compliant",
@@ -2344,6 +2356,7 @@ def render_screen_0():
             "Upload a previously saved inputs JSON",
             type=["json"],
             key="resume_json_upload",
+            help="Upload a JSON file previously downloaded via 'Download Draft (JSON)' on the Review & Submit tab.",
         )
         if uploaded_json is not None:
             try:
@@ -2459,7 +2472,7 @@ def render_screen_1():
     st.markdown(
         """
         <div class="progress-steps">
-          <span class="step">1</span><span class="step-label">Result Details</span>
+          <span class="step">1</span><span class="step-label">Result Basics</span>
           <span class="connector"></span>
           <span class="step">2</span><span class="step-label">Evidence</span>
           <span class="connector"></span>
@@ -2619,7 +2632,7 @@ def render_screen_1():
             st.selectbox(
                 "What type of submission is this for?",
                 options=[
-                    "Choose an option...",
+                    "Select submission type...",
                     "Quarterly progress report",
                     "Annual progress report",
                     "Baseline report",
@@ -2649,7 +2662,7 @@ def render_screen_1():
                     st.success(f"✅ All {_n_total} required items confirmed for {_sub_type}.")
                 else:
                     st.info(f"{_n_ticked} of {_n_total} required item(s) confirmed.")
-            elif _sub_type and _sub_type not in ("Choose an option...", ""):
+            elif _sub_type and _sub_type not in ("Choose an option...", "Select submission type...", ""):
                 st.info("No standard checklist defined for this submission type.")
             else:
                 st.caption("Select a submission type above to see the required items checklist.")
@@ -2883,7 +2896,7 @@ def render_screen_1():
         _missing_b = [
             (key, lbl) for key, lbl in _REQUIRED_FIELDS_B
             if not str(st.session_state.get(key, "")).strip()
-            or st.session_state.get(key, "") in ("Choose an option...", "")
+            or st.session_state.get(key, "") in (EVIDENCE_TYPES[0], "Choose an option...", "")
         ]
         _completed_b = len(_REQUIRED_FIELDS_B) - len(_missing_b)
         st.progress(_completed_b / len(_REQUIRED_FIELDS_B),
@@ -2992,9 +3005,8 @@ A **content quality penalty** (×0.5 to ×1.0) applies when the result statement
                 st.session_state["screen"] = 2
                 st.rerun()
 
-        st.caption("Your progress is auto-saved across all tabs.")
-
         _save_draft()
+        st.caption(f"💾 Auto-saved across all tabs · Last saved {st.session_state.get('_last_saved_time', '--:--')}")
         if os.path.exists(_DRAFT_PATH):
             try:
                 with open(_DRAFT_PATH, encoding="utf-8") as _df:
