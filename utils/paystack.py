@@ -5,6 +5,7 @@ All secrets via st.secrets / environment variables.
 """
 from __future__ import annotations
 import os
+import urllib.parse
 import requests
 
 
@@ -19,10 +20,19 @@ def _secret_key() -> str:
 def _base_url() -> str:
     try:
         import streamlit as st
-        return (st.secrets.get("APP_BASE_URL") or
-                os.environ.get("APP_BASE_URL", "https://impact-receipts.streamlit.app"))
+        configured = st.secrets.get("APP_BASE_URL") or os.environ.get("APP_BASE_URL", "")
+        if configured:
+            return configured.rstrip("/")
+        return "https://impact-receipts.streamlit.app"
     except Exception:
         return os.environ.get("APP_BASE_URL", "https://impact-receipts.streamlit.app")
+
+
+_last_payment_error: str = ""
+
+
+def last_payment_error() -> str:
+    return _last_payment_error
 
 
 def initialize_payment(email: str, amount_kobo: int, plan: str = "per_use") -> str:
@@ -30,16 +40,20 @@ def initialize_payment(email: str, amount_kobo: int, plan: str = "per_use") -> s
     POST to Paystack /transaction/initialize.
     Returns authorization_url (redirect user here) or empty string on failure.
     amount_kobo: amount in Ghana Pesewas (100 pesewas = GHS 1.00).
+    Call last_payment_error() after a failure to get the reason.
     """
+    global _last_payment_error
+    _last_payment_error = ""
     key = _secret_key()
     if not key:
+        _last_payment_error = "PAYSTACK_SECRET_KEY not configured."
         return ""
-    callback = f"{_base_url()}?paystack_ref={{reference}}"  # Paystack fills {reference}
+    callback_url = f"{_base_url()}?user_email={urllib.parse.quote(email, safe='')}"
     payload = {
         "email": email,
         "amount": amount_kobo,
         "currency": "GHS",
-        "callback_url": f"{_base_url()}",
+        "callback_url": callback_url,
         "metadata": {"plan": plan, "custom_fields": [
             {"display_name": "Plan", "variable_name": "plan", "value": plan}
         ]},
@@ -53,12 +67,11 @@ def initialize_payment(email: str, amount_kobo: int, plan: str = "per_use") -> s
         )
         data = r.json()
         if data.get("status"):
-            ref = data["data"].get("reference", "")
-            # Store reference in the URL so callback can verify
-            base = data["data"].get("authorization_url", "")
-            return base
+            return data["data"].get("authorization_url", "")
+        _last_payment_error = data.get("message", "Paystack returned an error.")
         return ""
-    except Exception:
+    except Exception as exc:
+        _last_payment_error = str(exc)
         return ""
 
 

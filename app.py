@@ -37,7 +37,7 @@ try:
         get_user, upsert_user, increment_checks, mark_paid,
         is_still_paid, save_example, get_examples,
     )
-    from utils.paystack import initialize_payment, verify_payment
+    from utils.paystack import initialize_payment, verify_payment, last_payment_error
     from utils.anonymize import anonymize as _anonymize_value
     _UTILS_AVAILABLE = True
 except ImportError:
@@ -51,6 +51,7 @@ except ImportError:
     def get_examples(f, s, k=5): return []
     def initialize_payment(e, a, p="per_use"): return ""
     def verify_payment(r): return {"status": "error", "amount": 0, "plan": ""}
+    def last_payment_error(): return ""
     def _anonymize_value(v): return None
 # --- End utils imports ---
 
@@ -111,6 +112,27 @@ PII_EVIDENCE_TYPES = [
     "Raw datasets or survey exports",
     "Tracer survey results",
 ]
+
+# Governance checklist display maps: value → (icon, description, pts_earned)
+CONSENT_CHECKLIST_MAP = {
+    "Yes — written consent forms on file":    ("✓", "Written consent on file", 5),
+    "Yes — verbal consent documented":         ("✓", "Verbal consent documented", 3),
+    "Partial — some beneficiaries consented":  ("⚠", "Partial consent", 1),
+    "Not applicable (no personal data)":       ("✓", "Not applicable", 3),
+    "No — consent not obtained":               ("✗", "Consent not obtained", 0),
+}
+ANON_CHECKLIST_MAP = {
+    "Yes — fully anonymized":   ("✓", "Fully anonymized", 4),
+    "Partially anonymized":     ("⚠", "Partially anonymized", 2),
+    "No — not anonymized":      ("✗", "Not anonymized", 0),
+    "Not applicable":           ("✓", "Not applicable", 3),
+}
+LAW_CHECKLIST_MAP = {
+    "Yes — compliant (e.g. Ghana Act 843, Nigeria NDPA, Kenya DPA)": ("✓", "Compliant", 3),
+    "Unsure — we haven't checked": ("⚠", "Unsure — needs verification", 1),
+    "No — we are not compliant":   ("✗", "Not compliant", 0),
+    "Not applicable":              ("✓", "Not applicable", 0),
+}
 # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
 # --- UX: INSTANT REPORT CHECK (v3.2) ---
@@ -914,6 +936,8 @@ def _init_session_state():
         "user_email":          "",
         "is_paid":             False,
         "consent_examples":    False,
+        "_pay_once_url":       "",
+        "_pay_monthly_url":    "",
         # --- end auth ---
         "report_level":        "(Not specified)",
         "_tab1_auto_advanced": False,
@@ -1250,31 +1274,44 @@ def _nav_to_tab(idx: int):
         height=0,
     )
 
-def _render_paywall():
-    """Show upgrade/payment options when free limit is reached."""
+def _render_paywall(irc_context: bool = False):
+    """Show upgrade/payment options. irc_context=True suppresses the free-checks header."""
     email = st.session_state.get("user_email", "")
-    st.error(f"🔒 You've used all {FREE_CHECKS_LIMIT} free checks.")
-    st.markdown(
-        "Upgrade to run more checks and unlock the Instant Report Check "
-        "(AI-powered auto-fill from uploaded documents)."
-    )
+    if not irc_context:
+        st.error(f"🔒 You've used all {FREE_CHECKS_LIMIT} free checks.")
+        st.markdown(
+            "Upgrade to run more checks and unlock the Instant Report Check "
+            "(AI-powered auto-fill from uploaded documents)."
+        )
     _c1, _c2 = st.columns(2)
     with _c1:
         st.markdown(f"**Pay-per-use:** GHS {PRICE_PER_CHECK_GHS/100:.0f}")
-        if st.button("Pay for 1 Check", key="pay_once"):
-            _url = initialize_payment(email, PRICE_PER_CHECK_GHS, "per_use")
+        if st.session_state.get("_pay_once_url"):
+            st.link_button("Complete Payment →", st.session_state["_pay_once_url"],
+                           use_container_width=True, type="primary")
+        elif st.button("Pay for 1 Check", key="pay_once", use_container_width=True):
+            with st.spinner("Preparing payment link…"):
+                _url = initialize_payment(email, PRICE_PER_CHECK_GHS, "per_use")
             if _url:
-                st.link_button("Complete Payment →", _url)
+                st.session_state["_pay_once_url"] = _url
+                st.rerun()
             else:
-                st.error("Payment service unavailable. Try again shortly.")
+                _detail = last_payment_error()
+                st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
     with _c2:
         st.markdown(f"**Monthly unlimited:** GHS {PRICE_MONTHLY_GHS/100:.0f}/month")
-        if st.button("Subscribe Monthly", key="pay_monthly"):
-            _url = initialize_payment(email, PRICE_MONTHLY_GHS, "monthly")
+        if st.session_state.get("_pay_monthly_url"):
+            st.link_button("Complete Payment →", st.session_state["_pay_monthly_url"],
+                           use_container_width=True, type="primary")
+        elif st.button("Subscribe Monthly", key="pay_monthly", use_container_width=True):
+            with st.spinner("Preparing payment link…"):
+                _url = initialize_payment(email, PRICE_MONTHLY_GHS, "monthly")
             if _url:
-                st.link_button("Complete Payment →", _url)
+                st.session_state["_pay_monthly_url"] = _url
+                st.rerun()
             else:
-                st.error("Payment service unavailable. Try again shortly.")
+                _detail = last_payment_error()
+                st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
 
 
 def _render_live_score_preview(slot: int = 1):
@@ -1285,10 +1322,11 @@ def _render_live_score_preview(slot: int = 1):
         st.caption("Fill in the form fields above to see your live score.")
         return
 
-    conf_score  = ev.get("confidence_score", 0)       # post-multiplier (gate assessment)
-    raw_conf    = ev.get("raw_confidence_score", conf_score)  # pre-multiplier (matches sub-scores)
-    multiplier  = ev.get("content_quality_multiplier", 1.0)
-    clar_score  = ev.get("clarity_score", 0)
+    conf_score     = ev.get("confidence_score", 0)       # post-multiplier (gate assessment)
+    raw_conf       = ev.get("raw_confidence_score", conf_score)  # pre-multiplier (matches sub-scores)
+    multiplier     = ev.get("content_quality_multiplier", 1.0)
+    content_issues = ev.get("content_issues", [])
+    clar_score     = ev.get("clarity_score", 0)
     clar_label  = ev.get("clarity_label", "—")
     conf_comp   = ev.get("confidence_components", {})
     clar_comp   = ev.get("clarity_components", {})
@@ -1305,10 +1343,12 @@ def _render_live_score_preview(slot: int = 1):
 
     # Penalty warning: effective score used for gate assessment
     if multiplier < 1.0:
+        _penalty_lines = [f"- {ci}" for ci in (content_issues or [])]
+        _penalty_body = "\n".join(_penalty_lines) if _penalty_lines else "Review your result statement and evidence description."
         st.warning(
-            f"Content quality penalty (×{multiplier}) applies. "
-            f"Effective submission score: **{conf_score}/5.0**. "
-            "Fix the content issues below to remove the penalty."
+            f"**Content quality penalty (×{multiplier}) applied** — effective score: **{conf_score}/5.0**\n\n"
+            f"Issues detected:\n{_penalty_body}\n\n"
+            "Fix these to remove the penalty."
         )
         # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
         if st.button("→ Fix: Go to Result Basics", key="fix_content_quality"):
@@ -1323,15 +1363,24 @@ def _render_live_score_preview(slot: int = 1):
 
     with bd1:
         st.markdown("**Confidence**")
+        dl = conf_comp.get("direct_level", 0)
+        vl = conf_comp.get("verify_level", 0)
+        rl = conf_comp.get("recency_level", 0)
         ds = conf_comp.get("direct_score", 0)
         vs = conf_comp.get("verify_score", 0)
         rs = conf_comp.get("recency_score", 0)
-        st.caption(f"Directness {ds}/2.0")
+        st.metric("Directness", f"{ds}/2.0",
+                  help=_DIRECTNESS_TIPS.get(dl, "How directly traceable the evidence is to the result. Target: 1.5+/2.0."))
         _bar(ds, 2.0)
-        st.caption(f"Verification {vs}/2.0")
+        st.caption("**Strong**" if ds >= 1.5 else ("**Acceptable**" if ds >= 1.0 else "**Below target**"))
+        st.metric("Verification", f"{vs}/2.0",
+                  help=_VERIFICATION_TIPS.get(vl, "How rigorously the evidence has been reviewed. Target: 1.5+/2.0."))
         _bar(vs, 2.0)
-        st.caption(f"Recency {rs}/1.0")
+        st.caption("**Strong**" if vs >= 1.5 else ("**Acceptable**" if vs >= 1.0 else "**Below target**"))
+        st.metric("Recency", f"{rs}/1.0",
+                  help=_RECENCY_TIPS.get(rl, "How recent the evidence is relative to the reporting period. Target: 0.7+/1.0."))
         _bar(rs, 1.0)
+        st.caption("**Strong**" if rs >= 0.75 else ("**Acceptable**" if rs >= 0.5 else "**Below target**"))
 
     with bd2:
         st.markdown("**Clarity**")
@@ -1383,6 +1432,18 @@ def _render_live_score_preview(slot: int = 1):
     st.session_state["_gov_pii_computed"]   = pii_selected
     st.session_state["_conf_adj_computed"]  = adjusted_conf
 
+    # Read governance field values for display (scoring unchanged — uses _compute_governance_score above)
+    s = _slot_suffix(slot)
+    _disp_consent = st.session_state.get(f"gov_consent_status{s}", "")
+    _disp_anon    = st.session_state.get(f"gov_anonymization_status{s}", "")
+    _disp_law     = st.session_state.get(f"gov_compliance_law_status{s}", "")
+    _disp_dpp     = st.session_state.get("gov_dpp_uploaded", False)
+    _answered = sum([
+        _disp_consent not in ("", "Choose an option..."),
+        _disp_anon    not in ("", "Choose an option..."),
+        _disp_law     not in ("", "Choose an option..."),
+    ])
+
     st.markdown("---")
     st.markdown("#### 🛡️ Governance & Compliance")
     _gc1, _gc2 = st.columns([1, 2])
@@ -1390,21 +1451,36 @@ def _render_live_score_preview(slot: int = 1):
         st.metric("Governance Score", f"{gov_score} / 15")
     with _gc2:
         st.metric("Governance-Adjusted Confidence", f"{adjusted_conf:.0f} / 100")
+
+    # Single bold status line — no alarming styling
     if gov_score >= 12:
-        st.success("🟢 Strong Governance")
+        st.markdown("**Strong governance — major requirements addressed.**")
     elif gov_score >= 7:
-        st.warning("🟡 Partial Compliance — Review Recommended")
+        st.markdown("**Partial compliance — some requirements still recommended before submission.**")
+    elif _answered == 0:
+        st.markdown("**Data governance checklist not yet completed — 0 of 3 questions answered.**")
     else:
-        st.error("🔴 Governance Risk — Address Before Submission")
-    if gov_score == 0 and pii_selected:
-        st.warning(
-            "⚠️ **Governance Gap:** Sensitive evidence types selected but no "
-            "compliance measures confirmed."
-        )
-    if gov_gaps:
-        st.markdown("**Gaps to address:**")
-        for _gap in gov_gaps:
-            st.markdown(f"- {_gap}")
+        st.markdown(f"**Governance requirements partially met ({gov_score}/15) — review items below.**")
+
+    # Per-item checklist
+    with st.expander("Governance checklist detail", expanded=(gov_score < 7)):
+        for _lbl, _val, _max, _cmap in [
+            ("Beneficiary consent",  _disp_consent, 5, CONSENT_CHECKLIST_MAP),
+            ("Data anonymization",   _disp_anon,    4, ANON_CHECKLIST_MAP),
+            ("Data law compliance",  _disp_law,     3, LAW_CHECKLIST_MAP),
+        ]:
+            _icon, _desc, _earned = _cmap.get(_val, ("✗", "Not answered", 0))
+            st.markdown(f"{_icon} **{_lbl}** — {_desc} ({_earned}/{_max} pts)")
+        if _disp_dpp:
+            st.markdown("✓ **Data protection policy** — uploaded (+5 bonus)")
+        else:
+            st.caption("◦ Data protection policy not uploaded (optional +5 bonus)")
+
+    # Remediation action
+    if gov_score < 12:
+        if st.button("Fix governance issues →", key="fix_gov_btn"):
+            st.session_state["current_tab"] = 2
+            _nav_to_tab(2)
     # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
 
@@ -2216,6 +2292,14 @@ def render_screen_0():
                     _u = get_user(_e)
                     if _u and is_still_paid(_u):
                         st.session_state["is_paid"] = True
+                    # complete any pending post-payment verification
+                    _pending_ref = st.session_state.pop("pending_paystack_ref", None)
+                    if _pending_ref:
+                        _pr = verify_payment(_pending_ref)
+                        if _pr.get("status") == "success":
+                            _pr_days = 30 if _pr.get("plan") == "monthly" else 1
+                            mark_paid(_e, days=_pr_days)
+                            st.session_state["is_paid"] = True
                     st.rerun()
                 else:
                     st.warning("Please enter a valid email address.")
@@ -2554,6 +2638,11 @@ def render_screen_1():
             key="entry_mode",
         )
         if st.session_state.get("entry_mode") == "⚡ Instant Report Check":
+            if not st.session_state.get("user_email"):
+                st.info("📧 Please enter your email to use Instant Report Check.")
+                if st.button("Enter your email →", key="irc_email_redirect"):
+                    _go_to_screen(0, reset=False)
+                st.stop()
             with st.expander(
                 "⚡ Instant Report Check — Upload your draft report to auto-fill this form",
                 expanded=True,
@@ -2567,13 +2656,14 @@ def render_screen_1():
                 if not _irc_paid_flag:
                     st.info("🔒 **Instant Report Check is a paid feature.** "
                             "Upgrade to auto-fill all form fields from your uploaded document.")
-                    _render_paywall()
-                _irc_file = st.file_uploader(
-                    "Upload report file",
-                    type=["pdf", "docx"],
-                    key="instant_report_upload",
-                )
-                if _irc_paid_flag and st.button("🔍 Run Instant Check", key="run_instant_check") and _irc_file:
+                    _render_paywall(irc_context=True)
+                else:
+                    _irc_file = st.file_uploader(
+                        "Upload report file",
+                        type=["pdf", "docx"],
+                        key="instant_report_upload",
+                    )
+                if _irc_paid_flag and st.button("🔍 Run Instant Check", key="run_instant_check") and st.session_state.get("instant_report_upload") is not None:
                     with st.spinner("Extracting with AI…"):
                         try:
                             # Step 1: extract raw text
@@ -2750,6 +2840,23 @@ def render_screen_1():
         except Exception:
             pass
         # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
+
+        with st.expander("ℹ️ How scoring works"):
+            st.markdown("""
+**Confidence Score (0–5.0)** — measures how credible and traceable your evidence is.
+- **Directness** (0–2.0): target 1.5+ — how directly the evidence links to the result
+- **Verification** (0–2.0): target 1.5+ — how rigorously evidence was reviewed
+- **Recency** (0–1.0): target 0.7+ — how recently the evidence was collected
+
+**Clarity Score (0–5.0)** — measures how precisely the result is defined and measurable.
+- **Definition** (0–1.25): target 1.0+ — who, what, where, by when
+- **Measurement** (0–1.25): target 1.0+ — indicator, baseline, target stated
+- **Integrity** (0–1.0): completeness and audit trail
+- **Scope** (0–0.75): geographic and demographic coverage
+- **Governance** (0–0.75): named owner and decision use
+
+A **content quality penalty** (×0.5 to ×1.0) applies when the result statement or evidence description appears to be placeholder text.
+""")
 
         with st.expander("📊 Live Score Preview", expanded=True):
             _render_live_score_preview(1)
@@ -3734,20 +3841,47 @@ def main():
     _init_session_state()
 
     # --- Paystack payment callback handler ---
-    _paystack_ref = st.query_params.get("paystack_ref", "")
-    if _paystack_ref and st.session_state.get("user_email"):
+    # Paystack redirects with ?trxref=REF&reference=REF (and our custom ?user_email=...)
+    _paystack_ref = (
+        st.query_params.get("paystack_ref", "")
+        or st.query_params.get("reference", "")
+        or st.query_params.get("trxref", "")
+    )
+    _qp_email = st.query_params.get("user_email", "")
+
+    # Restore email to session state if this is a fresh post-payment session
+    if _qp_email and not st.session_state.get("user_email"):
+        _qp_e = _qp_email.strip().lower()
+        st.session_state["user_email"] = _qp_e
+        upsert_user(_qp_e)
+        _qp_u = get_user(_qp_e)
+        if _qp_u and is_still_paid(_qp_u):
+            st.session_state["is_paid"] = True
+
+    _ref_email = st.session_state.get("user_email") or _qp_email
+    if _paystack_ref and _ref_email:
         _pay_result = verify_payment(_paystack_ref)
         if _pay_result.get("status") == "success":
             _days = 30 if _pay_result.get("plan") == "monthly" else 1
-            mark_paid(st.session_state["user_email"], days=_days)
+            mark_paid(_ref_email, days=_days)
+            st.session_state["user_email"] = _ref_email
             st.session_state["is_paid"] = True
+            st.session_state.pop("_pay_once_url", None)
+            st.session_state.pop("_pay_monthly_url", None)
             try:
                 st.query_params.clear()
             except Exception:
                 pass
-            st.success("✅ Payment confirmed! Your check is now unlocked.")
+            st.success("✅ Payment confirmed! Your Instant Report Check is now unlocked.")
         elif _pay_result.get("status") == "failed":
             st.warning("Payment was not completed. Please try again.")
+    elif _paystack_ref and not _ref_email:
+        # Ref present but no email — store it; email gate will complete verification
+        st.session_state["pending_paystack_ref"] = _paystack_ref
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
     # --- End Paystack handler ---
 
     screen = st.session_state["screen"]
