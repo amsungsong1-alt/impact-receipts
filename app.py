@@ -2471,6 +2471,19 @@ def render_screen_1():
 
     _render_tutorial(1)
 
+    _has_prefill = bool(
+        st.session_state.get("result_statement", "").strip() or
+        st.session_state.get("evidence_description", "").strip()
+    )
+    if _has_prefill:
+        _pf_c1, _pf_c2 = st.columns([3, 1])
+        with _pf_c1:
+            st.info("📂 Continuing from a previous session — your form fields are pre-populated.")
+        with _pf_c2:
+            if st.button("Clear and start fresh", key="clear_prefill"):
+                _reset_all_slots()
+                st.rerun()
+
     active = st.session_state.get("active_slots", 1)
 
     # --- UX: DYNAMIC SIDEBAR (v3.2) ---
@@ -2653,7 +2666,8 @@ def render_screen_1():
         with col_add:
             if active < 3:
                 st.markdown("<div style='padding-top:22px'></div>", unsafe_allow_html=True)
-                if st.button("＋ Add Result", use_container_width=True):
+                if st.button("＋ Add Another Result", use_container_width=True,
+                             help="Add a second or third result to this submission (max 3)."):
                     st.session_state["active_slots"] = active + 1
                     st.rerun()
 
@@ -3386,6 +3400,14 @@ def render_screen_2():
         unsafe_allow_html=True,
     )
 
+    _nav_c1, _nav_c2 = st.columns(2)
+    with _nav_c1:
+        if st.button("← Edit Submission", key="back_to_form"):
+            st.session_state["evaluations"] = None
+            _go_to_screen(1)
+    with _nav_c2:
+        st.caption("**Next steps:** Edit & re-run · Download report below · Submit to donor")
+
     for i, (sub, ev) in enumerate(zip(subs, evs)):
         if n > 1:
             st.markdown(f"### Result {i + 1}")
@@ -3511,6 +3533,14 @@ def render_screen_2():
         if st.button("Check Another Result", use_container_width=True):
             _clear_draft()
             _go_to_screen(1, reset=True)
+
+    _all_fixes = []
+    for _ev in evs:
+        _all_fixes.extend(_ev.get("fixes", []))
+    if _all_fixes:
+        with st.expander("💡 Suggested fixes to improve your submission"):
+            for _fix in _all_fixes[:5]:
+                st.markdown(f"- {_fix.get('text', '')}")
 
     _render_tagline_footer()
 
