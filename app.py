@@ -1969,150 +1969,179 @@ def _render_tab2_slot(slot: int):
 
 def _render_tab3_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
-    st.text_area(
-        "Describe your supporting evidence", key=f"evidence_description{s}",
-        placeholder=_ph["evidence_description"],
-        height=120,
-        help="Describe the actual document or data: who collected it, how, and what's in it.",
-    )
-    _ed_val = st.session_state.get(f"evidence_description{s}", "")
-    if _ed_val and len(_ed_val.strip()) < 30:
-        st.warning("Evidence description is brief. Specify: who collected it, how, and what it contains.")
-    if _ed_val:
-        _meas_count = sum([
-            any(kw in _ed_val.lower() for kw in ["survey", "interview", "kobo", "questionnaire", "instrument"]),
-            any(kw in _ed_val.lower() for kw in ["sample", "random", "purposive", "stratified", "n="]),
-            bool(_ed_val.strip()),
-        ])
-        _meas_score = round((_meas_count / 3) * 1.25, 2)
-        st.caption(f"Measurement score contribution: **{_meas_score}/1.25** (method, sampling, description present)")
+    with st.expander("📋 Evidence Details", expanded=True):
+        st.text_area(
+            "Describe your supporting evidence", key=f"evidence_description{s}",
+            placeholder=_ph["evidence_description"],
+            height=120,
+            help="Describe the actual document or data: who collected it, how, and what's in it.",
+        )
+        _ed_val = st.session_state.get(f"evidence_description{s}", "")
+        if _ed_val and len(_ed_val.strip()) < 30:
+            st.warning("Evidence description is brief. Specify: who collected it, how, and what it contains.")
+        if _ed_val:
+            _meas_count = sum([
+                any(kw in _ed_val.lower() for kw in ["survey", "interview", "kobo", "questionnaire", "instrument"]),
+                any(kw in _ed_val.lower() for kw in ["sample", "random", "purposive", "stratified", "n="]),
+                bool(_ed_val.strip()),
+            ])
+            _meas_score = round((_meas_count / 3) * 1.25, 2)
+            st.caption(f"Measurement score contribution: **{_meas_score}/1.25** (method, sampling, description present)")
 
-    st.selectbox(
-        "Evidence type", key=f"evidence_type{s}",
-        options=EVIDENCE_TYPES,
-        help=EVIDENCE_TYPE_HELP,
-    )
-    ev_type = st.session_state.get(f"evidence_type{s}", EVIDENCE_TYPES[0])
-    ev_desc = st.session_state.get(f"evidence_description{s}", "")
-    _dl = _evaluator.get_directness_level(ev_type, ev_desc)
-    _ds = round((_dl / 5) * 2.0, 1)
-    st.caption(f"Directness score from this evidence type: **{_ds}/2.0**")
+        st.selectbox(
+            "Evidence type", key=f"evidence_type{s}",
+            options=EVIDENCE_TYPES,
+            help=EVIDENCE_TYPE_HELP,
+        )
+        ev_type = st.session_state.get(f"evidence_type{s}", EVIDENCE_TYPES[0])
+        ev_desc = st.session_state.get(f"evidence_description{s}", "")
+        _dl = _evaluator.get_directness_level(ev_type, ev_desc)
+        _ds = round((_dl / 5) * 2.0, 1)
+        st.caption(f"Directness score from this evidence type: **{_ds}/2.0**")
 
-    _sub_lbl = "📝 Strengthen this evidence (optional — helps defend in donor reviews)"
-    if ev_type == "Attendance sheets / participant registers":
-        with st.expander(_sub_lbl, expanded=False):
-            st.checkbox("Signatures verified against ID list", key=f"signatures_verified{s}")
-            st.checkbox("Sheets dated and stamped", key=f"date_stamped{s}")
-            st.checkbox("Cross-referenced with another source (e.g., facilitator notes)", key=f"cross_ref{s}")
-    elif ev_type == "Raw datasets or survey exports":
-        with st.expander(_sub_lbl, expanded=False):
-            st.checkbox("Sampling method documented", key=f"sample_doc{s}")
-            st.checkbox("Dataset cleaned and de-duplicated", key=f"clean_data{s}")
-            st.checkbox("Original raw export retained for audit", key=f"version_ctrl{s}")
-    elif ev_type == "Partner verification letters":
-        with st.expander(_sub_lbl, expanded=False):
-            st.checkbox("Letter on official partner letterhead", key=f"letterhead{s}")
-            st.checkbox("Signed by authorized partner representative", key=f"authority_signed{s}")
-            st.checkbox("Letter dated within 6 months of reporting period", key=f"recent_letter{s}")
-    elif ev_type == "Photos with metadata":
-        with st.expander(_sub_lbl, expanded=False):
-            st.checkbox("Photos contain GPS metadata", key=f"gps_meta{s}")
-            st.checkbox("Timestamps visible/verifiable", key=f"timestamp_photo{s}")
-            st.checkbox("Beneficiary consent obtained for photos", key=f"consent_photo{s}")
-    elif ev_type == "Tracer survey results":
-        with st.expander(_sub_lbl, expanded=False):
-            st.checkbox("Follow-up conducted at appropriate interval (3+ months)", key=f"followup_tracer{s}")
-            st.checkbox("Response rate documented (target: 60%+)", key=f"response_rate{s}")
-            st.checkbox("Sampling bias / non-response acknowledged", key=f"bias_ack{s}")
-    elif ev_type == "Financial records":
-        with st.expander(_sub_lbl, expanded=False):
-            st.checkbox("Receipts/transactions dated", key=f"receipts_dated{s}")
-            st.checkbox("Reconciled with bank/MoMo statements", key=f"reconciled_ev{s}")
-            st.checkbox("Audit trail intact (request → approval → payment)", key=f"audit_trail_ev{s}")
-    elif ev_type == "Third-party audits":
-        with st.expander(_sub_lbl, expanded=False):
-            st.checkbox("Auditor independent from implementer", key=f"independent_ev{s}")
-            st.checkbox("Audit report signed and dated", key=f"signed_audit{s}")
-            st.checkbox("Audit recommendations addressed/disclosed", key=f"recommendations_ev{s}")
+        _sub_lbl = "📝 Strengthen this evidence (optional — helps defend in donor reviews)"
+        if ev_type == "Attendance sheets / participant registers":
+            with st.expander(_sub_lbl, expanded=False):
+                st.checkbox("Signatures verified against ID list", key=f"signatures_verified{s}")
+                st.checkbox("Sheets dated and stamped", key=f"date_stamped{s}")
+                st.checkbox("Cross-referenced with another source (e.g., facilitator notes)", key=f"cross_ref{s}")
+        elif ev_type == "Raw datasets or survey exports":
+            with st.expander(_sub_lbl, expanded=False):
+                st.checkbox("Sampling method documented", key=f"sample_doc{s}")
+                st.checkbox("Dataset cleaned and de-duplicated", key=f"clean_data{s}")
+                st.checkbox("Original raw export retained for audit", key=f"version_ctrl{s}")
+        elif ev_type == "Partner verification letters":
+            with st.expander(_sub_lbl, expanded=False):
+                st.checkbox("Letter on official partner letterhead", key=f"letterhead{s}")
+                st.checkbox("Signed by authorized partner representative", key=f"authority_signed{s}")
+                st.checkbox("Letter dated within 6 months of reporting period", key=f"recent_letter{s}")
+        elif ev_type == "Photos with metadata":
+            with st.expander(_sub_lbl, expanded=False):
+                st.checkbox("Photos contain GPS metadata", key=f"gps_meta{s}")
+                st.checkbox("Timestamps visible/verifiable", key=f"timestamp_photo{s}")
+                st.checkbox("Beneficiary consent obtained for photos", key=f"consent_photo{s}")
+        elif ev_type == "Tracer survey results":
+            with st.expander(_sub_lbl, expanded=False):
+                st.checkbox("Follow-up conducted at appropriate interval (3+ months)", key=f"followup_tracer{s}")
+                st.checkbox("Response rate documented (target: 60%+)", key=f"response_rate{s}")
+                st.checkbox("Sampling bias / non-response acknowledged", key=f"bias_ack{s}")
+        elif ev_type == "Financial records":
+            with st.expander(_sub_lbl, expanded=False):
+                st.checkbox("Receipts/transactions dated", key=f"receipts_dated{s}")
+                st.checkbox("Reconciled with bank/MoMo statements", key=f"reconciled_ev{s}")
+                st.checkbox("Audit trail intact (request → approval → payment)", key=f"audit_trail_ev{s}")
+        elif ev_type == "Third-party audits":
+            with st.expander(_sub_lbl, expanded=False):
+                st.checkbox("Auditor independent from implementer", key=f"independent_ev{s}")
+                st.checkbox("Audit report signed and dated", key=f"signed_audit{s}")
+                st.checkbox("Audit recommendations addressed/disclosed", key=f"recommendations_ev{s}")
 
-    if ev_type == "Other":
-        st.text_input("Specify evidence type", key=f"evidence_type_other{s}")
+        if ev_type == "Other":
+            st.text_input("Specify evidence type", key=f"evidence_type_other{s}")
 
-    int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
-    st.selectbox(
-        "Internal review", key=f"internal_review{s}",
-        options=INTERNAL_REVIEW_OPTIONS,
-        help="Did anyone in your organization review or cross-check this data?",
-    )
-    int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
-    _int_vl = _evaluator.get_verification_level(int_rev, "No external review", "")
-    _int_vs = round((_int_vl / 5) * 2.0, 1)
-    if _int_vs > 0:
-        st.caption(f"Internal review adds **{_int_vs}/2.0** to Verification score")
-    else:
-        st.caption("⚠ No internal review: Verification score starts at 0. Adding a reviewer will improve this.")
-    if int_rev == "Other":
-        st.text_input("Specify internal reviewer", key=f"internal_review_other{s}")
-
-    ext_rev = st.session_state.get(f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0])
-    st.selectbox(
-        "External review", key=f"external_review{s}",
-        options=EXTERNAL_REVIEW_OPTIONS,
-        help="Did an outside party verify the data? Government, partner, auditor, or evaluator.",
-    )
-    ext_rev = st.session_state.get(f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0])
-    verifier_text = st.session_state.get(f"verifier{s}", "")
-    _full_vl = _evaluator.get_verification_level(int_rev, ext_rev, verifier_text)
-    _full_vs = round((_full_vl / 5) * 2.0, 1)
-    _added   = round(_full_vs - _int_vs, 1)
-    if _added > 0:
-        st.caption(f"External review adds **+{_added}** more → total Verification: **{_full_vs}/2.0**")
-    elif ext_rev == "No external review":
-        st.caption("⚠ No external review: adding independent verification can raise this score significantly.")
-    else:
-        st.caption(f"Total Verification: **{_full_vs}/2.0**")
-    if ext_rev == "Other":
-        st.text_input("Specify external reviewer", key=f"external_review_other{s}")
-
-    st.text_input(
-        "Who verified this?", key=f"verifier{s}",
-        placeholder="e.g., District Agriculture Officer, partner org M&E lead, external evaluator",
-        help="The person or organization that confirmed the data is accurate.",
-    )
-
-    st.markdown("#### Reporting Period")
-    st.caption("The period this submission covers. Evidence dates outside this range will be flagged.")
-    _rp_col_s, _rp_col_e = st.columns(2)
-    with _rp_col_s:
-        st.date_input("Reporting period start", key=f"reporting_start{s}",
-                      help="When does the period this report covers begin?")
-    with _rp_col_e:
-        st.date_input("Reporting period end", key=f"reporting_end{s}",
-                      help="When does the period this report covers end?")
-
-    st.date_input(
-        "When was this evidence collected?", key=f"evidence_date{s}",
-        help="When was the data collected? Use the most recent date if multiple sources.",
-    )
-    _ed = st.session_state.get(f"evidence_date{s}")
-    if _ed and hasattr(_evaluator, "get_recency_diagnostic"):
-        _rec_diag = _evaluator.get_recency_diagnostic(_ed)
-        if "0.4/1.0" in _rec_diag or "0.2/1.0" in _rec_diag:
-            st.warning(_rec_diag)
-        elif "0.6/1.0" in _rec_diag:
-            st.info(_rec_diag)
+    with st.expander("✅ Verification & Reporting Period", expanded=True):
+        int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
+        st.selectbox(
+            "Internal review", key=f"internal_review{s}",
+            options=INTERNAL_REVIEW_OPTIONS,
+            help="Did anyone in your organization review or cross-check this data?",
+        )
+        int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
+        _int_vl = _evaluator.get_verification_level(int_rev, "No external review", "")
+        _int_vs = round((_int_vl / 5) * 2.0, 1)
+        if _int_vs > 0:
+            st.caption(f"Internal review adds **{_int_vs}/2.0** to Verification score")
         else:
-            st.success(_rec_diag)
-    _rp_s = st.session_state.get(f"reporting_start{s}")
-    _rp_e = st.session_state.get(f"reporting_end{s}")
-    if _ed and _rp_s and _rp_e and hasattr(_evaluator, "validate_reporting_period"):
-        _, _rp_msg, _rp_sev = _evaluator.validate_reporting_period(_ed, _rp_s, _rp_e)
-        if _rp_sev == "ERROR":
-            st.error(_rp_msg)
-        elif _rp_sev == "WARNING":
-            st.warning(_rp_msg)
-        elif _rp_msg:
-            st.success(_rp_msg)
+            st.caption("⚠ No internal review: Verification score starts at 0. Adding a reviewer will improve this.")
+        if int_rev == "Other":
+            st.text_input("Specify internal reviewer", key=f"internal_review_other{s}")
+
+        ext_rev = st.session_state.get(f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0])
+        st.selectbox(
+            "External review", key=f"external_review{s}",
+            options=EXTERNAL_REVIEW_OPTIONS,
+            help="Did an outside party verify the data? Government, partner, auditor, or evaluator.",
+        )
+        ext_rev = st.session_state.get(f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0])
+        verifier_text = st.session_state.get(f"verifier{s}", "")
+        _full_vl = _evaluator.get_verification_level(int_rev, ext_rev, verifier_text)
+        _full_vs = round((_full_vl / 5) * 2.0, 1)
+        _added   = round(_full_vs - _int_vs, 1)
+        if _added > 0:
+            st.caption(f"External review adds **+{_added}** more → total Verification: **{_full_vs}/2.0**")
+        elif ext_rev == "No external review":
+            st.caption("⚠ No external review: adding independent verification can raise this score significantly.")
+        else:
+            st.caption(f"Total Verification: **{_full_vs}/2.0**")
+        if ext_rev == "Other":
+            st.text_input("Specify external reviewer", key=f"external_review_other{s}")
+
+        st.text_input(
+            "Who verified this?", key=f"verifier{s}",
+            placeholder="e.g., District Agriculture Officer, partner org M&E lead, external evaluator",
+            help="The person or organization that confirmed the data is accurate.",
+        )
+
+        st.markdown("#### Reporting Period")
+        st.caption("The period this submission covers. Evidence dates outside this range will be flagged.")
+        _rp_c1, _rp_t1 = st.columns([5, 1])
+        with _rp_c1:
+            st.date_input("Reporting period start", key=f"reporting_start{s}",
+                          help="When does the period this report covers begin?")
+        with _rp_t1:
+            st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
+            if st.button("Today", key=f"today_rp_start{s}"):
+                st.session_state[f"reporting_start{s}"] = date.today()
+                st.rerun()
+        _rp_s_val = st.session_state.get(f"reporting_start{s}")
+        if _rp_s_val and _rp_s_val > date.today():
+            st.caption("⚠ This date is in the future.")
+
+        _rp_c2, _rp_t2 = st.columns([5, 1])
+        with _rp_c2:
+            st.date_input("Reporting period end", key=f"reporting_end{s}",
+                          help="When does the period this report covers end?")
+        with _rp_t2:
+            st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
+            if st.button("Today", key=f"today_rp_end{s}"):
+                st.session_state[f"reporting_end{s}"] = date.today()
+                st.rerun()
+        _rp_e_val = st.session_state.get(f"reporting_end{s}")
+        if _rp_e_val and _rp_e_val > date.today():
+            st.caption("⚠ This date is in the future.")
+
+        _ev_c, _ev_t = st.columns([5, 1])
+        with _ev_c:
+            st.date_input(
+                "When was this evidence collected?", key=f"evidence_date{s}",
+                help="When was the data collected? Use the most recent date if multiple sources.",
+            )
+        with _ev_t:
+            st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
+            if st.button("Today", key=f"today_ev_date{s}"):
+                st.session_state[f"evidence_date{s}"] = date.today()
+                st.rerun()
+        _ed = st.session_state.get(f"evidence_date{s}")
+        if _ed and _ed > date.today():
+            st.caption("⚠ This date is in the future.")
+        if _ed and hasattr(_evaluator, "get_recency_diagnostic"):
+            _rec_diag = _evaluator.get_recency_diagnostic(_ed)
+            if "0.4/1.0" in _rec_diag or "0.2/1.0" in _rec_diag:
+                st.warning(_rec_diag)
+            elif "0.6/1.0" in _rec_diag:
+                st.info(_rec_diag)
+            else:
+                st.success(_rec_diag)
+        _rp_s = st.session_state.get(f"reporting_start{s}")
+        _rp_e = st.session_state.get(f"reporting_end{s}")
+        if _ed and _rp_s and _rp_e and hasattr(_evaluator, "validate_reporting_period"):
+            _, _rp_msg, _rp_sev = _evaluator.validate_reporting_period(_ed, _rp_s, _rp_e)
+            if _rp_sev == "ERROR":
+                st.error(_rp_msg)
+            elif _rp_sev == "WARNING":
+                st.warning(_rp_msg)
+            elif _rp_msg:
+                st.success(_rp_msg)
 
     st.markdown("#### Beneficiary Voice")
     st.caption(
@@ -2137,80 +2166,78 @@ def _render_tab3_slot(slot: int):
     # --- END UX: CONDITIONAL FIELDS (v3.2) ---
 
     # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
-    st.markdown("---")
-    st.subheader("🛡️ Compliance & Ethics Check")
-    st.caption("*Ensure your evidence is not just credible — but legally safe.*")
-
     _ev_type_now = st.session_state.get(f"evidence_type{s}", "")
     _pii_triggered = _ev_type_now in PII_EVIDENCE_TYPES
-    if _pii_triggered:
-        st.warning(
-            "⚠️ **PII Alert:** One or more of your selected evidence types may "
-            "contain Personally Identifiable Information (PII). Please answer the "
-            "compliance checks below before proceeding."
+    st.markdown("---")
+    with st.expander("🛡️ Compliance & Data Governance", expanded=_pii_triggered):
+        st.subheader("🛡️ Compliance & Ethics Check")
+        st.caption("*Ensure your evidence is not just credible — but legally safe.*")
+        if _pii_triggered:
+            st.warning(
+                "⚠️ **PII Alert:** One or more of your selected evidence types may "
+                "contain Personally Identifiable Information (PII). Please answer the "
+                "compliance checks below before proceeding."
+            )
+        with st.expander(
+            "📋 Data Governance Checklist (expand to complete)",
+            expanded=_pii_triggered,
+        ):
+            st.selectbox(
+                "Do you have documented consent from beneficiaries for their data "
+                "to be shared with the donor?",
+                options=[
+                    "Choose an option...",
+                    "Yes — written consent forms on file",
+                    "Yes — verbal consent documented",
+                    "Partial — some beneficiaries consented",
+                    "No — consent not obtained",
+                    "Not applicable (no personal data)",
+                ],
+                key=f"gov_consent_status{s}",
+            )
+            st.selectbox(
+                "Has this evidence been anonymized or de-identified where required?",
+                options=[
+                    "Choose an option...",
+                    "Yes — fully anonymized",
+                    "Partially anonymized",
+                    "No — not anonymized",
+                    "Not applicable",
+                ],
+                key=f"gov_anonymization_status{s}",
+            )
+            st.selectbox(
+                "Does your evidence collection method comply with the data protection "
+                "law in your project's country?",
+                options=[
+                    "Choose an option...",
+                    "Yes — compliant (e.g. Ghana Act 843, Nigeria NDPA, Kenya DPA)",
+                    "Unsure — we haven't checked",
+                    "No — we are not compliant",
+                    "Not applicable",
+                ],
+                key=f"gov_compliance_law_status{s}",
+            )
+        st.markdown(
+            "#### 📁 Upload Organisational Data Protection Policy "
+            "(optional — earns Governance Bonus)"
         )
-
-    with st.expander(
-        "📋 Data Governance Checklist (expand to complete)",
-        expanded=_pii_triggered,
-    ):
-        st.selectbox(
-            "Do you have documented consent from beneficiaries for their data "
-            "to be shared with the donor?",
-            options=[
-                "Choose an option...",
-                "Yes — written consent forms on file",
-                "Yes — verbal consent documented",
-                "Partial — some beneficiaries consented",
-                "No — consent not obtained",
-                "Not applicable (no personal data)",
-            ],
-            key=f"gov_consent_status{s}",
+        _dpp_file = st.file_uploader(
+            "Upload your data protection policy (PDF or DOCX)",
+            type=["pdf", "docx"],
+            key=f"gov_dpp_upload{s}",
         )
-        st.selectbox(
-            "Has this evidence been anonymized or de-identified where required?",
-            options=[
-                "Choose an option...",
-                "Yes — fully anonymized",
-                "Partially anonymized",
-                "No — not anonymized",
-                "Not applicable",
-            ],
-            key=f"gov_anonymization_status{s}",
-        )
-        st.selectbox(
-            "Does your evidence collection method comply with the data protection "
-            "law in your project's country?",
-            options=[
-                "Choose an option...",
-                "Yes — compliant (e.g. Ghana Act 843, Nigeria NDPA, Kenya DPA)",
-                "Unsure — we haven't checked",
-                "No — we are not compliant",
-                "Not applicable",
-            ],
-            key=f"gov_compliance_law_status{s}",
-        )
-
-    st.markdown(
-        "#### 📁 Upload Organisational Data Protection Policy "
-        "(optional — earns Governance Bonus)"
-    )
-    _dpp_file = st.file_uploader(
-        "Upload your data protection policy (PDF or DOCX)",
-        type=["pdf", "docx"],
-        key=f"gov_dpp_upload{s}",
-    )
-    if _dpp_file is not None:
-        st.session_state["gov_dpp_uploaded"] = True
-        st.caption(
-            "✅ Policy uploaded. **+5 Governance Bonus** applied to your "
-            "Confidence Score for this session."
-        )
-    else:
-        st.caption(
-            "Uploading your policy grants a +5 Governance Bonus to your "
-            "Confidence Score for this session."
-        )
+        if _dpp_file is not None:
+            st.session_state["gov_dpp_uploaded"] = True
+            st.caption(
+                "✅ Policy uploaded. **+5 Governance Bonus** applied to your "
+                "Confidence Score for this session."
+            )
+        else:
+            st.caption(
+                "Uploading your policy grants a +5 Governance Bonus to your "
+                "Confidence Score for this session."
+            )
     # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
     prev_files = st.session_state.get(f"draft_uploaded_filenames{s}", [])
@@ -2790,10 +2817,12 @@ def render_screen_1():
             st.session_state.get("timeframe", "").strip(),
             st.session_state.get("geographic_scope", "").strip(),
         ])
-        if _t1_done and not st.session_state.get("_tab1_auto_advanced"):
-            st.session_state["_tab1_auto_advanced"] = True
-            st.session_state["current_tab"] = 1
-            _nav_to_tab(1)
+        if _t1_done:
+            if st.button("Next: Logframe Linkage →", key="tab1_next_btn", type="primary"):
+                st.session_state["current_tab"] = 1
+                _nav_to_tab(1)
+        else:
+            st.caption("Fill in all four fields above to continue.")
         # --- END v3.3 ---
 
     with tab2:
@@ -2824,6 +2853,35 @@ def render_screen_1():
 
     with tab4:
         st.caption("Review your scores, download your draft, and submit when ready.")
+
+        _REQUIRED_FIELDS_B = [
+            ("result_statement",     "Result statement (Tab 1)"),
+            ("target_group",         "Target group (Tab 1)"),
+            ("timeframe",            "Timeframe (Tab 1)"),
+            ("geographic_scope",     "Geographic scope (Tab 1)"),
+            ("evidence_description", "Evidence description (Tab 3)"),
+            ("evidence_type",        "Evidence type (Tab 3)"),
+        ]
+        _TAB_IDX_B = {
+            "result_statement": 0, "target_group": 0, "timeframe": 0, "geographic_scope": 0,
+            "evidence_description": 2, "evidence_type": 2,
+        }
+        _missing_b = [
+            (key, lbl) for key, lbl in _REQUIRED_FIELDS_B
+            if not str(st.session_state.get(key, "")).strip()
+            or st.session_state.get(key, "") in ("Choose an option...", "")
+        ]
+        _completed_b = len(_REQUIRED_FIELDS_B) - len(_missing_b)
+        st.progress(_completed_b / len(_REQUIRED_FIELDS_B),
+                    text=f"Form completion: {_completed_b}/{len(_REQUIRED_FIELDS_B)} required fields")
+        if _missing_b:
+            with st.expander(f"⚠ {len(_missing_b)} required field(s) incomplete", expanded=True):
+                for _fk, _fl in _missing_b:
+                    st.markdown(f"- {_fl}")
+                if st.button("Jump to first missing field", key="jump_missing_b"):
+                    _first_b = _TAB_IDX_B[_missing_b[0][0]]
+                    st.session_state["current_tab"] = _first_b
+                    _nav_to_tab(_first_b)
 
         # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
         try:
