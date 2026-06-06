@@ -2705,16 +2705,15 @@ def render_screen_1():
                 )
                 _irc_paid_flag = (st.session_state.get("is_paid") or
                                   is_still_paid(get_user(st.session_state.get("user_email",""))))
+                _irc_file = st.file_uploader(
+                    "Upload report file",
+                    type=["pdf", "docx"],
+                    key="instant_report_upload",
+                )
                 if not _irc_paid_flag:
                     st.info("🔒 **Instant Report Check is a paid feature.** "
                             "Upgrade to auto-fill all form fields from your uploaded document.")
                     _render_paywall(irc_context=True)
-                else:
-                    _irc_file = st.file_uploader(
-                        "Upload report file",
-                        type=["pdf", "docx"],
-                        key="instant_report_upload",
-                    )
                 if _irc_paid_flag and st.button("🔍 Run Instant Check", key="run_instant_check") and st.session_state.get("instant_report_upload") is not None:
                     with st.spinner("Extracting with AI…"):
                         try:
