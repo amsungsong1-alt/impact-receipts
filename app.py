@@ -462,7 +462,8 @@ SECTOR_PLACEHOLDERS = {
         "evidence_description": "e.g., Borehole functionality reports from 25 sites + water quality test results from district lab + GPS-tagged photos of completed structures",
         "logframe_indicator":   "e.g., Indicator 2.1: Number of households with access to safely managed drinking water",
         "logframe_target":      "e.g., 12,000 households with access by Q4 2025",
-        "logframe_achievement": "e.g., 12,500 households reached by June 2025 — 104% of target",
+        "logframe_achievement": "e.g., 12,000 people reached by June 2025 — 100% of target",
+        "verifier":              "e.g., District Water and Sanitation Officer, Water Resource Commission inspector",
     },
     "Health": {
         "result": "e.g., Vaccinated 8,500 children under 5 against measles across 3 health districts in Eastern Region between July and September 2025",
@@ -472,6 +473,7 @@ SECTOR_PLACEHOLDERS = {
         "logframe_indicator":   "e.g., Indicator 1.3: % of children under 5 fully immunized in target districts",
         "logframe_target":      "e.g., 85% immunization coverage in 3 districts by Dec 2025",
         "logframe_achievement": "e.g., 8,500 children vaccinated by Sept 2025 — 100% of district target",
+        "verifier":              "e.g., District Health Officer, Regional Health Directorate field supervisor",
     },
     "Education": {
         "result": "e.g., Improved literacy scores by 35% among 1,200 primary school students across 15 schools in Central Region between September 2024 and June 2025",
@@ -480,7 +482,8 @@ SECTOR_PLACEHOLDERS = {
         "evidence_description": "e.g., Pre/post standardized test results + enrollment registers + teacher observation logs + sample of student work",
         "logframe_indicator":   "e.g., Indicator 3.2: % of students achieving minimum reading proficiency",
         "logframe_target":      "e.g., 60% of students at grade-level literacy by June 2025",
-        "logframe_achievement": "e.g., 1,247 students with improved literacy scores by June 2025 — 104% of target",
+        "logframe_achievement": "e.g., 1,200 students with improved literacy scores by June 2025 — 100% of target",
+        "verifier":              "e.g., Ghana Education Service district inspector, headteacher certification",
     },
     "Agriculture / Livelihoods": {
         "result": "e.g., Trained 487 smallholder farmers in climate-smart agriculture across 3 districts in Northern Ghana between January and June 2025",
@@ -490,6 +493,7 @@ SECTOR_PLACEHOLDERS = {
         "logframe_indicator":   "e.g., Indicator 2.4: Number of smallholder farmers trained in climate-smart practices",
         "logframe_target":      "e.g., 400 farmers trained by Q4 2025",
         "logframe_achievement": "e.g., 487 farmers trained by June 2025 — 97% of target",
+        "verifier":              "e.g., District Agriculture Officer, partner org M&E lead, external evaluator",
     },
     "Youth Employment": {
         "result": "e.g., Provided vocational training to 250 unemployed youth in IT and entrepreneurship across Accra and Kumasi from January to March 2026",
@@ -498,7 +502,8 @@ SECTOR_PLACEHOLDERS = {
         "evidence_description": "e.g., Signed attendance sheets for all 10 training modules + digital certificates issued to 245 graduates + 3-month tracer survey results + employment contracts",
         "logframe_indicator":   "e.g., Indicator 1.2: Number of unemployed youth completing vocational training",
         "logframe_target":      "e.g., 250 youth trained by Q4 2025",
-        "logframe_achievement": "e.g., 245 youth completed training by March 2026 — 98% of target",
+        "logframe_achievement": "e.g., 250 youth completed training by March 2026 — 100% of target",
+        "verifier":              "e.g., COTVET assessor, employer sign-off, training provider certification",
     },
     "Climate Resilience": {
         "result": "e.g., Established 50 community-managed weather stations across 10 coastal communities in Volta Region between March and December 2025",
@@ -508,6 +513,7 @@ SECTOR_PLACEHOLDERS = {
         "logframe_indicator":   "e.g., Indicator 4.1: Number of community-managed early-warning systems established",
         "logframe_target":      "e.g., 50 weather stations operational by Dec 2025",
         "logframe_achievement": "e.g., 50 weather stations operational by Dec 2025 — 100% of target",
+        "verifier":              "e.g., Environmental Protection Agency inspector, community committee chair",
     },
     "Governance": {
         "result": "e.g., Trained 180 district-level officials on participatory budgeting processes across 6 districts between April and August 2025",
@@ -517,6 +523,7 @@ SECTOR_PLACEHOLDERS = {
         "logframe_indicator":   "e.g., Indicator 3.3: Number of officials trained in participatory budgeting",
         "logframe_target":      "e.g., 150 district officials trained by Aug 2025",
         "logframe_achievement": "e.g., 180 officials trained by Aug 2025 — 100% of target",
+        "verifier":              "e.g., District Coordinating Director, civil society observer, auditor-general representative",
     },
     "Other": {
         "result": "e.g., [Action verb] [number] [target population] in [location] between [start date] and [end date]",
@@ -526,6 +533,7 @@ SECTOR_PLACEHOLDERS = {
         "logframe_indicator":   "e.g., Indicator [X.X]: [Indicator name from approved Technical Proposal or logframe]",
         "logframe_target":      "e.g., [Number + unit + deadline from logframe]",
         "logframe_achievement": "e.g., [Actual delivered number] by [date] — [%] of original target",
+        "verifier":              "e.g., [Implementing partner M&E lead], [government line ministry], [external evaluator]",
     },
 }
 
@@ -1770,7 +1778,7 @@ def _render_slot_fields(slot: int):
     if st.session_state.get(f"internal_review{s}") != "Not reviewed":
         st.text_input(
             "Who verified this?", key=f"verifier{s}",
-            placeholder="e.g., District Agriculture Officer, partner org M&E lead, external evaluator",
+            placeholder=_ph.get("verifier", "e.g., District Agriculture Officer, partner org M&E lead, external evaluator"),
             help="The person or organization that confirmed the data is accurate.",
         )
     # --- END UX: CONDITIONAL FIELDS (v3.2) ---
@@ -2090,7 +2098,7 @@ def _render_tab3_slot(slot: int):
 
         st.text_input(
             "Who verified this?", key=f"verifier{s}",
-            placeholder="e.g., District Agriculture Officer, partner org M&E lead, external evaluator",
+            placeholder=_ph.get("verifier", "e.g., District Agriculture Officer, partner org M&E lead, external evaluator"),
             help="The person or organization that confirmed the data is accurate.",
         )
 
