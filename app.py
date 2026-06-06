@@ -1019,8 +1019,8 @@ def _reset_all_slots():
 def _go_to_screen(screen: int, reset: bool = False):
     if reset:
         _reset_all_slots()
-    if screen == 1:
-        _load_draft()
+        if screen == 1:
+            _load_draft()
     st.session_state["screen"] = screen
     st.rerun()
 
