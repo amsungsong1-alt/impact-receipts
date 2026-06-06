@@ -520,8 +520,8 @@ SECTOR_PLACEHOLDERS = {
     },
     "Other": {
         "result": "e.g., [Action verb] [number] [target population] in [location] between [start date] and [end date]",
-        "target_group": "e.g., Specific demographic with age range, gender, role, or other distinguishing characteristics",
-        "geographic_scope": "e.g., Specific districts, regions, or sites where the work was implemented",
+        "target_group": "e.g., Women 18–35, rural community health workers in 3 districts",
+        "geographic_scope": "e.g., Ashanti Region — Kumasi, Obuasi, and Bekwai districts",
         "evidence_description": "e.g., Type of records + who collected them + how they were verified + any third-party validation",
         "logframe_indicator":   "e.g., Indicator [X.X]: [Indicator name from approved Technical Proposal or logframe]",
         "logframe_target":      "e.g., [Number + unit + deadline from logframe]",
@@ -2639,6 +2639,10 @@ def render_screen_1():
                     "Others (Special/Ad-hoc reports)",
                 ],
                 key="submission_type",
+            )
+            st.caption(
+                "Options: Quarterly progress report · Annual report · Baseline/mid-term/end-line · "
+                "Final/closeout report · Project proposal · Financial report · MEL plan · Ad-hoc report"
             )
             _sub_type = st.session_state.get("submission_type", "")
             _checklist_items = SUBMISSION_CHECKLIST.get(_sub_type, [])
