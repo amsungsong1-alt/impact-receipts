@@ -2484,9 +2484,10 @@ def render_screen_1():
 
     _render_tutorial(1)
 
-    _has_prefill = bool(
-        st.session_state.get("result_statement", "").strip() or
-        st.session_state.get("evidence_description", "").strip()
+    _has_prefill = any(
+        st.session_state.get(k, "").strip()
+        for k in ("result_statement", "target_group", "timeframe",
+                   "geographic_scope", "evidence_description")
     )
     if _has_prefill:
         _pf_c1, _pf_c2 = st.columns([3, 1])
