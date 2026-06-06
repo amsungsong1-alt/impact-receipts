@@ -23,6 +23,12 @@ def _base_url() -> str:
         configured = st.secrets.get("APP_BASE_URL") or os.environ.get("APP_BASE_URL", "")
         if configured:
             return configured.rstrip("/")
+        try:
+            host = st.context.headers.get("Host", "")
+            if host and "localhost" not in host and "127.0.0.1" not in host:
+                return f"https://{host}"
+        except (AttributeError, Exception):
+            pass
         return "https://impact-receipts.streamlit.app"
     except Exception:
         return os.environ.get("APP_BASE_URL", "https://impact-receipts.streamlit.app")
