@@ -2497,6 +2497,9 @@ def render_screen_1():
         for k in ("result_statement", "target_group", "timeframe",
                    "geographic_scope", "evidence_description")
     )
+    if st.session_state.pop("_payment_success", False):
+        st.success("✅ Payment confirmed! Upload your document below to run the Instant Report Check — or fill in the form manually.")
+
     if _has_prefill:
         _pf_c1, _pf_c2 = st.columns([3, 1])
         with _pf_c1:
@@ -3973,11 +3976,14 @@ def main():
             st.session_state["is_paid"] = True
             st.session_state.pop("_pay_once_url", None)
             st.session_state.pop("_pay_monthly_url", None)
+            st.session_state["screen"] = 1
+            st.session_state["current_tab"] = 0
+            st.session_state["_payment_success"] = True
             try:
                 st.query_params.clear()
             except Exception:
                 pass
-            st.success("✅ Payment confirmed! Your Instant Report Check is now unlocked.")
+            st.rerun()
         elif _pay_result.get("status") == "failed":
             st.warning("Payment was not completed. Please try again.")
     elif _paystack_ref and not _ref_email:
