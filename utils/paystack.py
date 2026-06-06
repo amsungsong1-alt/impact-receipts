@@ -29,9 +29,9 @@ def _base_url() -> str:
                 return f"https://{host}"
         except (AttributeError, Exception):
             pass
-        return "https://impact-receipts.streamlit.app"
+        return "https://impact-receipts-fnxkamdve55429dk3bxmb9.streamlit.app"
     except Exception:
-        return os.environ.get("APP_BASE_URL", "https://impact-receipts.streamlit.app")
+        return os.environ.get("APP_BASE_URL", "https://impact-receipts-fnxkamdve55429dk3bxmb9.streamlit.app")
 
 
 _last_payment_error: str = ""
