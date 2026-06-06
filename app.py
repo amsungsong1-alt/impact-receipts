@@ -2602,26 +2602,19 @@ def render_screen_1():
     _tab_cols = st.columns(4)
     for _ti, (_tc, _tn) in enumerate(zip(_tab_cols, _UX_TAB_NAMES)):
         with _tc:
-            if _ti == _cur_tab:
-                st.markdown(
-                    f'<div style="text-align:center;padding:4px 2px;border-bottom:3px solid #1B5E20;color:#1B5E20;font-size:0.8rem;font-weight:700;">● {_tn}</div>',
-                    unsafe_allow_html=True)
-            else:
-                st.markdown(
-                    f'<div style="text-align:center;padding:4px 2px;color:#9E9E9E;font-size:0.8rem;">{_ti+1}. {_tn}</div>',
-                    unsafe_allow_html=True)
+            if st.button(
+                f"● {_tn}" if _ti == _cur_tab else f"{_ti + 1}. {_tn}",
+                key=f"_tab_nav_{_ti}",
+                type="primary" if _ti == _cur_tab else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state["current_tab"] = _ti
+                st.rerun()
     st.progress(value=_cur_tab / 3.0)
     st.caption(f"Step {_cur_tab + 1} of 4 — {_UX_TAB_NAMES[_cur_tab]}")
     # --- END UX: PROGRESS BAR (v3.2) ---
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📌 Result Basics",
-        "🔗 Logframe Linkage",
-        "📋 Evidence & Verification",
-        "✅ Review & Submit",
-    ])
-
-    with tab1:
+    if _cur_tab == 0:
         st.caption("💾 Draft auto-saves as you type. Use Tab 4 to download for offline backup.")
 
         with st.expander("📦 Submission Package Completeness Check (Recommended)", expanded=False):
@@ -2852,7 +2845,7 @@ def render_screen_1():
             st.caption("Fill in all four fields above to continue.")
         # --- END v3.3 ---
 
-    with tab2:
+    elif _cur_tab == 1:
         st.caption("💾 Draft auto-saves as you type.")
         for slot in range(1, active + 1):
             if active > 1:
@@ -2868,17 +2861,17 @@ def render_screen_1():
         if _t2_done and not st.session_state.get("_tab2_auto_advanced"):
             st.session_state["_tab2_auto_advanced"] = True
             st.session_state["current_tab"] = 2
-            _nav_to_tab(2)
+            st.rerun()
         # --- END v3.3 ---
 
-    with tab3:
+    elif _cur_tab == 2:
         st.caption("💾 Draft auto-saves as you type.")
         for slot in range(1, active + 1):
             if active > 1:
                 st.markdown(f"---\n#### Result {slot}")
             _render_tab3_slot(slot)
 
-    with tab4:
+    elif _cur_tab == 3:
         st.caption("Review your scores, download your draft, and submit when ready.")
 
         _REQUIRED_FIELDS_B = [
