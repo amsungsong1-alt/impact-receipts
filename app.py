@@ -2716,16 +2716,18 @@ def render_screen_1():
                 )
                 _irc_paid_flag = (st.session_state.get("is_paid") or
                                   is_still_paid(get_user(st.session_state.get("user_email",""))))
-                _irc_file = st.file_uploader(
-                    "Upload report file",
-                    type=["pdf", "docx"],
-                    key="instant_report_upload",
-                )
+                _irc_file = None
                 if not _irc_paid_flag:
                     st.info("🔒 **Instant Report Check is a paid feature.** "
                             "Upgrade to auto-fill all form fields from your uploaded document.")
                     _render_paywall(irc_context=True)
-                if _irc_paid_flag and st.button("🔍 Run Instant Check", key="run_instant_check") and st.session_state.get("instant_report_upload") is not None:
+                else:
+                    _irc_file = st.file_uploader(
+                        "Upload report file",
+                        type=["pdf", "docx"],
+                        key="instant_report_upload",
+                    )
+                if _irc_paid_flag and st.button("🔍 Run Instant Check", key="run_instant_check") and _irc_file is not None:
                     with st.spinner("Extracting with AI…"):
                         try:
                             # Step 1: extract raw text
@@ -2746,6 +2748,10 @@ def render_screen_1():
                                 elif _fname3.endswith(".docx") and _HAS_DOCX:
                                     _d3 = _docx.Document(_io3.BytesIO(_raw3))
                                     _full_text = "\n".join(p.text for p in _d3.paragraphs)
+
+                                if not _full_text.strip():
+                                    st.warning("No readable text found in this document. Please upload a text-based PDF or DOCX — scanned image files cannot be extracted.")
+                                    st.stop()
 
                                 # Step 2: Claude API extraction
                                 try:
@@ -2774,7 +2780,7 @@ def render_screen_1():
                                     import json as _ijsonfs
                                     _fewshot_str = _ijsonfs.dumps(_fewshot, indent=2) if _fewshot else ""
                                     _irc_msgs = [{"role": "user", "content": [
-                                        *([{"type":"text","text":f"Field examples for better extraction:\n{_fewshot_str}","cache_control":{"type":"ephemeral"}}] if _fewshot_str else []),
+                                        *([{"type":"text","text":f"Field examples for better extraction:\n{_fewshot_str}"}] if _fewshot_str else []),
                                         {"type":"text","text":f"Extract all fields from this report:\n\n{_full_text[:6000]}"}
                                     ]}]
                                     _irc_resp = _irc_client.messages.create(
@@ -2784,7 +2790,14 @@ def render_screen_1():
                                         messages=_irc_msgs,
                                     )
                                     import json as _ijson3
-                                    _irc_data = _ijson3.loads(_irc_resp.content[0].text)
+                                    _irc_raw = (_irc_resp.content[0].text if _irc_resp.content else "").strip()
+                                    if _irc_raw.startswith("```"):
+                                        _irc_parts = _irc_raw.split("```")
+                                        if len(_irc_parts) >= 3:
+                                            _irc_raw = _irc_parts[1].lstrip("json\n").strip()
+                                    if not _irc_raw:
+                                        raise ValueError("Model returned an empty response. Try a different document or fill the form manually.")
+                                    _irc_data = _ijson3.loads(_irc_raw)
                                     _rb  = _irc_data.get("result_basics", {})
                                     _ll  = _irc_data.get("logframe_linkage", {})
                                     _ev3 = _irc_data.get("evidence_verification", {})
