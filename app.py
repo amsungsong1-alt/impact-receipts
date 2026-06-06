@@ -1642,9 +1642,9 @@ def _render_slot_fields(slot: int):
     st.text_area(
         "Result statement",
         key=f"result_statement{s}",
-        placeholder="e.g., Trained 487 farmers · 3 districts · Jan–Jun 2025",
+        placeholder=_ph["result"],
         height=100,
-        help=f"What did your project achieve? Include the action verb, number, target group, location, and timeframe.\n\nFull example: {_ph['result']}",
+        help="What did your project achieve? Include the action verb, number, target group, location, and timeframe.",
     )
     _rs = st.session_state.get(f"result_statement{s}", "")
     if _rs and len(_rs.strip()) < 20:
@@ -1886,9 +1886,9 @@ def _render_tab1_slot(slot: int):
     st.text_area(
         "Result statement",
         key=f"result_statement{s}",
-        placeholder="e.g., Trained 487 farmers · 3 districts · Jan–Jun 2025",
+        placeholder=_ph["result"],
         height=100,
-        help=f"What did your project achieve? Include the action verb, number, target group, location, and timeframe.\n\nFull example: {_ph['result']}",
+        help="What did your project achieve? Include the action verb, number, target group, location, and timeframe.",
     )
     _rs = st.session_state.get(f"result_statement{s}", "")
     if _rs and len(_rs.strip()) < 20:
