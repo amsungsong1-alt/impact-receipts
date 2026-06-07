@@ -10,11 +10,20 @@ import requests
 
 
 def _secret_key() -> str:
+    env_val = os.environ.get("PAYSTACK_SECRET_KEY", "")
     try:
         import streamlit as st
-        return st.secrets.get("PAYSTACK_SECRET_KEY") or os.environ.get("PAYSTACK_SECRET_KEY", "")
+        try:
+            val = st.secrets["PAYSTACK_SECRET_KEY"]
+            if val:
+                return val
+        except KeyError:
+            pass
+        except Exception:
+            pass
+        return st.secrets.get("PAYSTACK_SECRET_KEY") or env_val
     except Exception:
-        return os.environ.get("PAYSTACK_SECRET_KEY", "")
+        return env_val
 
 
 def _base_url() -> str:
