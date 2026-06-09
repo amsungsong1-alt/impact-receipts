@@ -81,6 +81,12 @@ try:
 except ImportError:
     _pd = None
     _HAS_PANDAS = False
+try:
+    import pptx as _pptx
+    _HAS_PPTX = True
+except ImportError:
+    _pptx = None
+    _HAS_PPTX = False
 # --- END UX: INSTANT REPORT CHECK IMPORTS (v3.2) ---
 
 # ---------------------------------------------------------------------------
@@ -2347,6 +2353,10 @@ def render_screen_0():
                             _pr_days = 30 if _pr.get("plan") == "monthly" else 1
                             mark_paid(_e, days=_pr_days)
                             st.session_state["is_paid"] = True
+                    # if user came from IRC email gate, return them to Screen 1 with IRC active
+                    if st.session_state.pop("_irc_pending_email", False):
+                        st.session_state["screen"] = 1
+                        st.session_state["entry_mode"] = "⚡ Instant Report Check"
                     st.rerun()
                 else:
                     st.warning("Please enter a valid email address.")
@@ -2382,7 +2392,7 @@ def render_screen_0():
               <li style="color: #1B5E20 !important;">A quick confidence check for reported results before submission</li>
               <li style="color: #1B5E20 !important;">A transparent guide that shows what to fix and why</li>
               <li style="color: #1B5E20 !important;">Fully local — runs on your device, no data sent anywhere</li>
-              <li style="color: #1B5E20 !important;">Free and instant — no login, no API key</li>
+              <li style="color: #1B5E20 !important;">Free and instant — no password or account, no API key required from you</li>
             </ul>
           </div>
           <div class="isnot-col" style="color: #C62828 !important;">
@@ -2628,6 +2638,20 @@ def render_screen_1():
 
     if _cur_tab == 0:
         st.caption("💾 Draft auto-saves as you type. Use Tab 4 to download for offline backup.")
+        # --- IRC fill summary banner (shown once after extraction) ---
+        _irc_summary = st.session_state.pop("_irc_summary", None)
+        if _irc_summary:
+            st.success(
+                f"⚡ Instant Check complete — {_irc_summary['filled']} fields auto-filled across all tabs. "
+                "Use the tab buttons above to review each section before submitting."
+            )
+            if _irc_summary.get("skipped"):
+                st.info(f"ℹ️ Left blank (not found in document): {_irc_summary['skipped']}")
+            if _irc_summary.get("confidence_note"):
+                st.info(f"ℹ️ {_irc_summary['confidence_note']}")
+            if _irc_summary.get("compliance_gaps"):
+                st.warning(f"⚠️ Compliance gaps not found: {_irc_summary['compliance_gaps']}")
+        # --- END IRC fill summary banner ---
 
         with st.expander("📦 Submission Package Completeness Check (Recommended)", expanded=False):
             st.caption(
@@ -2694,16 +2718,34 @@ def render_screen_1():
                     st.rerun()
 
         # --- UX: INSTANT REPORT CHECK (v3.2) ---
-        st.radio(
-            "How would you like to fill in the form?",
-            ["✍️ Fill in manually", "⚡ Instant Report Check"],
-            horizontal=True,
-            key="entry_mode",
-        )
-        if st.session_state.get("entry_mode") == "⚡ Instant Report Check":
+        _entry_mode = st.session_state.get("entry_mode", "✍️ Fill in manually")
+        st.markdown("**How would you like to fill in the form?**")
+        _em_col1, _em_col2 = st.columns(2)
+        with _em_col1:
+            if st.button(
+                "✍️ Fill in manually",
+                use_container_width=True,
+                type="primary" if _entry_mode == "✍️ Fill in manually" else "secondary",
+                key="btn_fill_manual",
+                help="Type your result details directly into each field.",
+            ):
+                st.session_state["entry_mode"] = "✍️ Fill in manually"
+                st.rerun()
+        with _em_col2:
+            if st.button(
+                "⚡ Instant Report Check",
+                use_container_width=True,
+                type="primary" if _entry_mode == "⚡ Instant Report Check" else "secondary",
+                key="btn_irc",
+                help="Upload your draft report — AI extracts and fills all fields automatically.",
+            ):
+                st.session_state["entry_mode"] = "⚡ Instant Report Check"
+                st.rerun()
+        if _entry_mode == "⚡ Instant Report Check":
             if not st.session_state.get("user_email"):
                 st.info("📧 Please enter your email to use Instant Report Check.")
                 if st.button("Enter your email →", key="irc_email_redirect"):
+                    st.session_state["_irc_pending_email"] = True
                     _go_to_screen(0, reset=False)
                 st.stop()
             with st.expander(
@@ -2711,8 +2753,8 @@ def render_screen_1():
                 expanded=True,
             ):
                 st.caption(
-                    "Upload your donor report (PDF or DOCX). "
-                    "Claude AI extracts and pre-fills fields across all tabs. Needs ANTHROPIC_API_KEY in .env."
+                    "Upload your donor report (PDF, DOCX, TXT, or PPTX). "
+                    "Claude AI extracts and pre-fills fields across all tabs."
                 )
                 _irc_paid_flag = (st.session_state.get("is_paid") or
                                   is_still_paid(get_user(st.session_state.get("user_email",""))))
@@ -2724,7 +2766,7 @@ def render_screen_1():
                 else:
                     _irc_file = st.file_uploader(
                         "Upload report file",
-                        type=["pdf", "docx"],
+                        type=["pdf", "docx", "txt", "pptx"],
                         key="instant_report_upload",
                     )
                 if _irc_paid_flag and st.button("🔍 Run Instant Check", key="run_instant_check") and _irc_file is not None:
@@ -2748,6 +2790,20 @@ def render_screen_1():
                                 elif _fname3.endswith(".docx") and _HAS_DOCX:
                                     _d3 = _docx.Document(_io3.BytesIO(_raw3))
                                     _full_text = "\n".join(p.text for p in _d3.paragraphs)
+                                elif _fname3.endswith(".txt"):
+                                    _full_text = _raw3.decode("utf-8", errors="replace")
+                                elif _fname3.endswith(".pptx") and _HAS_PPTX:
+                                    import io as _io_pptx
+                                    _prs = _pptx.Presentation(_io_pptx.BytesIO(_raw3))
+                                    _full_text = "\n".join(
+                                        shape.text
+                                        for slide in _prs.slides
+                                        for shape in slide.shapes
+                                        if hasattr(shape, "text") and shape.text.strip()
+                                    )
+                                elif _fname3.endswith(".pptx") and not _HAS_PPTX:
+                                    st.warning("PPTX support requires python-pptx. Please install it or upload a PDF/DOCX/TXT instead.")
+                                    st.stop()
 
                                 if not _full_text.strip():
                                     st.warning("No readable text found in this document. Please upload a text-based PDF or DOCX — scanned image files cannot be extracted.")
@@ -2836,19 +2892,20 @@ def render_screen_1():
                                     _ver3 = _em.get("implementing_org") or _em.get("report_prepared_by","")
                                     _irc_set("verifier", _ver3)
 
-                                    st.success(f"⚡ Instant Check complete — {_irc_filled} fields auto-filled.")
-                                    if _skipped:
-                                        _skip_str = ", ".join(_skipped[:6])
-                                        st.info(f"ℹ️ Left blank (not found in document): {_skip_str}")
+                                    # store summary for persistent banner; disable auto-advance
+                                    _skip_str3 = ", ".join(_skipped[:6]) if _skipped else ""
                                     _conf3 = _em.get("confidence_note","")
-                                    if _conf3 and _conf3 != "Not found":
-                                        st.info(f"ℹ️ {_conf3}")
-                                    _clist = ["consent_documented","data_anonymised","data_protection_compliant"]
-                                    _cgaps = [f for f in _clist if _ev3.get(f,"") == "Not found"]
-                                    if _cgaps:
-                                        _glab = {"consent_documented":"Consent","data_anonymised":"Anonymisation","data_protection_compliant":"Data protection"}
-                                        _gap_str3 = ", ".join(_glab.get(g,g) for g in _cgaps)
-                                        st.warning(f"⚠️ Compliance gaps not found: {_gap_str3}")
+                                    _cgaps = [f for f in ["consent_documented","data_anonymised","data_protection_compliant"] if _ev3.get(f,"") == "Not found"]
+                                    _glab = {"consent_documented":"Consent","data_anonymised":"Anonymisation","data_protection_compliant":"Data protection"}
+                                    st.session_state["_irc_summary"] = {
+                                        "filled": _irc_filled,
+                                        "skipped": _skip_str3,
+                                        "confidence_note": _conf3 if _conf3 and _conf3 != "Not found" else "",
+                                        "compliance_gaps": ", ".join(_glab.get(g,g) for g in _cgaps),
+                                    }
+                                    # prevent auto-advance from swallowing logframe/evidence tabs
+                                    st.session_state["_tab2_auto_advanced"] = True
+                                    st.rerun()
                         except Exception as _irc_exc:
                             st.error(f"Extraction failed: {_irc_exc}. Please fill the form manually.")
         # --- END UX: INSTANT REPORT CHECK (v3.2) ---
@@ -2868,7 +2925,9 @@ def render_screen_1():
         if _t1_done:
             if st.button("Next: Logframe Linkage →", key="tab1_next_btn", type="primary"):
                 st.session_state["current_tab"] = 1
-                _nav_to_tab(1)
+                # allow user to review logframe even if IRC already filled it
+                st.session_state["_tab2_auto_advanced"] = False
+                st.rerun()
         else:
             st.caption("Fill in all four fields above to continue.")
         # --- END v3.3 ---
@@ -2880,16 +2939,22 @@ def render_screen_1():
                 st.markdown(f"---\n#### Result {slot}")
             _render_tab2_slot(slot)
 
-        # --- v3.3: auto-advance to Evidence tab when logframe complete ---
+        # --- v3.3: next button / auto-advance to Evidence tab when logframe complete ---
         _t2_done = all([
             st.session_state.get("logframe_indicator", "").strip(),
             st.session_state.get("logframe_target", "").strip(),
             st.session_state.get("logframe_achievement", "").strip(),
         ])
-        if _t2_done and not st.session_state.get("_tab2_auto_advanced"):
-            st.session_state["_tab2_auto_advanced"] = True
-            st.session_state["current_tab"] = 2
-            st.rerun()
+        if _t2_done:
+            if st.button("Next: Evidence & Verification →", key="tab2_next_btn", type="primary"):
+                st.session_state["current_tab"] = 2
+                st.session_state["_tab2_auto_advanced"] = True
+                st.rerun()
+        else:
+            # auto-advance only when filling manually and not yet advanced
+            if not st.session_state.get("_tab2_auto_advanced"):
+                pass  # let user fill at their own pace; no silent jump
+            st.caption("Fill in all three logframe fields above to continue.")
         # --- END v3.3 ---
 
     elif _cur_tab == 2:
@@ -3991,6 +4056,7 @@ def main():
             st.session_state.pop("_pay_monthly_url", None)
             st.session_state["screen"] = 1
             st.session_state["current_tab"] = 0
+            st.session_state["entry_mode"] = "⚡ Instant Report Check"
             st.session_state["_payment_success"] = True
             try:
                 st.query_params.clear()
