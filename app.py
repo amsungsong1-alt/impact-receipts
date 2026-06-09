@@ -2770,6 +2770,7 @@ def render_screen_1():
                         key="instant_report_upload",
                     )
                 if _irc_paid_flag and st.button("🔍 Run Instant Check", key="run_instant_check") and _irc_file is not None:
+                    _irc_should_rerun = False
                     with st.spinner("Extracting with AI…"):
                         try:
                             # Step 1: extract raw text
@@ -2822,7 +2823,15 @@ def render_screen_1():
                                     for _ef, _sf in _IRC_FIELD_MAP.items():
                                         _v = _raw_fields.get(_ef, "")
                                         if _v: st.session_state[_sf] = _v; _irc_filled += 1
-                                    if _irc_filled: st.success(f"✅ {_irc_filled} field(s) extracted (rule-based).")
+                                    if _irc_filled:
+                                        st.session_state["_irc_summary"] = {
+                                            "filled": _irc_filled,
+                                            "skipped": "",
+                                            "confidence_note": "",
+                                            "compliance_gaps": "",
+                                        }
+                                        st.session_state["_tab2_auto_advanced"] = True
+                                        _irc_should_rerun = True
                                 else:
                                     _irc_client = _anthropic.Anthropic(api_key=_irc_key)
                                     # Build few-shot block
@@ -2905,9 +2914,11 @@ def render_screen_1():
                                     }
                                     # prevent auto-advance from swallowing logframe/evidence tabs
                                     st.session_state["_tab2_auto_advanced"] = True
-                                    st.rerun()
+                                    _irc_should_rerun = True
                         except Exception as _irc_exc:
                             st.error(f"Extraction failed: {_irc_exc}. Please fill the form manually.")
+                    if _irc_should_rerun:
+                        st.rerun()
         # --- END UX: INSTANT REPORT CHECK (v3.2) ---
 
         for slot in range(1, active + 1):
