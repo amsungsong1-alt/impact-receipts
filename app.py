@@ -2754,7 +2754,8 @@ def render_screen_1():
             ):
                 st.caption(
                     "Upload your donor report (PDF, DOCX, TXT, or PPTX). "
-                    "Claude AI extracts and pre-fills fields across all tabs."
+                    "AI pre-fills fields across all tabs using only what's written in your document — "
+                    "it never invents or assumes missing data. Always review before submitting."
                 )
                 _irc_paid_flag = (st.session_state.get("is_paid") or
                                   is_still_paid(get_user(st.session_state.get("user_email",""))))
