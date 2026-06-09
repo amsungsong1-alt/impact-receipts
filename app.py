@@ -1094,6 +1094,15 @@ def _format_date(d) -> str:
     return str(d)
 
 
+def _ss_str(key: str, default: str = "") -> str:
+    """Read a session_state value as a string, tolerating non-string values
+    (e.g. a number or list accidentally written by IRC extraction)."""
+    val = st.session_state.get(key, default)
+    if isinstance(val, str):
+        return val
+    return default if val is None else str(val)
+
+
 _DRAFT_PATH = os.path.join("inputs", "draft.json")
 
 
@@ -1967,21 +1976,21 @@ def _render_tab1_slot(slot: int):
         placeholder=_ph["geographic_scope"],
         help="Districts, regions, or specific sites. 'Volta Region' beats 'rural areas'.",
     )
-    _tg = st.session_state.get(f"target_group{s}", "").strip()
-    _rs_filled = bool(st.session_state.get(f"result_statement{s}", "").strip())
+    _tg = _ss_str(f"target_group{s}").strip()
+    _rs_filled = bool(_ss_str(f"result_statement{s}").strip())
     _tg_hint = _ph.get("target_group", "")
     if _rs_filled and not _tg:
         st.caption(f"💡 Hint: {_tg_hint}")
     elif len(_tg) > 5 and not any(m in _tg.lower() for m in _DEMO_MARKERS):
         st.warning("Target group should describe who was reached — include population type, age, or role.")
 
-    _tf = st.session_state.get(f"timeframe{s}", "").strip()
+    _tf = _ss_str(f"timeframe{s}").strip()
     if _rs_filled and not _tf:
         st.caption("💡 Hint: e.g., January – June 2025 or Q1 2026")
     elif len(_tf) > 3 and not any(m in _tf.lower() for m in _DATE_MARKERS):
         st.warning("Timeframe should include a date range or period, e.g. January–June 2025.")
 
-    _gs = st.session_state.get(f"geographic_scope{s}", "").strip()
+    _gs = _ss_str(f"geographic_scope{s}").strip()
     _gs_hint = _ph.get("geographic_scope", "")
     if _rs_filled and not _gs:
         st.caption(f"💡 Hint: {_gs_hint}")
@@ -2538,7 +2547,7 @@ def render_screen_1():
     _render_tutorial(1)
 
     _has_prefill = any(
-        st.session_state.get(k, "").strip()
+        _ss_str(k).strip()
         for k in ("result_statement", "target_group", "timeframe",
                    "geographic_scope", "evidence_description")
     )
@@ -2973,10 +2982,10 @@ def render_screen_1():
 
         # --- v3.3: auto-advance to Logframe tab when tab1 complete ---
         _t1_done = all([
-            st.session_state.get("result_statement", "").strip(),
-            st.session_state.get("target_group", "").strip(),
-            st.session_state.get("timeframe", "").strip(),
-            st.session_state.get("geographic_scope", "").strip(),
+            _ss_str("result_statement").strip(),
+            _ss_str("target_group").strip(),
+            _ss_str("timeframe").strip(),
+            _ss_str("geographic_scope").strip(),
         ])
         if _t1_done:
             if st.button("Next: Logframe Linkage →", key="tab1_next_btn", type="primary"):
@@ -2997,9 +3006,9 @@ def render_screen_1():
 
         # --- v3.3: next button / auto-advance to Evidence tab when logframe complete ---
         _t2_done = all([
-            st.session_state.get("logframe_indicator", "").strip(),
-            st.session_state.get("logframe_target", "").strip(),
-            st.session_state.get("logframe_achievement", "").strip(),
+            _ss_str("logframe_indicator").strip(),
+            _ss_str("logframe_target").strip(),
+            _ss_str("logframe_achievement").strip(),
         ])
         if _t2_done:
             if st.button("Next: Evidence & Verification →", key="tab2_next_btn", type="primary"):
@@ -3114,7 +3123,7 @@ A **content quality penalty** (×0.5 to ×1.0) applies when the result statement
                 st.session_state.get("evidence_description", ""),
             ]
             ev_type = st.session_state.get("evidence_type", "")
-            ev_other = st.session_state.get("evidence_type_other", "").strip()
+            ev_other = _ss_str("evidence_type_other").strip()
             if ev_type == "Other" and not ev_other:
                 st.warning("Please specify your evidence type in Tab 3 — Evidence & Verification.")
             elif not all(mandatory):
