@@ -2856,6 +2856,7 @@ def render_screen_1():
                                             "compliance_gaps": "",
                                         }
                                         st.session_state["_tab2_auto_advanced"] = True
+                                        st.session_state["_irc_used"] = True
                                         _irc_should_rerun = True
                                 else:
                                     _irc_client = _anthropic.Anthropic(api_key=_irc_key)
@@ -2968,6 +2969,7 @@ def render_screen_1():
                                     }
                                     # prevent auto-advance from swallowing logframe/evidence tabs
                                     st.session_state["_tab2_auto_advanced"] = True
+                                    st.session_state["_irc_used"] = True
                                     _irc_should_rerun = True
                         except Exception as _irc_exc:
                             st.error(f"Extraction failed: {_irc_exc}. Please fill the form manually.")
@@ -3010,15 +3012,18 @@ def render_screen_1():
             _ss_str("logframe_target").strip(),
             _ss_str("logframe_achievement").strip(),
         ])
-        if _t2_done:
+        # IRC users may have logframe fields legitimately left blank (not in the
+        # source document) — don't block navigation for them; manual fill-in
+        # still requires all three fields before proceeding.
+        _t2_can_advance = _t2_done or st.session_state.get("_irc_used", False)
+        if _t2_can_advance:
             if st.button("Next: Evidence & Verification →", key="tab2_next_btn", type="primary"):
                 st.session_state["current_tab"] = 2
                 st.session_state["_tab2_auto_advanced"] = True
                 st.rerun()
+            if not _t2_done:
+                st.caption("Some logframe fields weren't found in your uploaded report — you can fill them in now or continue and complete them later.")
         else:
-            # auto-advance only when filling manually and not yet advanced
-            if not st.session_state.get("_tab2_auto_advanced"):
-                pass  # let user fill at their own pace; no silent jump
             st.caption("Fill in all three logframe fields above to continue.")
         # --- END v3.3 ---
 
