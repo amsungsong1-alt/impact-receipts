@@ -322,27 +322,62 @@ _IRC_PATTERNS = {
 }
 
 
-def _extract_report_fields(uploaded_file):
-    """Rule-based extraction. No AI. Returns (fields, found_list, not_found_list) or (None, error_str, [])."""
-    import re as _re, io as _io
+def _extract_text_from_file(fname_lower, raw):
+    """Extract plain text from a PDF, DOCX, TXT, PPTX, or XLSX file's raw bytes.
+
+    Returns (text, error_message). On success error_message is "".
+    On failure text is "" and error_message describes why.
+    """
+    import io as _io
     text = ""
-    fname = uploaded_file.name.lower()
-    raw = uploaded_file.read()
-    if fname.endswith(".pdf"):
+    if fname_lower.endswith(".pdf"):
         if not _HAS_PDFPLUMBER:
-            return None, "pdfplumber not installed. Run: pip install pdfplumber", []
+            return "", "pdfplumber not installed. Run: pip install pdfplumber"
         with _pdfplumber.open(_io.BytesIO(raw)) as _pdf:
             for _pg in _pdf.pages:
                 _pt = _pg.extract_text()
                 if _pt:
                     text += _pt + "\n"
-    elif fname.endswith(".docx"):
+    elif fname_lower.endswith(".docx"):
         if not _HAS_DOCX:
-            return None, "python-docx not installed. Run: pip install python-docx", []
+            return "", "python-docx not installed. Run: pip install python-docx"
         _dobj = _docx.Document(_io.BytesIO(raw))
         text = "\n".join(p.text for p in _dobj.paragraphs)
+    elif fname_lower.endswith(".txt"):
+        text = raw.decode("utf-8", errors="replace")
+    elif fname_lower.endswith(".pptx"):
+        if not _HAS_PPTX:
+            return "", "python-pptx not installed. Run: pip install python-pptx"
+        _prs = _pptx.Presentation(_io.BytesIO(raw))
+        text = "\n".join(
+            shape.text
+            for slide in _prs.slides
+            for shape in slide.shapes
+            if hasattr(shape, "text") and shape.text.strip()
+        )
+    elif fname_lower.endswith(".xlsx") or fname_lower.endswith(".xls"):
+        if not _HAS_PANDAS:
+            return "", "pandas not installed. Run: pip install pandas openpyxl"
+        try:
+            _sheets = _pd.read_excel(_io.BytesIO(raw), sheet_name=None)
+        except Exception as _xl_exc:
+            return "", f"Could not read Excel file: {_xl_exc}"
+        for _sheet_name, _df in _sheets.items():
+            text += f"\n--- Sheet: {_sheet_name} ---\n"
+            text += _df.to_string(index=False) + "\n"
     else:
-        return None, "Unsupported file type. Upload a PDF or DOCX.", []
+        return "", "Unsupported file type. Upload a PDF, DOCX, TXT, PPTX, or XLSX."
+    return text, ""
+
+
+def _extract_report_fields(uploaded_file):
+    """Rule-based extraction. No AI. Returns (fields, found_list, not_found_list) or (None, error_str, [])."""
+    import re as _re
+    fname = uploaded_file.name.lower()
+    raw = uploaded_file.read()
+    text, _err = _extract_text_from_file(fname, raw)
+    if _err:
+        return None, _err, []
     if not text.strip():
         return None, "Could not extract text. The file may be scanned/image-based.", []
     fields, found, not_found = {}, [], []
@@ -2753,7 +2788,7 @@ def render_screen_1():
                 expanded=True,
             ):
                 st.caption(
-                    "Upload your donor report (PDF, DOCX, TXT, or PPTX). "
+                    "Upload your donor report (PDF, DOCX, TXT, PPTX, or Excel). "
                     "AI pre-fills fields across all tabs using only what's written in your document — "
                     "it never invents or assumes missing data. Always review before submitting."
                 )
@@ -2767,7 +2802,7 @@ def render_screen_1():
                 else:
                     _irc_file = st.file_uploader(
                         "Upload report file",
-                        type=["pdf", "docx", "txt", "pptx"],
+                        type=["pdf", "docx", "txt", "pptx", "xlsx", "xls"],
                         key="instant_report_upload",
                     )
                 if _irc_paid_flag and st.button("🔍 Run Instant Check", key="run_instant_check") and _irc_file is not None:
@@ -2775,41 +2810,21 @@ def render_screen_1():
                     with st.spinner("Extracting with AI…"):
                         try:
                             # Step 1: extract raw text
-                            _raw_fields, _rf_found, _rf_not_found = _extract_report_fields(_irc_file)
-                            if _raw_fields is None:
-                                st.warning(_rf_found)
+                            _irc_file.seek(0)
+                            _raw3 = _irc_file.read()
+                            _fname3 = _irc_file.name.lower()
+                            _full_text, _ext_err = _extract_text_from_file(_fname3, _raw3)
+                            if _ext_err:
+                                st.warning(_ext_err)
+                                st.stop()
+                            elif not _full_text.strip():
+                                st.warning("No readable text found in this document. Please upload a text-based PDF, DOCX, TXT, PPTX, or XLSX — scanned image files cannot be extracted.")
+                                st.stop()
                             else:
-                                import io as _io3
                                 _irc_file.seek(0)
-                                _raw3 = _irc_file.read()
-                                _fname3 = _irc_file.name.lower()
-                                _full_text = ""
-                                if _fname3.endswith(".pdf") and _HAS_PDFPLUMBER:
-                                    with _pdfplumber.open(_io3.BytesIO(_raw3)) as _p3:
-                                        for _pg3 in _p3.pages:
-                                            _pt3 = _pg3.extract_text()
-                                            if _pt3: _full_text += _pt3 + "\n"
-                                elif _fname3.endswith(".docx") and _HAS_DOCX:
-                                    _d3 = _docx.Document(_io3.BytesIO(_raw3))
-                                    _full_text = "\n".join(p.text for p in _d3.paragraphs)
-                                elif _fname3.endswith(".txt"):
-                                    _full_text = _raw3.decode("utf-8", errors="replace")
-                                elif _fname3.endswith(".pptx") and _HAS_PPTX:
-                                    import io as _io_pptx
-                                    _prs = _pptx.Presentation(_io_pptx.BytesIO(_raw3))
-                                    _full_text = "\n".join(
-                                        shape.text
-                                        for slide in _prs.slides
-                                        for shape in slide.shapes
-                                        if hasattr(shape, "text") and shape.text.strip()
-                                    )
-                                elif _fname3.endswith(".pptx") and not _HAS_PPTX:
-                                    st.warning("PPTX support requires python-pptx. Please install it or upload a PDF/DOCX/TXT instead.")
-                                    st.stop()
-
-                                if not _full_text.strip():
-                                    st.warning("No readable text found in this document. Please upload a text-based PDF or DOCX — scanned image files cannot be extracted.")
-                                    st.stop()
+                                _raw_fields, _rf_found, _rf_not_found = _extract_report_fields(_irc_file)
+                                if _raw_fields is None:
+                                    _raw_fields = {}
 
                                 # Step 2: Claude API extraction
                                 try:
@@ -2871,40 +2886,69 @@ def render_screen_1():
                                     _irc_filled = 0
                                     _skipped = []
 
+                                    def _irc_to_str(val):
+                                        """Coerce any extracted value to a plain string safe for text widgets."""
+                                        if isinstance(val, list):
+                                            return ", ".join(str(v) for v in val if v not in (None, "", "Not found"))
+                                        if isinstance(val, dict):
+                                            return ", ".join(f"{k}: {v}" for k, v in val.items())
+                                        if val is None:
+                                            return ""
+                                        return str(val)
+
                                     def _irc_set(key, val):
                                         nonlocal _irc_filled
-                                        if val and val != "Not found":
-                                            st.session_state[key] = val; _irc_filled += 1
-                                        else:
+                                        try:
+                                            sval = _irc_to_str(val)
+                                            if sval and sval != "Not found":
+                                                st.session_state[key] = sval; _irc_filled += 1
+                                            else:
+                                                _skipped.append(key)
+                                        except Exception:
                                             _skipped.append(key)
 
+                                    # --- Result Basics ---
                                     _irc_set("result_statement", _rb.get("result_statement"))
                                     _irc_set("target_group",     _rb.get("target_group"))
                                     _irc_set("timeframe",        _rb.get("timeframe"))
-                                    _geo3 = _rb.get("geographic_scope")
-                                    if _geo3 and _geo3 != "Not found":
-                                        _irc_set("geographic_scope", ", ".join(_geo3) if isinstance(_geo3, list) else _geo3)
+                                    _irc_set("geographic_scope", _rb.get("geographic_scope"))
+
+                                    # --- Logframe Linkage ---
                                     _irc_set("logframe_indicator",   _ll.get("indicator_name"))
                                     _irc_set("logframe_target",      _ll.get("original_target"))
                                     _irc_set("logframe_achievement", _ll.get("actual_achievement"))
+
+                                    # --- Evidence & Verification ---
                                     _irc_set("evidence_description", _ev3.get("evidence_narrative"))
-                                    _vmt = _irc_match_option(_ev3.get("evidence_type",""), EVIDENCE_TYPES)
-                                    if _vmt: st.session_state["evidence_type"] = _vmt; _irc_filled += 1
-                                    _irmt = _irc_match_option(_ev3.get("internal_review",""), INTERNAL_REVIEW_OPTIONS)
-                                    if _irmt: st.session_state["internal_review"] = _irmt; _irc_filled += 1
-                                    _ermt = _irc_match_option(_ev3.get("external_review",""), EXTERNAL_REVIEW_OPTIONS)
-                                    if _ermt: st.session_state["external_review"] = _ermt; _irc_filled += 1
+                                    try:
+                                        _vmt = _irc_match_option(_irc_to_str(_ev3.get("evidence_type","")), EVIDENCE_TYPES)
+                                        if _vmt: st.session_state["evidence_type"] = _vmt; _irc_filled += 1
+                                    except Exception:
+                                        pass
+                                    try:
+                                        _irmt = _irc_match_option(_irc_to_str(_ev3.get("internal_review","")), INTERNAL_REVIEW_OPTIONS)
+                                        if _irmt: st.session_state["internal_review"] = _irmt; _irc_filled += 1
+                                    except Exception:
+                                        pass
+                                    try:
+                                        _ermt = _irc_match_option(_irc_to_str(_ev3.get("external_review","")), EXTERNAL_REVIEW_OPTIONS)
+                                        if _ermt: st.session_state["external_review"] = _ermt; _irc_filled += 1
+                                    except Exception:
+                                        pass
                                     for _dkk, _skk in [("reporting_period_start","reporting_start"),
                                                         ("reporting_period_end","reporting_end"),
                                                         ("evidence_collection_date","evidence_date")]:
-                                        _pdd = _irc_parse_date(_ev3.get(_dkk,""))
-                                        if _pdd: st.session_state[_skk] = _pdd; _irc_filled += 1
+                                        try:
+                                            _pdd = _irc_parse_date(_irc_to_str(_ev3.get(_dkk,"")))
+                                            if _pdd: st.session_state[_skk] = _pdd; _irc_filled += 1
+                                        except Exception:
+                                            pass
                                     _ver3 = _em.get("implementing_org") or _em.get("report_prepared_by","")
                                     _irc_set("verifier", _ver3)
 
                                     # store summary for persistent banner; disable auto-advance
                                     _skip_str3 = ", ".join(_skipped[:6]) if _skipped else ""
-                                    _conf3 = _em.get("confidence_note","")
+                                    _conf3 = _irc_to_str(_em.get("confidence_note",""))
                                     _cgaps = [f for f in ["consent_documented","data_anonymised","data_protection_compliant"] if _ev3.get(f,"") == "Not found"]
                                     _glab = {"consent_documented":"Consent","data_anonymised":"Anonymisation","data_protection_compliant":"Data protection"}
                                     st.session_state["_irc_summary"] = {
