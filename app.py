@@ -1583,7 +1583,42 @@ def _build_inputs_json(timestamp: str) -> str:
     return json.dumps(payload, indent=2, ensure_ascii=False)
 
 
+def _normalize_draft_json(data: dict) -> dict:
+    """Convert a flat '_save_draft()' export (the '📥 Download Draft (JSON)' format,
+    e.g. {"active_slots": 1, "result_statement": "...", "logframe_indicator": "...", ...})
+    into the {"slots": [...]} format produced by _build_inputs_json() / 'Save Inputs (JSON)'
+    and expected by _load_from_inputs_json."""
+    if "slots" in data:
+        return data
+
+    active = int(data.get("active_slots", 1))
+    slots_data = []
+    for slot in range(1, active + 1):
+        s = _slot_suffix(slot)
+        slot_dict = {}
+        for k in _BASE_FORM_KEYS:
+            if f"{k}{s}" in data:
+                slot_dict[k] = data[f"{k}{s}"]
+        for dk in ("evidence_date", "reporting_start", "reporting_end"):
+            if f"{dk}{s}" in data:
+                slot_dict[dk] = data[f"{dk}{s}"]
+        if f"uploaded_filenames{s}" in data:
+            slot_dict["uploaded_filenames"] = data[f"uploaded_filenames{s}"]
+        for gk in ("gov_consent_status", "gov_anonymization_status", "gov_compliance_law_status"):
+            if f"{gk}{s}" in data:
+                slot_dict[gk] = data[f"{gk}{s}"]
+        slot_dict["gov_dpp_uploaded"] = data.get("gov_dpp_uploaded", False)
+        slots_data.append(slot_dict)
+
+    return {
+        "timestamp": data.get("timestamp", ""),
+        "active_slots": active,
+        "slots": slots_data,
+    }
+
+
 def _load_from_inputs_json(data: dict):
+    data = _normalize_draft_json(data)
     if "slots" not in data:
         st.error("Invalid file format — missing 'slots' key. Please upload a file exported by Impact-Receipts.")
         return
@@ -2896,8 +2931,11 @@ def render_screen_1():
                     try:
                         _irc_file.seek(0)
                         _draft_data = json.loads(_irc_file.read())
-                        if "slots" not in _draft_data:
-                            st.error("This JSON doesn't look like an Impact-Receipts draft — missing 'slots' key.")
+                        if not ("slots" in _draft_data or "active_slots" in _draft_data
+                                or "result_statement" in _draft_data):
+                            st.error("This JSON doesn't look like an Impact-Receipts draft. "
+                                     "Please upload a file downloaded via 'Download Draft (JSON)' "
+                                     "or 'Save Inputs (JSON)'.")
                         else:
                             _load_from_inputs_json(_draft_data)
                     except Exception as _draft_exc:
