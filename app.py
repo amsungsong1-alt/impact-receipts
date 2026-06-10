@@ -81,6 +81,12 @@ try:
 except ImportError:
     _pd = None
     _HAS_PANDAS = False
+try:
+    import pptx as _pptx
+    _HAS_PPTX = True
+except ImportError:
+    _pptx = None
+    _HAS_PPTX = False
 # --- END UX: INSTANT REPORT CHECK IMPORTS (v3.2) ---
 
 # ---------------------------------------------------------------------------
@@ -316,27 +322,62 @@ _IRC_PATTERNS = {
 }
 
 
-def _extract_report_fields(uploaded_file):
-    """Rule-based extraction. No AI. Returns (fields, found_list, not_found_list) or (None, error_str, [])."""
-    import re as _re, io as _io
+def _extract_text_from_file(fname_lower, raw):
+    """Extract plain text from a PDF, DOCX, TXT, PPTX, or XLSX file's raw bytes.
+
+    Returns (text, error_message). On success error_message is "".
+    On failure text is "" and error_message describes why.
+    """
+    import io as _io
     text = ""
-    fname = uploaded_file.name.lower()
-    raw = uploaded_file.read()
-    if fname.endswith(".pdf"):
+    if fname_lower.endswith(".pdf"):
         if not _HAS_PDFPLUMBER:
-            return None, "pdfplumber not installed. Run: pip install pdfplumber", []
+            return "", "pdfplumber not installed. Run: pip install pdfplumber"
         with _pdfplumber.open(_io.BytesIO(raw)) as _pdf:
             for _pg in _pdf.pages:
                 _pt = _pg.extract_text()
                 if _pt:
                     text += _pt + "\n"
-    elif fname.endswith(".docx"):
+    elif fname_lower.endswith(".docx"):
         if not _HAS_DOCX:
-            return None, "python-docx not installed. Run: pip install python-docx", []
+            return "", "python-docx not installed. Run: pip install python-docx"
         _dobj = _docx.Document(_io.BytesIO(raw))
         text = "\n".join(p.text for p in _dobj.paragraphs)
+    elif fname_lower.endswith(".txt"):
+        text = raw.decode("utf-8", errors="replace")
+    elif fname_lower.endswith(".pptx"):
+        if not _HAS_PPTX:
+            return "", "python-pptx not installed. Run: pip install python-pptx"
+        _prs = _pptx.Presentation(_io.BytesIO(raw))
+        text = "\n".join(
+            shape.text
+            for slide in _prs.slides
+            for shape in slide.shapes
+            if hasattr(shape, "text") and shape.text.strip()
+        )
+    elif fname_lower.endswith(".xlsx") or fname_lower.endswith(".xls"):
+        if not _HAS_PANDAS:
+            return "", "pandas not installed. Run: pip install pandas openpyxl"
+        try:
+            _sheets = _pd.read_excel(_io.BytesIO(raw), sheet_name=None)
+        except Exception as _xl_exc:
+            return "", f"Could not read Excel file: {_xl_exc}"
+        for _sheet_name, _df in _sheets.items():
+            text += f"\n--- Sheet: {_sheet_name} ---\n"
+            text += _df.to_string(index=False) + "\n"
     else:
-        return None, "Unsupported file type. Upload a PDF or DOCX.", []
+        return "", "Unsupported file type. Upload a PDF, DOCX, TXT, PPTX, or XLSX."
+    return text, ""
+
+
+def _extract_report_fields(uploaded_file):
+    """Rule-based extraction. No AI. Returns (fields, found_list, not_found_list) or (None, error_str, [])."""
+    import re as _re
+    fname = uploaded_file.name.lower()
+    raw = uploaded_file.read()
+    text, _err = _extract_text_from_file(fname, raw)
+    if _err:
+        return None, _err, []
     if not text.strip():
         return None, "Could not extract text. The file may be scanned/image-based.", []
     fields, found, not_found = {}, [], []
@@ -1053,6 +1094,15 @@ def _format_date(d) -> str:
     return str(d)
 
 
+def _ss_str(key: str, default: str = "") -> str:
+    """Read a session_state value as a string, tolerating non-string values
+    (e.g. a number or list accidentally written by IRC extraction)."""
+    val = st.session_state.get(key, default)
+    if isinstance(val, str):
+        return val
+    return default if val is None else str(val)
+
+
 _DRAFT_PATH = os.path.join("inputs", "draft.json")
 
 
@@ -1273,16 +1323,6 @@ def _compute_governance_score(slot: int):
     return min(15, score), pii_selected, gaps
 # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
-def _nav_to_tab(idx: int):
-    """Inject JS to programmatically click a Streamlit tab by index."""
-    import streamlit.components.v1 as _stc
-    _stc.html(
-        f'<script>setTimeout(function(){{'
-        f'var t=window.parent.document.querySelectorAll(\'[data-baseweb="tab"]\');'
-        f'if(t.length>{idx}){{t[{idx}].click();}}'
-        f'}}, 150);</script>',
-        height=0,
-    )
 
 def _render_paywall(irc_context: bool = False):
     """Show upgrade/payment options. irc_context=True suppresses the free-checks header."""
@@ -1341,6 +1381,10 @@ def _render_live_score_preview(slot: int = 1):
     conf_comp   = ev.get("confidence_components", {})
     clar_comp   = ev.get("clarity_components", {})
 
+    # --- v3.4: cache "what to fix" so destination tabs can show highlighted notes ---
+    s = _slot_suffix(slot)
+    st.session_state[f"_fixes_computed{s}"] = ev.get("fixes", [])
+
     # Labels derived from the raw confidence so they match the displayed number
     raw_conf_label, _ = _evaluator.interpret_score(raw_conf) if hasattr(_evaluator, "interpret_score") else (ev.get("confidence_label", "—"), "")
 
@@ -1363,7 +1407,7 @@ def _render_live_score_preview(slot: int = 1):
         # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
         if st.button("→ Fix: Go to Result Basics", key="fix_content_quality"):
             st.session_state["current_tab"] = 0
-            _nav_to_tab(0)
+            st.rerun()
         # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
     bd1, bd2 = st.columns(2)
@@ -1418,15 +1462,15 @@ def _render_live_score_preview(slot: int = 1):
     if state in ("MISLEADING", "FUNDAMENTALLY WEAK"):
         if st.button("→ Fix: Sharpen Result Statement", key="fix_misleading"):
             st.session_state["current_tab"] = 0
-            _nav_to_tab(0)
+            st.rerun()
     if state in ("UNDEREVIDENCED", "FUNDAMENTALLY WEAK"):
         if st.button("→ Fix: Strengthen Evidence", key="fix_underevidenced"):
             st.session_state["current_tab"] = 2
-            _nav_to_tab(2)
+            st.rerun()
     if state == "NEEDS REFINEMENT":
         if st.button("→ Fix: Review Specific Gaps", key="fix_refinement"):
             st.session_state["current_tab"] = 1
-            _nav_to_tab(1)
+            st.rerun()
     # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
     # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
@@ -1443,7 +1487,6 @@ def _render_live_score_preview(slot: int = 1):
     st.session_state["_conf_adj_computed"]  = adjusted_conf
 
     # Read governance field values for display (scoring unchanged — uses _compute_governance_score above)
-    s = _slot_suffix(slot)
     _disp_consent = st.session_state.get(f"gov_consent_status{s}", "")
     _disp_anon    = st.session_state.get(f"gov_anonymization_status{s}", "")
     _disp_law     = st.session_state.get(f"gov_compliance_law_status{s}", "")
@@ -1490,7 +1533,7 @@ def _render_live_score_preview(slot: int = 1):
     if gov_score < 12:
         if st.button("Fix governance issues →", key="fix_gov_btn"):
             st.session_state["current_tab"] = 2
-            _nav_to_tab(2)
+            st.rerun()
     # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
 
@@ -1530,7 +1573,42 @@ def _build_inputs_json(timestamp: str) -> str:
     return json.dumps(payload, indent=2, ensure_ascii=False)
 
 
+def _normalize_draft_json(data: dict) -> dict:
+    """Convert a flat '_save_draft()' export (the '📥 Download Draft (JSON)' format,
+    e.g. {"active_slots": 1, "result_statement": "...", "logframe_indicator": "...", ...})
+    into the {"slots": [...]} format produced by _build_inputs_json() / 'Save Inputs (JSON)'
+    and expected by _load_from_inputs_json."""
+    if "slots" in data:
+        return data
+
+    active = int(data.get("active_slots", 1))
+    slots_data = []
+    for slot in range(1, active + 1):
+        s = _slot_suffix(slot)
+        slot_dict = {}
+        for k in _BASE_FORM_KEYS:
+            if f"{k}{s}" in data:
+                slot_dict[k] = data[f"{k}{s}"]
+        for dk in ("evidence_date", "reporting_start", "reporting_end"):
+            if f"{dk}{s}" in data:
+                slot_dict[dk] = data[f"{dk}{s}"]
+        if f"uploaded_filenames{s}" in data:
+            slot_dict["uploaded_filenames"] = data[f"uploaded_filenames{s}"]
+        for gk in ("gov_consent_status", "gov_anonymization_status", "gov_compliance_law_status"):
+            if f"{gk}{s}" in data:
+                slot_dict[gk] = data[f"{gk}{s}"]
+        slot_dict["gov_dpp_uploaded"] = data.get("gov_dpp_uploaded", False)
+        slots_data.append(slot_dict)
+
+    return {
+        "timestamp": data.get("timestamp", ""),
+        "active_slots": active,
+        "slots": slots_data,
+    }
+
+
 def _load_from_inputs_json(data: dict):
+    data = _normalize_draft_json(data)
     if "slots" not in data:
         st.error("Invalid file format — missing 'slots' key. Please upload a file exported by Impact-Receipts.")
         return
@@ -1543,7 +1621,12 @@ def _load_from_inputs_json(data: dict):
         s = _slot_suffix(slot)
         for k in _BASE_FORM_KEYS:
             if k in slot_dict:
-                st.session_state[f"{k}{s}"] = slot_dict[k]
+                try:
+                    st.session_state[f"{k}{s}"] = slot_dict[k]
+                except Exception:
+                    # key already backs a widget instantiated earlier in this run
+                    # (e.g. the global "sector" selector) — skip, non-critical
+                    pass
         raw_date = slot_dict.get("evidence_date", "")
         if raw_date:
             try:
@@ -1572,7 +1655,11 @@ def _load_from_inputs_json(data: dict):
     )
     st.success(f"✅ Draft loaded — {_prefill_count} fields pre-filled. Review and update as needed.")
     # --- END UX: SMART DEFAULTS (v3.2) ---
+    # bump version so _irc_widget-backed fields re-seed from the freshly loaded values
+    st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
+    st.session_state["_tab2_auto_advanced"] = True
     st.session_state["screen"] = 1
+    st.session_state["current_tab"] = 0
     st.rerun()
 
 
@@ -1656,27 +1743,30 @@ def _render_slot_fields(slot: int):
         "rejected 3 times in 2024 because results weren't tied to logframe indicators. "
         "40+ hours of rework. We don't want that to happen to you."
     )
-    st.text_input(
+    _irc_widget(
+        st.text_input,
         "Logframe indicator this result reports against",
-        key=f"logframe_indicator{s}",
+        f"logframe_indicator{s}", default="",
         placeholder=_ph.get("logframe_indicator", "e.g., Indicator 1.2: Number of [target group] achieving [outcome]"),
         help=(
             "Copy the exact indicator name and code from your approved Technical Proposal or logframe. "
             "If you cannot quote it, your donor cannot match your result to your commitment."
         ),
     )
-    st.text_input(
+    _irc_widget(
+        st.text_input,
         "Original target for this indicator (from logframe)",
-        key=f"logframe_target{s}",
+        f"logframe_target{s}", default="",
         placeholder=_ph.get("logframe_target", "e.g., 250 youth trained by Q4 2025"),
         help=(
             "The target as approved in the original Technical Proposal. Donors compare achievements "
             "against approved targets — not revised internal targets."
         ),
     )
-    st.text_input(
+    _irc_widget(
+        st.text_input,
         "Actual achievement (must match your result statement)",
-        key=f"logframe_achievement{s}",
+        f"logframe_achievement{s}", default="",
         placeholder=_ph.get("logframe_achievement", "e.g., [Actual number] by [date] — [%] of original target"),
         help=(
             "The actual delivered number, ideally with % achievement vs original target. "
@@ -1766,8 +1856,8 @@ def _render_slot_fields(slot: int):
 
     # --- UX: CONDITIONAL FIELDS (v3.2) ---
     if st.session_state.get(f"internal_review{s}") != "Not reviewed":
-        st.text_input(
-            "Who verified this?", key=f"verifier{s}",
+        _irc_widget(
+            st.text_input, "Who verified this?", f"verifier{s}", default="",
             placeholder=_ph.get("verifier", "e.g., District Agriculture Officer, partner org M&E lead, external evaluator"),
             help="The person or organization that confirmed the data is accurate.",
         )
@@ -1867,6 +1957,32 @@ def _tab_slot_setup(slot: int):
     return s, _ph
 
 
+def _irc_widget(widget_fn, label, base_key, default=None, **kwargs):
+    """Render a widget whose canonical value lives in the plain (non-widget)
+    session_state key `base_key`, so the rest of the app (sidebar summary,
+    scoring, _build_submission_from_session) keeps reading and writing
+    `base_key` exactly as before — including Instant Report Check pre-fills
+    and the "Today" date-shortcut buttons.
+
+    The widget itself is bound to a version-suffixed key (`base_key__w{N}`).
+    Streamlit resets a session_state entry to its last frontend value at the
+    start of every run once that key has ever backed a widget, which would
+    silently discard out-of-band writes to `base_key` if `base_key` were used
+    directly as the widget key. Keeping the widget key separate avoids that,
+    and bumping `N` (via `_irc_fill_version`) mints a fresh, never-instantiated
+    widget key whenever IRC re-fills the form, so the new value is picked up.
+    """
+    ver = st.session_state.get("_irc_fill_version", 0)
+    wkey = f"{base_key}__w{ver}"
+    shadow_key = f"_irc_shadow_{wkey}"
+    base_val = st.session_state.get(base_key, default)
+    if wkey not in st.session_state or st.session_state.get(shadow_key, object()) != base_val:
+        st.session_state[wkey] = base_val
+    widget_fn(label, key=wkey, **kwargs)
+    st.session_state[base_key] = st.session_state[wkey]
+    st.session_state[shadow_key] = st.session_state[wkey]
+
+
 # --- v3.3 field-validation marker sets ---
 _DEMO_MARKERS = {"farmer", "women", "woman", "youth", "child", "children", "household",
     "teacher", "worker", "patient", "student", "beneficiar", "community",
@@ -1879,11 +1995,45 @@ _LOC_MARKERS  = {"district", "region", "province", "state", "county", "city", "t
     "kenya", "uganda", "ethiopia", "senegal", "africa", "northern", "southern",
     "eastern", "western", "central", "zone", "area", "site"}
 
+# --- v3.4: maps "what to fix" messages to the tab/field where they should be addressed ---
+_FIX_FIELD_MAP = [
+    ("missing unit, timeframe, or target group", 0, "Result statement, Target group, Timeframe"),
+    ("sites and groups included and excluded",   0, "Geographic scope / Target group"),
+    ("Name an owner for this result",            1, "Logframe indicator & linkage"),
+    ("primary record",                           2, "Evidence type & description"),
+    ("internal reviewer or an external partner", 2, "Internal review / External review / Verifier"),
+    ("evidence date is within 6 months",         2, "Evidence date"),
+    ("collection method and sampling approach",  2, "Evidence description"),
+    ("Close data gaps with original source records", 2, "Evidence description"),
+]
+
+
+def _render_fix_notes(slot: int, tab_idx: int):
+    """Show highlighted notes for gaps relevant to this tab, computed on Review & Submit."""
+    s = _slot_suffix(slot)
+    fixes = st.session_state.get(f"_fixes_computed{s}", [])
+    notes = []
+    for fix in fixes:
+        msg = fix.get("message", "")
+        for kw, t, field in _FIX_FIELD_MAP:
+            if t == tab_idx and kw in msg:
+                notes.append((field, fix["message"], fix.get("score_impact", "")))
+                break
+    if tab_idx == 2:
+        for gap in st.session_state.get("_gov_gaps_computed", []):
+            notes.append(("Compliance & Data Governance", gap, "raises Governance score"))
+    if notes:
+        lines = "\n".join(
+            f"- **{field}** — {msg} _({impact})_" for field, msg, impact in notes
+        )
+        st.info(f"**📌 To improve your score, address:**\n\n{lines}")
+
+
 def _render_tab1_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
-    st.text_area(
-        "Result statement",
-        key=f"result_statement{s}",
+    _render_fix_notes(slot, 0)
+    _irc_widget(
+        st.text_area, "Result statement", f"result_statement{s}", default="",
         placeholder=_ph["result"],
         height=100,
         help="What did your project achieve? Include the action verb, number, target group, location, and timeframe.",
@@ -1901,36 +2051,36 @@ def _render_tab1_slot(slot: int):
         ])
         _def_score = round((_def_count / 3) * 1.25, 2)
         st.caption(f"Definition score contribution: **{_def_score}/1.25** (number, timeframe, target group)")
-    st.text_input(
-        "Target group", key=f"target_group{s}",
+    _irc_widget(
+        st.text_input, "Target group", f"target_group{s}", default="",
         placeholder=_ph["target_group"],
         help="Who specifically? Age, gender, role, geography. Avoid 'beneficiaries' alone.",
     )
-    st.text_input(
-        "Timeframe", key=f"timeframe{s}",
+    _irc_widget(
+        st.text_input, "Timeframe", f"timeframe{s}", default="",
         placeholder="e.g., January - June 2025",
         help="Specific dates or quarters. 'January–June 2025' is stronger than 'In 2025'.",
     )
-    st.text_input(
-        "Geographic scope", key=f"geographic_scope{s}",
+    _irc_widget(
+        st.text_input, "Geographic scope", f"geographic_scope{s}", default="",
         placeholder=_ph["geographic_scope"],
         help="Districts, regions, or specific sites. 'Volta Region' beats 'rural areas'.",
     )
-    _tg = st.session_state.get(f"target_group{s}", "").strip()
-    _rs_filled = bool(st.session_state.get(f"result_statement{s}", "").strip())
+    _tg = _ss_str(f"target_group{s}").strip()
+    _rs_filled = bool(_ss_str(f"result_statement{s}").strip())
     _tg_hint = _ph.get("target_group", "")
     if _rs_filled and not _tg:
         st.caption(f"💡 Hint: {_tg_hint}")
     elif len(_tg) > 5 and not any(m in _tg.lower() for m in _DEMO_MARKERS):
         st.warning("Target group should describe who was reached — include population type, age, or role.")
 
-    _tf = st.session_state.get(f"timeframe{s}", "").strip()
+    _tf = _ss_str(f"timeframe{s}").strip()
     if _rs_filled and not _tf:
         st.caption("💡 Hint: e.g., January – June 2025 or Q1 2026")
     elif len(_tf) > 3 and not any(m in _tf.lower() for m in _DATE_MARKERS):
         st.warning("Timeframe should include a date range or period, e.g. January–June 2025.")
 
-    _gs = st.session_state.get(f"geographic_scope{s}", "").strip()
+    _gs = _ss_str(f"geographic_scope{s}").strip()
     _gs_hint = _ph.get("geographic_scope", "")
     if _rs_filled and not _gs:
         st.caption(f"💡 Hint: {_gs_hint}")
@@ -1942,33 +2092,37 @@ def _render_tab1_slot(slot: int):
 
 def _render_tab2_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
+    _render_fix_notes(slot, 1)
     st.markdown("#### Logframe Linkage")
     st.caption(
         "**Why this matters:** A real African consultancy had their final donor report "
         "rejected 3 times in 2024 because results weren't tied to logframe indicators. "
         "40+ hours of rework. We don't want that to happen to you."
     )
-    st.text_input(
+    _irc_widget(
+        st.text_input,
         "Logframe indicator this result reports against",
-        key=f"logframe_indicator{s}",
+        f"logframe_indicator{s}", default="",
         placeholder=_ph.get("logframe_indicator", "e.g., Indicator 1.2: Number of [target group] achieving [outcome]"),
         help=(
             "Copy the exact indicator name and code from your approved Technical Proposal or logframe. "
             "If you cannot quote it, your donor cannot match your result to your commitment."
         ),
     )
-    st.text_input(
+    _irc_widget(
+        st.text_input,
         "Original target for this indicator (from logframe)",
-        key=f"logframe_target{s}",
+        f"logframe_target{s}", default="",
         placeholder=_ph.get("logframe_target", "e.g., 250 youth trained by Q4 2025"),
         help=(
             "The target as approved in the original Technical Proposal. Donors compare achievements "
             "against approved targets — not revised internal targets."
         ),
     )
-    st.text_input(
+    _irc_widget(
+        st.text_input,
         "Actual achievement (must match your result statement)",
-        key=f"logframe_achievement{s}",
+        f"logframe_achievement{s}", default="",
         placeholder=_ph.get("logframe_achievement", "e.g., [Actual number] by [date] — [%] of original target"),
         help=(
             "The actual delivered number, ideally with % achievement vs original target. "
@@ -1979,9 +2133,10 @@ def _render_tab2_slot(slot: int):
 
 def _render_tab3_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
+    _render_fix_notes(slot, 2)
     with st.expander("📋 Evidence Details", expanded=True):
-        st.text_area(
-            "Describe your supporting evidence", key=f"evidence_description{s}",
+        _irc_widget(
+            st.text_area, "Describe your supporting evidence", f"evidence_description{s}", default="",
             placeholder=_ph["evidence_description"],
             height=120,
             help="Describe the actual document or data: who collected it, how, and what's in it.",
@@ -1998,8 +2153,8 @@ def _render_tab3_slot(slot: int):
             _meas_score = round((_meas_count / 3) * 1.25, 2)
             st.caption(f"Measurement score contribution: **{_meas_score}/1.25** (method, sampling, description present)")
 
-        st.selectbox(
-            "Evidence type", key=f"evidence_type{s}",
+        _irc_widget(
+            st.selectbox, "Evidence type", f"evidence_type{s}", default=EVIDENCE_TYPES[0],
             options=EVIDENCE_TYPES,
             help=EVIDENCE_TYPE_HELP,
         )
@@ -2051,8 +2206,8 @@ def _render_tab3_slot(slot: int):
 
     with st.expander("✅ Verification & Reporting Period", expanded=True):
         int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
-        st.selectbox(
-            "Internal review", key=f"internal_review{s}",
+        _irc_widget(
+            st.selectbox, "Internal review", f"internal_review{s}", default=INTERNAL_REVIEW_OPTIONS[0],
             options=INTERNAL_REVIEW_OPTIONS,
             help="Did anyone in your organization review or cross-check this data?",
         )
@@ -2067,8 +2222,8 @@ def _render_tab3_slot(slot: int):
             st.text_input("Specify internal reviewer", key=f"internal_review_other{s}")
 
         ext_rev = st.session_state.get(f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0])
-        st.selectbox(
-            "External review", key=f"external_review{s}",
+        _irc_widget(
+            st.selectbox, "External review", f"external_review{s}", default=EXTERNAL_REVIEW_OPTIONS[0],
             options=EXTERNAL_REVIEW_OPTIONS,
             help="Did an outside party verify the data? Government, partner, auditor, or evaluator.",
         )
@@ -2086,8 +2241,8 @@ def _render_tab3_slot(slot: int):
         if ext_rev == "Other":
             st.text_input("Specify external reviewer", key=f"external_review_other{s}")
 
-        st.text_input(
-            "Who verified this?", key=f"verifier{s}",
+        _irc_widget(
+            st.text_input, "Who verified this?", f"verifier{s}", default="",
             placeholder=_ph.get("verifier", "e.g., District Agriculture Officer, partner org M&E lead, external evaluator"),
             help="The person or organization that confirmed the data is accurate.",
         )
@@ -2096,8 +2251,9 @@ def _render_tab3_slot(slot: int):
         st.caption("The period this submission covers. Evidence dates outside this range will be flagged.")
         _rp_c1, _rp_t1 = st.columns([5, 1])
         with _rp_c1:
-            st.date_input("Reporting period start", key=f"reporting_start{s}",
-                          help="When does the period this report covers begin?")
+            _irc_widget(
+                st.date_input, "Reporting period start", f"reporting_start{s}", default=date.today(),
+                help="When does the period this report covers begin?")
         with _rp_t1:
             st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
             if st.button("Today", key=f"today_rp_start{s}"):
@@ -2109,8 +2265,9 @@ def _render_tab3_slot(slot: int):
 
         _rp_c2, _rp_t2 = st.columns([5, 1])
         with _rp_c2:
-            st.date_input("Reporting period end", key=f"reporting_end{s}",
-                          help="When does the period this report covers end?")
+            _irc_widget(
+                st.date_input, "Reporting period end", f"reporting_end{s}", default=date.today(),
+                help="When does the period this report covers end?")
         with _rp_t2:
             st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
             if st.button("Today", key=f"today_rp_end{s}"):
@@ -2122,8 +2279,8 @@ def _render_tab3_slot(slot: int):
 
         _ev_c, _ev_t = st.columns([5, 1])
         with _ev_c:
-            st.date_input(
-                "When was this evidence collected?", key=f"evidence_date{s}",
+            _irc_widget(
+                st.date_input, "When was this evidence collected?", f"evidence_date{s}", default=date.today(),
                 help="When was the data collected? Use the most recent date if multiple sources.",
             )
         with _ev_t:
@@ -2327,6 +2484,10 @@ def render_screen_0():
                             _pr_days = 30 if _pr.get("plan") == "monthly" else 1
                             mark_paid(_e, days=_pr_days)
                             st.session_state["is_paid"] = True
+                    # if user came from IRC email gate, return them to Screen 1 with IRC active
+                    if st.session_state.pop("_irc_pending_email", False):
+                        st.session_state["screen"] = 1
+                        st.session_state["entry_mode"] = "⚡ Instant Report Check"
                     st.rerun()
                 else:
                     st.warning("Please enter a valid email address.")
@@ -2506,7 +2667,7 @@ def render_screen_1():
     _render_tutorial(1)
 
     _has_prefill = any(
-        st.session_state.get(k, "").strip()
+        _ss_str(k).strip()
         for k in ("result_statement", "target_group", "timeframe",
                    "geographic_scope", "evidence_description")
     )
@@ -2641,6 +2802,20 @@ def render_screen_1():
 
     if _cur_tab == 0:
         st.caption("💾 Draft auto-saves as you type. Use Tab 4 to download for offline backup.")
+        # --- IRC fill summary banner (shown once after extraction) ---
+        _irc_summary = st.session_state.pop("_irc_summary", None)
+        if _irc_summary:
+            st.success(
+                f"⚡ Instant Check complete — {_irc_summary['filled']} fields auto-filled across all tabs. "
+                "Use the tab buttons above to review each section before submitting."
+            )
+            if _irc_summary.get("skipped"):
+                st.info(f"ℹ️ Left blank (not found in document): {_irc_summary['skipped']}")
+            if _irc_summary.get("confidence_note"):
+                st.info(f"ℹ️ {_irc_summary['confidence_note']}")
+            if _irc_summary.get("compliance_gaps"):
+                st.warning(f"⚠️ Compliance gaps not found: {_irc_summary['compliance_gaps']}")
+        # --- END IRC fill summary banner ---
 
         with st.expander("📦 Submission Package Completeness Check (Recommended)", expanded=False):
             st.caption(
@@ -2707,16 +2882,34 @@ def render_screen_1():
                     st.rerun()
 
         # --- UX: INSTANT REPORT CHECK (v3.2) ---
-        st.radio(
-            "How would you like to fill in the form?",
-            ["✍️ Fill in manually", "⚡ Instant Report Check"],
-            horizontal=True,
-            key="entry_mode",
-        )
-        if st.session_state.get("entry_mode") == "⚡ Instant Report Check":
+        _entry_mode = st.session_state.get("entry_mode", "✍️ Fill in manually")
+        st.markdown("**How would you like to fill in the form?**")
+        _em_col1, _em_col2 = st.columns(2)
+        with _em_col1:
+            if st.button(
+                "✍️ Fill in manually",
+                use_container_width=True,
+                type="primary" if _entry_mode == "✍️ Fill in manually" else "secondary",
+                key="btn_fill_manual",
+                help="Type your result details directly into each field.",
+            ):
+                st.session_state["entry_mode"] = "✍️ Fill in manually"
+                st.rerun()
+        with _em_col2:
+            if st.button(
+                "⚡ Instant Report Check",
+                use_container_width=True,
+                type="primary" if _entry_mode == "⚡ Instant Report Check" else "secondary",
+                key="btn_irc",
+                help="Upload your draft report — AI extracts and fills all fields automatically.",
+            ):
+                st.session_state["entry_mode"] = "⚡ Instant Report Check"
+                st.rerun()
+        if _entry_mode == "⚡ Instant Report Check":
             if not st.session_state.get("user_email"):
                 st.info("📧 Please enter your email to use Instant Report Check.")
                 if st.button("Enter your email →", key="irc_email_redirect"):
+                    st.session_state["_irc_pending_email"] = True
                     _go_to_screen(0, reset=False)
                 st.stop()
             with st.expander(
@@ -2724,8 +2917,10 @@ def render_screen_1():
                 expanded=True,
             ):
                 st.caption(
-                    "Upload your donor report (PDF or DOCX). "
-                    "Claude AI extracts and pre-fills fields across all tabs. Needs ANTHROPIC_API_KEY in .env."
+                    "Upload your donor report (PDF, DOCX, TXT, PPTX, or Excel), or a previously "
+                    "downloaded Impact-Receipts draft (JSON) to pick up where you left off. "
+                    "AI pre-fills fields across all tabs using only what's written in your document — "
+                    "it never invents or assumes missing data. Always review before submitting."
                 )
                 _irc_paid_flag = (st.session_state.get("is_paid") or
                                   is_still_paid(get_user(st.session_state.get("user_email",""))))
@@ -2736,35 +2931,49 @@ def render_screen_1():
                     _render_paywall(irc_context=True)
                 else:
                     _irc_file = st.file_uploader(
-                        "Upload report file",
-                        type=["pdf", "docx"],
+                        "Upload report file (or a previously downloaded draft.json)",
+                        type=["pdf", "docx", "txt", "pptx", "xlsx", "xls", "json"],
                         key="instant_report_upload",
                     )
-                if _irc_paid_flag and st.button("🔍 Run Instant Check", key="run_instant_check") and _irc_file is not None:
+                _irc_run_clicked = (_irc_paid_flag and st.button("🔍 Run Instant Check", key="run_instant_check")
+                                     and _irc_file is not None)
+                _irc_is_draft_json = _irc_run_clicked and _irc_file.name.lower().endswith(".json")
+
+                if _irc_is_draft_json:
+                    # --- v3.4: returning user re-upload of a previously downloaded draft ---
+                    try:
+                        _irc_file.seek(0)
+                        _draft_data = json.loads(_irc_file.read())
+                        if not ("slots" in _draft_data or "active_slots" in _draft_data
+                                or "result_statement" in _draft_data):
+                            st.error("This JSON doesn't look like an Impact-Receipts draft. "
+                                     "Please upload a file downloaded via 'Download Draft (JSON)' "
+                                     "or 'Save Inputs (JSON)'.")
+                        else:
+                            _load_from_inputs_json(_draft_data)
+                    except Exception as _draft_exc:
+                        st.error(f"Could not read the draft file: {_draft_exc}")
+                    # --- END v3.4 ---
+                elif _irc_run_clicked:
+                    _irc_should_rerun = False
                     with st.spinner("Extracting with AI…"):
                         try:
                             # Step 1: extract raw text
-                            _raw_fields, _rf_found, _rf_not_found = _extract_report_fields(_irc_file)
-                            if _raw_fields is None:
-                                st.warning(_rf_found)
+                            _irc_file.seek(0)
+                            _raw3 = _irc_file.read()
+                            _fname3 = _irc_file.name.lower()
+                            _full_text, _ext_err = _extract_text_from_file(_fname3, _raw3)
+                            if _ext_err:
+                                st.warning(_ext_err)
+                                st.stop()
+                            elif not _full_text.strip():
+                                st.warning("No readable text found in this document. Please upload a text-based PDF, DOCX, TXT, PPTX, or XLSX — scanned image files cannot be extracted.")
+                                st.stop()
                             else:
-                                import io as _io3
                                 _irc_file.seek(0)
-                                _raw3 = _irc_file.read()
-                                _fname3 = _irc_file.name.lower()
-                                _full_text = ""
-                                if _fname3.endswith(".pdf") and _HAS_PDFPLUMBER:
-                                    with _pdfplumber.open(_io3.BytesIO(_raw3)) as _p3:
-                                        for _pg3 in _p3.pages:
-                                            _pt3 = _pg3.extract_text()
-                                            if _pt3: _full_text += _pt3 + "\n"
-                                elif _fname3.endswith(".docx") and _HAS_DOCX:
-                                    _d3 = _docx.Document(_io3.BytesIO(_raw3))
-                                    _full_text = "\n".join(p.text for p in _d3.paragraphs)
-
-                                if not _full_text.strip():
-                                    st.warning("No readable text found in this document. Please upload a text-based PDF or DOCX — scanned image files cannot be extracted.")
-                                    st.stop()
+                                _raw_fields, _rf_found, _rf_not_found = _extract_report_fields(_irc_file)
+                                if _raw_fields is None:
+                                    _raw_fields = {}
 
                                 # Step 2: Claude API extraction
                                 try:
@@ -2779,7 +2988,17 @@ def render_screen_1():
                                     for _ef, _sf in _IRC_FIELD_MAP.items():
                                         _v = _raw_fields.get(_ef, "")
                                         if _v: st.session_state[_sf] = _v; _irc_filled += 1
-                                    if _irc_filled: st.success(f"✅ {_irc_filled} field(s) extracted (rule-based).")
+                                    if _irc_filled:
+                                        st.session_state["_irc_summary"] = {
+                                            "filled": _irc_filled,
+                                            "skipped": "",
+                                            "confidence_note": "",
+                                            "compliance_gaps": "",
+                                        }
+                                        st.session_state["_tab2_auto_advanced"] = True
+                                        st.session_state["_irc_used"] = True
+                                        st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
+                                        _irc_should_rerun = True
                                 else:
                                     _irc_client = _anthropic.Anthropic(api_key=_irc_key)
                                     # Build few-shot block
@@ -2818,52 +3037,86 @@ def render_screen_1():
                                     _irc_filled = 0
                                     _skipped = []
 
+                                    def _irc_to_str(val):
+                                        """Coerce any extracted value to a plain string safe for text widgets."""
+                                        if isinstance(val, list):
+                                            return ", ".join(str(v) for v in val if v not in (None, "", "Not found"))
+                                        if isinstance(val, dict):
+                                            return ", ".join(f"{k}: {v}" for k, v in val.items())
+                                        if val is None:
+                                            return ""
+                                        return str(val)
+
                                     def _irc_set(key, val):
                                         nonlocal _irc_filled
-                                        if val and val != "Not found":
-                                            st.session_state[key] = val; _irc_filled += 1
-                                        else:
+                                        try:
+                                            sval = _irc_to_str(val)
+                                            if sval and sval != "Not found":
+                                                st.session_state[key] = sval; _irc_filled += 1
+                                            else:
+                                                _skipped.append(key)
+                                        except Exception:
                                             _skipped.append(key)
 
+                                    # --- Result Basics ---
                                     _irc_set("result_statement", _rb.get("result_statement"))
                                     _irc_set("target_group",     _rb.get("target_group"))
                                     _irc_set("timeframe",        _rb.get("timeframe"))
-                                    _geo3 = _rb.get("geographic_scope")
-                                    if _geo3 and _geo3 != "Not found":
-                                        _irc_set("geographic_scope", ", ".join(_geo3) if isinstance(_geo3, list) else _geo3)
+                                    _irc_set("geographic_scope", _rb.get("geographic_scope"))
+
+                                    # --- Logframe Linkage ---
                                     _irc_set("logframe_indicator",   _ll.get("indicator_name"))
                                     _irc_set("logframe_target",      _ll.get("original_target"))
                                     _irc_set("logframe_achievement", _ll.get("actual_achievement"))
+
+                                    # --- Evidence & Verification ---
                                     _irc_set("evidence_description", _ev3.get("evidence_narrative"))
-                                    _vmt = _irc_match_option(_ev3.get("evidence_type",""), EVIDENCE_TYPES)
-                                    if _vmt: st.session_state["evidence_type"] = _vmt; _irc_filled += 1
-                                    _irmt = _irc_match_option(_ev3.get("internal_review",""), INTERNAL_REVIEW_OPTIONS)
-                                    if _irmt: st.session_state["internal_review"] = _irmt; _irc_filled += 1
-                                    _ermt = _irc_match_option(_ev3.get("external_review",""), EXTERNAL_REVIEW_OPTIONS)
-                                    if _ermt: st.session_state["external_review"] = _ermt; _irc_filled += 1
+                                    try:
+                                        _vmt = _irc_match_option(_irc_to_str(_ev3.get("evidence_type","")), EVIDENCE_TYPES)
+                                        if _vmt: st.session_state["evidence_type"] = _vmt; _irc_filled += 1
+                                    except Exception:
+                                        pass
+                                    try:
+                                        _irmt = _irc_match_option(_irc_to_str(_ev3.get("internal_review","")), INTERNAL_REVIEW_OPTIONS)
+                                        if _irmt: st.session_state["internal_review"] = _irmt; _irc_filled += 1
+                                    except Exception:
+                                        pass
+                                    try:
+                                        _ermt = _irc_match_option(_irc_to_str(_ev3.get("external_review","")), EXTERNAL_REVIEW_OPTIONS)
+                                        if _ermt: st.session_state["external_review"] = _ermt; _irc_filled += 1
+                                    except Exception:
+                                        pass
                                     for _dkk, _skk in [("reporting_period_start","reporting_start"),
                                                         ("reporting_period_end","reporting_end"),
                                                         ("evidence_collection_date","evidence_date")]:
-                                        _pdd = _irc_parse_date(_ev3.get(_dkk,""))
-                                        if _pdd: st.session_state[_skk] = _pdd; _irc_filled += 1
+                                        try:
+                                            _pdd = _irc_parse_date(_irc_to_str(_ev3.get(_dkk,"")))
+                                            if _pdd: st.session_state[_skk] = _pdd; _irc_filled += 1
+                                        except Exception:
+                                            pass
                                     _ver3 = _em.get("implementing_org") or _em.get("report_prepared_by","")
                                     _irc_set("verifier", _ver3)
 
-                                    st.success(f"⚡ Instant Check complete — {_irc_filled} fields auto-filled.")
-                                    if _skipped:
-                                        _skip_str = ", ".join(_skipped[:6])
-                                        st.info(f"ℹ️ Left blank (not found in document): {_skip_str}")
-                                    _conf3 = _em.get("confidence_note","")
-                                    if _conf3 and _conf3 != "Not found":
-                                        st.info(f"ℹ️ {_conf3}")
-                                    _clist = ["consent_documented","data_anonymised","data_protection_compliant"]
-                                    _cgaps = [f for f in _clist if _ev3.get(f,"") == "Not found"]
-                                    if _cgaps:
-                                        _glab = {"consent_documented":"Consent","data_anonymised":"Anonymisation","data_protection_compliant":"Data protection"}
-                                        _gap_str3 = ", ".join(_glab.get(g,g) for g in _cgaps)
-                                        st.warning(f"⚠️ Compliance gaps not found: {_gap_str3}")
+                                    # store summary for persistent banner; disable auto-advance
+                                    _skip_str3 = ", ".join(_skipped[:6]) if _skipped else ""
+                                    _conf3 = _irc_to_str(_em.get("confidence_note",""))
+                                    _cgaps = [f for f in ["consent_documented","data_anonymised","data_protection_compliant"] if _ev3.get(f,"") == "Not found"]
+                                    _glab = {"consent_documented":"Consent","data_anonymised":"Anonymisation","data_protection_compliant":"Data protection"}
+                                    st.session_state["_irc_summary"] = {
+                                        "filled": _irc_filled,
+                                        "skipped": _skip_str3,
+                                        "confidence_note": _conf3 if _conf3 and _conf3 != "Not found" else "",
+                                        "compliance_gaps": ", ".join(_glab.get(g,g) for g in _cgaps),
+                                    }
+                                    # prevent auto-advance from swallowing logframe/evidence tabs
+                                    st.session_state["_tab2_auto_advanced"] = True
+                                    st.session_state["_irc_used"] = True
+                                    st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
+                                    _irc_should_rerun = True
                         except Exception as _irc_exc:
                             st.error(f"Extraction failed: {_irc_exc}. Please fill the form manually.")
+                    if _irc_should_rerun:
+                        st.rerun()
         # --- END UX: INSTANT REPORT CHECK (v3.2) ---
 
         for slot in range(1, active + 1):
@@ -2873,15 +3126,17 @@ def render_screen_1():
 
         # --- v3.3: auto-advance to Logframe tab when tab1 complete ---
         _t1_done = all([
-            st.session_state.get("result_statement", "").strip(),
-            st.session_state.get("target_group", "").strip(),
-            st.session_state.get("timeframe", "").strip(),
-            st.session_state.get("geographic_scope", "").strip(),
+            _ss_str("result_statement").strip(),
+            _ss_str("target_group").strip(),
+            _ss_str("timeframe").strip(),
+            _ss_str("geographic_scope").strip(),
         ])
         if _t1_done:
             if st.button("Next: Logframe Linkage →", key="tab1_next_btn", type="primary"):
                 st.session_state["current_tab"] = 1
-                _nav_to_tab(1)
+                # allow user to review logframe even if IRC already filled it
+                st.session_state["_tab2_auto_advanced"] = False
+                st.rerun()
         else:
             st.caption("Fill in all four fields above to continue.")
         # --- END v3.3 ---
@@ -2893,16 +3148,25 @@ def render_screen_1():
                 st.markdown(f"---\n#### Result {slot}")
             _render_tab2_slot(slot)
 
-        # --- v3.3: auto-advance to Evidence tab when logframe complete ---
+        # --- v3.3: next button / auto-advance to Evidence tab when logframe complete ---
         _t2_done = all([
-            st.session_state.get("logframe_indicator", "").strip(),
-            st.session_state.get("logframe_target", "").strip(),
-            st.session_state.get("logframe_achievement", "").strip(),
+            _ss_str("logframe_indicator").strip(),
+            _ss_str("logframe_target").strip(),
+            _ss_str("logframe_achievement").strip(),
         ])
-        if _t2_done and not st.session_state.get("_tab2_auto_advanced"):
-            st.session_state["_tab2_auto_advanced"] = True
-            st.session_state["current_tab"] = 2
-            st.rerun()
+        # IRC users may have logframe fields legitimately left blank (not in the
+        # source document) — don't block navigation for them; manual fill-in
+        # still requires all three fields before proceeding.
+        _t2_can_advance = _t2_done or st.session_state.get("_irc_used", False)
+        if _t2_can_advance:
+            if st.button("Next: Evidence & Verification →", key="tab2_next_btn", type="primary"):
+                st.session_state["current_tab"] = 2
+                st.session_state["_tab2_auto_advanced"] = True
+                st.rerun()
+            if not _t2_done:
+                st.caption("Some logframe fields weren't found in your uploaded report — you can fill them in now or continue and complete them later.")
+        else:
+            st.caption("Fill in all three logframe fields above to continue.")
         # --- END v3.3 ---
 
     elif _cur_tab == 2:
@@ -2911,6 +3175,12 @@ def render_screen_1():
             if active > 1:
                 st.markdown(f"---\n#### Result {slot}")
             _render_tab3_slot(slot)
+
+        # --- v3.3: next button to Review & Submit ---
+        if st.button("Next: Review & Submit →", key="tab3_next_btn", type="primary"):
+            st.session_state["current_tab"] = 3
+            st.rerun()
+        # --- END v3.3 ---
 
     elif _cur_tab == 3:
         st.caption("Review your scores, download your draft, and submit when ready.")
@@ -2942,7 +3212,7 @@ def render_screen_1():
                 if st.button("Jump to first missing field", key="jump_missing_b"):
                     _first_b = _TAB_IDX_B[_missing_b[0][0]]
                     st.session_state["current_tab"] = _first_b
-                    _nav_to_tab(_first_b)
+                    st.rerun()
 
         # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
         try:
@@ -3006,7 +3276,7 @@ A **content quality penalty** (×0.5 to ×1.0) applies when the result statement
                 st.session_state.get("evidence_description", ""),
             ]
             ev_type = st.session_state.get("evidence_type", "")
-            ev_other = st.session_state.get("evidence_type_other", "").strip()
+            ev_other = _ss_str("evidence_type_other").strip()
             if ev_type == "Other" and not ev_other:
                 st.warning("Please specify your evidence type in Tab 3 — Evidence & Verification.")
             elif not all(mandatory):
@@ -4004,6 +4274,7 @@ def main():
             st.session_state.pop("_pay_monthly_url", None)
             st.session_state["screen"] = 1
             st.session_state["current_tab"] = 0
+            st.session_state["entry_mode"] = "⚡ Instant Report Check"
             st.session_state["_payment_success"] = True
             try:
                 st.query_params.clear()
