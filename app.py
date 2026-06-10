@@ -1172,16 +1172,6 @@ def get_diagnostic_state(
 # ---------------------------------------------------------------------------
 
 _TUTORIAL_COPY = {
-    0: {
-        "title": "👋 Welcome to Impact Integrity Diagnostics",
-        "body": (
-            "This tool stress-tests your reported results in 10 minutes.\n\n"
-            "Here's how it works:\n"
-            "1. Add your result statement\n"
-            "2. Describe your supporting evidence\n"
-            "3. Get a confidence label + specific fixes"
-        ),
-    },
     1: {
         "title": "📝 Each field below contributes to your score.",
         "body": (
@@ -2303,26 +2293,16 @@ def render_screen_0():
           {_logo_tag}
           <h1>Know which reported results are strong, weak, or need fixing — before your donor sees them.</h1>
           <p class="hero-tagline">Stress-test a result before you submit it.</p>
-          <p class="hero-sub">
-            The Impact Integrity Diagnostic is built for Monitoring, Evaluation &amp; Learning Officers and Reporting Leads at NGOs
-            and donor-funded projects in Africa &mdash; those compiling final reports for USAID,
-            FCDO, GIZ, RVO, World Bank, AfDB, EU/EuropeAid, and others.
-          </p>
-          <p class="brand-promise">We help you submit with confidence. Not by judging your work &mdash;
-          by showing you exactly where it&rsquo;s strong and where it needs strengthening.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    _render_tutorial(0)
+    if st.button("Run My Confidence Check", type="primary", use_container_width=True, key="cta_top"):
+        if not st.session_state.get("has_seen_tutorial"):
+            st.session_state["tutorial_step"] = 1
+        _go_to_screen(1, reset=True)
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        if st.button("Review Results Before Submission", type="primary", use_container_width=True):
-            if not st.session_state.get("has_seen_tutorial"):
-                st.session_state["tutorial_step"] = 1
-            _go_to_screen(1, reset=True)
     # --- Email gate: must enter email before first check ---
     if not st.session_state.get("user_email"):
         st.markdown("---")
@@ -2353,51 +2333,38 @@ def render_screen_0():
         st.stop()
     # --- End email gate ---
 
-    with col_b:
-        if st.button("Run My Confidence Check", use_container_width=True):
-            if not st.session_state.get("has_seen_tutorial"):
-                st.session_state["tutorial_step"] = 1
-            _go_to_screen(1, reset=True)
-
-    with st.expander("📁 Resume a previous session"):
-        uploaded_json = st.file_uploader(
-            "Upload a previously saved inputs JSON",
-            type=["json"],
-            key="resume_json_upload",
-            help="Upload a JSON file previously downloaded via 'Download Draft (JSON)' on the Review & Submit tab.",
-        )
-        if uploaded_json is not None:
-            try:
-                data = json.loads(uploaded_json.read())
-                _load_from_inputs_json(data)
-            except Exception as exc:
-                st.error(f"Could not read the file: {exc}")
-
     st.markdown(
         """
-        <div class="is-not-grid">
-          <div class="is-col" style="color: #1B5E20 !important;">
-            <h4>&#10003; What this IS</h4>
-            <ul style="color: #1B5E20 !important;">
-              <li style="color: #1B5E20 !important;">A quick confidence check for reported results before submission</li>
-              <li style="color: #1B5E20 !important;">A transparent guide that shows what to fix and why</li>
-              <li style="color: #1B5E20 !important;">Fully local — runs on your device, no data sent anywhere</li>
-              <li style="color: #1B5E20 !important;">Free and instant — no login, no API key</li>
-            </ul>
-          </div>
-          <div class="isnot-col" style="color: #C62828 !important;">
-            <h4 style="color: #C62828 !important;">&#10007; What this is NOT</h4>
-            <ul style="color: #C62828 !important;">
-              <li style="color: #C62828 !important;">A full reporting system, database, or audit tool</li>
-              <li style="color: #C62828 !important;">A replacement for your M&amp;E/MEL framework</li>
-              <li style="color: #C62828 !important;">An AI that invents or assumes missing data</li>
-              <li style="color: #C62828 !important;">A gatekeeper that decides who passes or fails</li>
-            </ul>
-          </div>
+        <div>
+          <p class="hero-sub">
+            The Impact Integrity Diagnostic is built for Monitoring, Evaluation &amp; Learning Officers and Reporting Leads at NGOs
+            and donor-funded projects in Africa &mdash; those compiling final reports for USAID,
+            FCDO, GIZ, RVO, World Bank, AfDB, EU/EuropeAid, and others.
+          </p>
+          <p class="brand-promise">I help you submit with confidence &mdash; not by judging your work,
+          but by showing you exactly where it&rsquo;s strong and where it needs strengthening.</p>
+          <ol class="how-it-works" style="margin:10px 0 0 0; padding-left:20px; color:#374151; font-size:0.95rem;">
+            <li>Add your result statement</li>
+            <li>Describe your supporting evidence</li>
+            <li>Get a confidence label + specific fixes &mdash; in 10 minutes</li>
+          </ol>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+    st.markdown(
+        """
+        <div style="border-left:4px solid #B8860B; border-radius:8px; padding:14px 20px; margin:16px 0; background:transparent;">
+          <p style="margin:0; font-size:0.95rem; color:#212121;">
+            <strong>Funders now ask:</strong> What changed? How do you know? How strong is the evidence?
+            What did you learn? &mdash; <em>This check tells you before they do.</em>
+          </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     st.markdown(
         """
         <div class="what-we-check" style="border-radius:8px;padding:16px 20px;
@@ -2422,16 +2389,44 @@ def render_screen_0():
 
     st.markdown(
         """
-        <div class="gold-info-box">
-          &#128172; Questions before you start? Chat with us on WhatsApp:
-          <a href="https://wa.me/233503648195">+233 50 364 8195</a>
+        <div class="is-not-grid">
+          <div class="is-col" style="color: #1B5E20 !important;">
+            <h4>&#10003; What this IS</h4>
+            <ul style="color: #1B5E20 !important;">
+              <li style="color: #1B5E20 !important;">A quick confidence check for reported results before submission</li>
+              <li style="color: #1B5E20 !important;">A transparent guide that shows what to fix and why</li>
+              <li style="color: #1B5E20 !important;">Fully local — runs on your device, no data sent anywhere</li>
+              <li style="color: #1B5E20 !important;">Your first 3 checks are free</li>
+            </ul>
+          </div>
+          <div class="isnot-col" style="color: #C62828 !important;">
+            <h4 style="color: #C62828 !important;">&#10007; What this is NOT</h4>
+            <ul style="color: #C62828 !important;">
+              <li style="color: #C62828 !important;">A full reporting system, database, or audit tool</li>
+              <li style="color: #C62828 !important;">A replacement for your M&amp;E/MEL framework</li>
+              <li style="color: #C62828 !important;">An AI that invents or assumes missing data</li>
+              <li style="color: #C62828 !important;">A gatekeeper that decides who passes or fails</li>
+            </ul>
+          </div>
         </div>
-        <p style="color:#616161;font-style:italic;font-size:0.85rem;margin:8px 0 4px 0;">
-          Built by a MEL practitioner in Accra who got tired of submitting results without a confidence check.
-        </p>
         """,
         unsafe_allow_html=True,
     )
+
+    with st.expander("📁 Resume a previous session"):
+        uploaded_json = st.file_uploader(
+            "Upload a previously saved inputs JSON",
+            type=["json"],
+            key="resume_json_upload",
+            help="Upload a JSON file previously downloaded via 'Download Draft (JSON)' on the Review & Submit tab.",
+        )
+        if uploaded_json is not None:
+            try:
+                data = json.loads(uploaded_json.read())
+                _load_from_inputs_json(data)
+            except Exception as exc:
+                st.error(f"Could not read the file: {exc}")
+
     st.markdown(
         """
         <div style="border-left:3px solid #B8860B;padding:8px 12px;margin:8px 0 12px 0;
@@ -2440,7 +2435,7 @@ def render_screen_0():
             <strong style="color:#1B5E20;">&#128204; Real case from 2024:</strong>
             An African consultancy&rsquo;s final donor report was rejected three times
             for missing M&amp;E data and logframe gaps. 40+ hours of senior staff rework.
-            Impact-Receipts catches these issues in 10 minutes.
+            Impact-Receipts catches these issues before they reach your donor.
           </p>
         </div>
         """,
@@ -2454,6 +2449,11 @@ def render_screen_0():
         unsafe_allow_html=True,
     )
 
+    if st.button("Run My Confidence Check", type="primary", use_container_width=True, key="cta_bottom"):
+        if not st.session_state.get("has_seen_tutorial"):
+            st.session_state["tutorial_step"] = 1
+        _go_to_screen(1, reset=True)
+
     st.markdown(
         """
         <div class="gtm-card">
@@ -2465,6 +2465,19 @@ def render_screen_0():
             <a href="https://wa.me/233503648195" target="_blank">Book a Free Pilot Check</a>
           </div>
         </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+        <div class="gold-info-box">
+          &#128172; Questions before you start? Chat with us on WhatsApp:
+          <a href="https://wa.me/233503648195">+233 50 364 8195</a>
+        </div>
+        <p style="color:#616161;font-style:italic;font-size:0.85rem;margin:8px 0 4px 0;">
+          I&rsquo;m a MEL practitioner in Accra who got tired of submitting results without a confidence check &mdash; so I built this.
+        </p>
         """,
         unsafe_allow_html=True,
     )
