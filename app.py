@@ -1596,7 +1596,12 @@ def _load_from_inputs_json(data: dict):
         s = _slot_suffix(slot)
         for k in _BASE_FORM_KEYS:
             if k in slot_dict:
-                st.session_state[f"{k}{s}"] = slot_dict[k]
+                try:
+                    st.session_state[f"{k}{s}"] = slot_dict[k]
+                except Exception:
+                    # key already backs a widget instantiated earlier in this run
+                    # (e.g. the global "sector" selector) — skip, non-critical
+                    pass
         raw_date = slot_dict.get("evidence_date", "")
         if raw_date:
             try:
@@ -1625,7 +1630,11 @@ def _load_from_inputs_json(data: dict):
     )
     st.success(f"✅ Draft loaded — {_prefill_count} fields pre-filled. Review and update as needed.")
     # --- END UX: SMART DEFAULTS (v3.2) ---
+    # bump version so _irc_widget-backed fields re-seed from the freshly loaded values
+    st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
+    st.session_state["_tab2_auto_advanced"] = True
     st.session_state["screen"] = 1
+    st.session_state["current_tab"] = 0
     st.rerun()
 
 
@@ -2860,7 +2869,8 @@ def render_screen_1():
                 expanded=True,
             ):
                 st.caption(
-                    "Upload your donor report (PDF, DOCX, TXT, PPTX, or Excel). "
+                    "Upload your donor report (PDF, DOCX, TXT, PPTX, or Excel), or a previously "
+                    "downloaded Impact-Receipts draft (JSON) to pick up where you left off. "
                     "AI pre-fills fields across all tabs using only what's written in your document — "
                     "it never invents or assumes missing data. Always review before submitting."
                 )
@@ -2873,11 +2883,27 @@ def render_screen_1():
                     _render_paywall(irc_context=True)
                 else:
                     _irc_file = st.file_uploader(
-                        "Upload report file",
-                        type=["pdf", "docx", "txt", "pptx", "xlsx", "xls"],
+                        "Upload report file (or a previously downloaded draft.json)",
+                        type=["pdf", "docx", "txt", "pptx", "xlsx", "xls", "json"],
                         key="instant_report_upload",
                     )
-                if _irc_paid_flag and st.button("🔍 Run Instant Check", key="run_instant_check") and _irc_file is not None:
+                _irc_run_clicked = (_irc_paid_flag and st.button("🔍 Run Instant Check", key="run_instant_check")
+                                     and _irc_file is not None)
+                _irc_is_draft_json = _irc_run_clicked and _irc_file.name.lower().endswith(".json")
+
+                if _irc_is_draft_json:
+                    # --- v3.4: returning user re-upload of a previously downloaded draft ---
+                    try:
+                        _irc_file.seek(0)
+                        _draft_data = json.loads(_irc_file.read())
+                        if "slots" not in _draft_data:
+                            st.error("This JSON doesn't look like an Impact-Receipts draft — missing 'slots' key.")
+                        else:
+                            _load_from_inputs_json(_draft_data)
+                    except Exception as _draft_exc:
+                        st.error(f"Could not read the draft file: {_draft_exc}")
+                    # --- END v3.4 ---
+                elif _irc_run_clicked:
                     _irc_should_rerun = False
                     with st.spinner("Extracting with AI…"):
                         try:
