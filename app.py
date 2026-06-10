@@ -1333,16 +1333,6 @@ def _compute_governance_score(slot: int):
     return min(15, score), pii_selected, gaps
 # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
-def _nav_to_tab(idx: int):
-    """Inject JS to programmatically click a Streamlit tab by index."""
-    import streamlit.components.v1 as _stc
-    _stc.html(
-        f'<script>setTimeout(function(){{'
-        f'var t=window.parent.document.querySelectorAll(\'[data-baseweb="tab"]\');'
-        f'if(t.length>{idx}){{t[{idx}].click();}}'
-        f'}}, 150);</script>',
-        height=0,
-    )
 
 def _render_paywall(irc_context: bool = False):
     """Show upgrade/payment options. irc_context=True suppresses the free-checks header."""
@@ -1401,6 +1391,10 @@ def _render_live_score_preview(slot: int = 1):
     conf_comp   = ev.get("confidence_components", {})
     clar_comp   = ev.get("clarity_components", {})
 
+    # --- v3.4: cache "what to fix" so destination tabs can show highlighted notes ---
+    s = _slot_suffix(slot)
+    st.session_state[f"_fixes_computed{s}"] = ev.get("fixes", [])
+
     # Labels derived from the raw confidence so they match the displayed number
     raw_conf_label, _ = _evaluator.interpret_score(raw_conf) if hasattr(_evaluator, "interpret_score") else (ev.get("confidence_label", "—"), "")
 
@@ -1423,7 +1417,7 @@ def _render_live_score_preview(slot: int = 1):
         # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
         if st.button("→ Fix: Go to Result Basics", key="fix_content_quality"):
             st.session_state["current_tab"] = 0
-            _nav_to_tab(0)
+            st.rerun()
         # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
     bd1, bd2 = st.columns(2)
@@ -1478,15 +1472,15 @@ def _render_live_score_preview(slot: int = 1):
     if state in ("MISLEADING", "FUNDAMENTALLY WEAK"):
         if st.button("→ Fix: Sharpen Result Statement", key="fix_misleading"):
             st.session_state["current_tab"] = 0
-            _nav_to_tab(0)
+            st.rerun()
     if state in ("UNDEREVIDENCED", "FUNDAMENTALLY WEAK"):
         if st.button("→ Fix: Strengthen Evidence", key="fix_underevidenced"):
             st.session_state["current_tab"] = 2
-            _nav_to_tab(2)
+            st.rerun()
     if state == "NEEDS REFINEMENT":
         if st.button("→ Fix: Review Specific Gaps", key="fix_refinement"):
             st.session_state["current_tab"] = 1
-            _nav_to_tab(1)
+            st.rerun()
     # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
     # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
@@ -1503,7 +1497,6 @@ def _render_live_score_preview(slot: int = 1):
     st.session_state["_conf_adj_computed"]  = adjusted_conf
 
     # Read governance field values for display (scoring unchanged — uses _compute_governance_score above)
-    s = _slot_suffix(slot)
     _disp_consent = st.session_state.get(f"gov_consent_status{s}", "")
     _disp_anon    = st.session_state.get(f"gov_anonymization_status{s}", "")
     _disp_law     = st.session_state.get(f"gov_compliance_law_status{s}", "")
@@ -1550,7 +1543,7 @@ def _render_live_score_preview(slot: int = 1):
     if gov_score < 12:
         if st.button("Fix governance issues →", key="fix_gov_btn"):
             st.session_state["current_tab"] = 2
-            _nav_to_tab(2)
+            st.rerun()
     # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
 
@@ -1968,8 +1961,43 @@ _LOC_MARKERS  = {"district", "region", "province", "state", "county", "city", "t
     "kenya", "uganda", "ethiopia", "senegal", "africa", "northern", "southern",
     "eastern", "western", "central", "zone", "area", "site"}
 
+# --- v3.4: maps "what to fix" messages to the tab/field where they should be addressed ---
+_FIX_FIELD_MAP = [
+    ("missing unit, timeframe, or target group", 0, "Result statement, Target group, Timeframe"),
+    ("sites and groups included and excluded",   0, "Geographic scope / Target group"),
+    ("Name an owner for this result",            1, "Logframe indicator & linkage"),
+    ("primary record",                           2, "Evidence type & description"),
+    ("internal reviewer or an external partner", 2, "Internal review / External review / Verifier"),
+    ("evidence date is within 6 months",         2, "Evidence date"),
+    ("collection method and sampling approach",  2, "Evidence description"),
+    ("Close data gaps with original source records", 2, "Evidence description"),
+]
+
+
+def _render_fix_notes(slot: int, tab_idx: int):
+    """Show highlighted notes for gaps relevant to this tab, computed on Review & Submit."""
+    s = _slot_suffix(slot)
+    fixes = st.session_state.get(f"_fixes_computed{s}", [])
+    notes = []
+    for fix in fixes:
+        msg = fix.get("message", "")
+        for kw, t, field in _FIX_FIELD_MAP:
+            if t == tab_idx and kw in msg:
+                notes.append((field, fix["message"], fix.get("score_impact", "")))
+                break
+    if tab_idx == 2:
+        for gap in st.session_state.get("_gov_gaps_computed", []):
+            notes.append(("Compliance & Data Governance", gap, "raises Governance score"))
+    if notes:
+        lines = "\n".join(
+            f"- **{field}** — {msg} _({impact})_" for field, msg, impact in notes
+        )
+        st.info(f"**📌 To improve your score, address:**\n\n{lines}")
+
+
 def _render_tab1_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
+    _render_fix_notes(slot, 0)
     _irc_widget(
         st.text_area, "Result statement", f"result_statement{s}", default="",
         placeholder=_ph["result"],
@@ -2030,6 +2058,7 @@ def _render_tab1_slot(slot: int):
 
 def _render_tab2_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
+    _render_fix_notes(slot, 1)
     st.markdown("#### Logframe Linkage")
     st.caption(
         "**Why this matters:** A real African consultancy had their final donor report "
@@ -2070,6 +2099,7 @@ def _render_tab2_slot(slot: int):
 
 def _render_tab3_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
+    _render_fix_notes(slot, 2)
     with st.expander("📋 Evidence Details", expanded=True):
         _irc_widget(
             st.text_area, "Describe your supporting evidence", f"evidence_description{s}", default="",
@@ -3105,7 +3135,7 @@ def render_screen_1():
                 if st.button("Jump to first missing field", key="jump_missing_b"):
                     _first_b = _TAB_IDX_B[_missing_b[0][0]]
                     st.session_state["current_tab"] = _first_b
-                    _nav_to_tab(_first_b)
+                    st.rerun()
 
         # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
         try:
