@@ -1716,27 +1716,30 @@ def _render_slot_fields(slot: int):
         "rejected 3 times in 2024 because results weren't tied to logframe indicators. "
         "40+ hours of rework. We don't want that to happen to you."
     )
-    st.text_input(
+    _irc_widget(
+        st.text_input,
         "Logframe indicator this result reports against",
-        key=f"logframe_indicator{s}",
+        f"logframe_indicator{s}", default="",
         placeholder=_ph.get("logframe_indicator", "e.g., Indicator 1.2: Number of [target group] achieving [outcome]"),
         help=(
             "Copy the exact indicator name and code from your approved Technical Proposal or logframe. "
             "If you cannot quote it, your donor cannot match your result to your commitment."
         ),
     )
-    st.text_input(
+    _irc_widget(
+        st.text_input,
         "Original target for this indicator (from logframe)",
-        key=f"logframe_target{s}",
+        f"logframe_target{s}", default="",
         placeholder=_ph.get("logframe_target", "e.g., 250 youth trained by Q4 2025"),
         help=(
             "The target as approved in the original Technical Proposal. Donors compare achievements "
             "against approved targets — not revised internal targets."
         ),
     )
-    st.text_input(
+    _irc_widget(
+        st.text_input,
         "Actual achievement (must match your result statement)",
-        key=f"logframe_achievement{s}",
+        f"logframe_achievement{s}", default="",
         placeholder=_ph.get("logframe_achievement", "e.g., [Actual number] by [date] — [%] of original target"),
         help=(
             "The actual delivered number, ideally with % achievement vs original target. "
@@ -1826,8 +1829,8 @@ def _render_slot_fields(slot: int):
 
     # --- UX: CONDITIONAL FIELDS (v3.2) ---
     if st.session_state.get(f"internal_review{s}") != "Not reviewed":
-        st.text_input(
-            "Who verified this?", key=f"verifier{s}",
+        _irc_widget(
+            st.text_input, "Who verified this?", f"verifier{s}", default="",
             placeholder=_ph.get("verifier", "e.g., District Agriculture Officer, partner org M&E lead, external evaluator"),
             help="The person or organization that confirmed the data is accurate.",
         )
@@ -1927,6 +1930,32 @@ def _tab_slot_setup(slot: int):
     return s, _ph
 
 
+def _irc_widget(widget_fn, label, base_key, default=None, **kwargs):
+    """Render a widget whose canonical value lives in the plain (non-widget)
+    session_state key `base_key`, so the rest of the app (sidebar summary,
+    scoring, _build_submission_from_session) keeps reading and writing
+    `base_key` exactly as before — including Instant Report Check pre-fills
+    and the "Today" date-shortcut buttons.
+
+    The widget itself is bound to a version-suffixed key (`base_key__w{N}`).
+    Streamlit resets a session_state entry to its last frontend value at the
+    start of every run once that key has ever backed a widget, which would
+    silently discard out-of-band writes to `base_key` if `base_key` were used
+    directly as the widget key. Keeping the widget key separate avoids that,
+    and bumping `N` (via `_irc_fill_version`) mints a fresh, never-instantiated
+    widget key whenever IRC re-fills the form, so the new value is picked up.
+    """
+    ver = st.session_state.get("_irc_fill_version", 0)
+    wkey = f"{base_key}__w{ver}"
+    shadow_key = f"_irc_shadow_{wkey}"
+    base_val = st.session_state.get(base_key, default)
+    if wkey not in st.session_state or st.session_state.get(shadow_key, object()) != base_val:
+        st.session_state[wkey] = base_val
+    widget_fn(label, key=wkey, **kwargs)
+    st.session_state[base_key] = st.session_state[wkey]
+    st.session_state[shadow_key] = st.session_state[wkey]
+
+
 # --- v3.3 field-validation marker sets ---
 _DEMO_MARKERS = {"farmer", "women", "woman", "youth", "child", "children", "household",
     "teacher", "worker", "patient", "student", "beneficiar", "community",
@@ -1941,9 +1970,8 @@ _LOC_MARKERS  = {"district", "region", "province", "state", "county", "city", "t
 
 def _render_tab1_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
-    st.text_area(
-        "Result statement",
-        key=f"result_statement{s}",
+    _irc_widget(
+        st.text_area, "Result statement", f"result_statement{s}", default="",
         placeholder=_ph["result"],
         height=100,
         help="What did your project achieve? Include the action verb, number, target group, location, and timeframe.",
@@ -1961,18 +1989,18 @@ def _render_tab1_slot(slot: int):
         ])
         _def_score = round((_def_count / 3) * 1.25, 2)
         st.caption(f"Definition score contribution: **{_def_score}/1.25** (number, timeframe, target group)")
-    st.text_input(
-        "Target group", key=f"target_group{s}",
+    _irc_widget(
+        st.text_input, "Target group", f"target_group{s}", default="",
         placeholder=_ph["target_group"],
         help="Who specifically? Age, gender, role, geography. Avoid 'beneficiaries' alone.",
     )
-    st.text_input(
-        "Timeframe", key=f"timeframe{s}",
+    _irc_widget(
+        st.text_input, "Timeframe", f"timeframe{s}", default="",
         placeholder="e.g., January - June 2025",
         help="Specific dates or quarters. 'January–June 2025' is stronger than 'In 2025'.",
     )
-    st.text_input(
-        "Geographic scope", key=f"geographic_scope{s}",
+    _irc_widget(
+        st.text_input, "Geographic scope", f"geographic_scope{s}", default="",
         placeholder=_ph["geographic_scope"],
         help="Districts, regions, or specific sites. 'Volta Region' beats 'rural areas'.",
     )
@@ -2008,27 +2036,30 @@ def _render_tab2_slot(slot: int):
         "rejected 3 times in 2024 because results weren't tied to logframe indicators. "
         "40+ hours of rework. We don't want that to happen to you."
     )
-    st.text_input(
+    _irc_widget(
+        st.text_input,
         "Logframe indicator this result reports against",
-        key=f"logframe_indicator{s}",
+        f"logframe_indicator{s}", default="",
         placeholder=_ph.get("logframe_indicator", "e.g., Indicator 1.2: Number of [target group] achieving [outcome]"),
         help=(
             "Copy the exact indicator name and code from your approved Technical Proposal or logframe. "
             "If you cannot quote it, your donor cannot match your result to your commitment."
         ),
     )
-    st.text_input(
+    _irc_widget(
+        st.text_input,
         "Original target for this indicator (from logframe)",
-        key=f"logframe_target{s}",
+        f"logframe_target{s}", default="",
         placeholder=_ph.get("logframe_target", "e.g., 250 youth trained by Q4 2025"),
         help=(
             "The target as approved in the original Technical Proposal. Donors compare achievements "
             "against approved targets — not revised internal targets."
         ),
     )
-    st.text_input(
+    _irc_widget(
+        st.text_input,
         "Actual achievement (must match your result statement)",
-        key=f"logframe_achievement{s}",
+        f"logframe_achievement{s}", default="",
         placeholder=_ph.get("logframe_achievement", "e.g., [Actual number] by [date] — [%] of original target"),
         help=(
             "The actual delivered number, ideally with % achievement vs original target. "
@@ -2040,8 +2071,8 @@ def _render_tab2_slot(slot: int):
 def _render_tab3_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
     with st.expander("📋 Evidence Details", expanded=True):
-        st.text_area(
-            "Describe your supporting evidence", key=f"evidence_description{s}",
+        _irc_widget(
+            st.text_area, "Describe your supporting evidence", f"evidence_description{s}", default="",
             placeholder=_ph["evidence_description"],
             height=120,
             help="Describe the actual document or data: who collected it, how, and what's in it.",
@@ -2058,8 +2089,8 @@ def _render_tab3_slot(slot: int):
             _meas_score = round((_meas_count / 3) * 1.25, 2)
             st.caption(f"Measurement score contribution: **{_meas_score}/1.25** (method, sampling, description present)")
 
-        st.selectbox(
-            "Evidence type", key=f"evidence_type{s}",
+        _irc_widget(
+            st.selectbox, "Evidence type", f"evidence_type{s}", default=EVIDENCE_TYPES[0],
             options=EVIDENCE_TYPES,
             help=EVIDENCE_TYPE_HELP,
         )
@@ -2111,8 +2142,8 @@ def _render_tab3_slot(slot: int):
 
     with st.expander("✅ Verification & Reporting Period", expanded=True):
         int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
-        st.selectbox(
-            "Internal review", key=f"internal_review{s}",
+        _irc_widget(
+            st.selectbox, "Internal review", f"internal_review{s}", default=INTERNAL_REVIEW_OPTIONS[0],
             options=INTERNAL_REVIEW_OPTIONS,
             help="Did anyone in your organization review or cross-check this data?",
         )
@@ -2127,8 +2158,8 @@ def _render_tab3_slot(slot: int):
             st.text_input("Specify internal reviewer", key=f"internal_review_other{s}")
 
         ext_rev = st.session_state.get(f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0])
-        st.selectbox(
-            "External review", key=f"external_review{s}",
+        _irc_widget(
+            st.selectbox, "External review", f"external_review{s}", default=EXTERNAL_REVIEW_OPTIONS[0],
             options=EXTERNAL_REVIEW_OPTIONS,
             help="Did an outside party verify the data? Government, partner, auditor, or evaluator.",
         )
@@ -2146,8 +2177,8 @@ def _render_tab3_slot(slot: int):
         if ext_rev == "Other":
             st.text_input("Specify external reviewer", key=f"external_review_other{s}")
 
-        st.text_input(
-            "Who verified this?", key=f"verifier{s}",
+        _irc_widget(
+            st.text_input, "Who verified this?", f"verifier{s}", default="",
             placeholder=_ph.get("verifier", "e.g., District Agriculture Officer, partner org M&E lead, external evaluator"),
             help="The person or organization that confirmed the data is accurate.",
         )
@@ -2156,8 +2187,9 @@ def _render_tab3_slot(slot: int):
         st.caption("The period this submission covers. Evidence dates outside this range will be flagged.")
         _rp_c1, _rp_t1 = st.columns([5, 1])
         with _rp_c1:
-            st.date_input("Reporting period start", key=f"reporting_start{s}",
-                          help="When does the period this report covers begin?")
+            _irc_widget(
+                st.date_input, "Reporting period start", f"reporting_start{s}", default=date.today(),
+                help="When does the period this report covers begin?")
         with _rp_t1:
             st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
             if st.button("Today", key=f"today_rp_start{s}"):
@@ -2169,8 +2201,9 @@ def _render_tab3_slot(slot: int):
 
         _rp_c2, _rp_t2 = st.columns([5, 1])
         with _rp_c2:
-            st.date_input("Reporting period end", key=f"reporting_end{s}",
-                          help="When does the period this report covers end?")
+            _irc_widget(
+                st.date_input, "Reporting period end", f"reporting_end{s}", default=date.today(),
+                help="When does the period this report covers end?")
         with _rp_t2:
             st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
             if st.button("Today", key=f"today_rp_end{s}"):
@@ -2182,8 +2215,8 @@ def _render_tab3_slot(slot: int):
 
         _ev_c, _ev_t = st.columns([5, 1])
         with _ev_c:
-            st.date_input(
-                "When was this evidence collected?", key=f"evidence_date{s}",
+            _irc_widget(
+                st.date_input, "When was this evidence collected?", f"evidence_date{s}", default=date.today(),
                 help="When was the data collected? Use the most recent date if multiple sources.",
             )
         with _ev_t:
@@ -2857,6 +2890,7 @@ def render_screen_1():
                                         }
                                         st.session_state["_tab2_auto_advanced"] = True
                                         st.session_state["_irc_used"] = True
+                                        st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
                                         _irc_should_rerun = True
                                 else:
                                     _irc_client = _anthropic.Anthropic(api_key=_irc_key)
@@ -2970,6 +3004,7 @@ def render_screen_1():
                                     # prevent auto-advance from swallowing logframe/evidence tabs
                                     st.session_state["_tab2_auto_advanced"] = True
                                     st.session_state["_irc_used"] = True
+                                    st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
                                     _irc_should_rerun = True
                         except Exception as _irc_exc:
                             st.error(f"Extraction failed: {_irc_exc}. Please fill the form manually.")
@@ -3033,6 +3068,12 @@ def render_screen_1():
             if active > 1:
                 st.markdown(f"---\n#### Result {slot}")
             _render_tab3_slot(slot)
+
+        # --- v3.3: next button to Review & Submit ---
+        if st.button("Next: Review & Submit →", key="tab3_next_btn", type="primary"):
+            st.session_state["current_tab"] = 3
+            st.rerun()
+        # --- END v3.3 ---
 
     elif _cur_tab == 3:
         st.caption("Review your scores, download your draft, and submit when ready.")
