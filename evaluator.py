@@ -436,6 +436,128 @@ def _level_from_verifier(text: str) -> int:
     return 2  # someone is named but role is unclear
 
 
+# ---------------------------------------------------------------------------
+# Evidence Ladder (rule-based tier classification — no score impact)
+# ---------------------------------------------------------------------------
+
+EVIDENCE_LADDER_TIERS = ["Basic", "Moderate", "Stronger"]
+
+EVIDENCE_LADDER_KEYWORDS = {
+    "Basic": [
+        "attendance", "registration form", "registration", "sign-in", "sign in sheet",
+        "activity log", "activity report", "participant register", "photo",
+    ],
+    "Moderate": [
+        "follow-up survey", "follow up survey", "tracer survey", "self-report",
+        "self report", "self-reported", "testimonial", "feedback survey",
+    ],
+    "Stronger": [
+        "business record", "regulatory record", "tax record", "license", "permit",
+        "mentor verification", "mentor report", "baseline", "endline",
+        "external evaluation", "third-party evaluation", "independent evaluation",
+        "contribution analysis", "comparison group", "control group",
+    ],
+}
+
+# Evidence-type selectbox label -> ladder tier (structured signal, in addition
+# to free-text keyword matches)
+EVIDENCE_TYPE_LADDER_TIER = {
+    "Attendance sheets / participant registers": "Basic",
+    "Photos with metadata": "Basic",
+    "Tracer survey results": "Moderate",
+    "Financial records": "Stronger",
+    "Third-party audits": "Stronger",
+    "Partner verification letters": "Stronger",
+    "Raw datasets or survey exports": "Stronger",
+}
+
+EVIDENCE_LADDER_SUGGESTIONS = {
+    "Basic": (
+        "Your evidence base is mainly **Basic** tier (attendance, registration, "
+        "logs, photos). To move up to **Moderate**, add a follow-up survey or "
+        "participant testimonial that captures self-reported outcomes."
+    ),
+    "Moderate": (
+        "Your evidence base is mainly **Moderate** tier (self-reported surveys, "
+        "testimonials). To move up to **Stronger**, add baseline/endline data, "
+        "a mentor verification report, or an external evaluation."
+    ),
+    "Stronger": (
+        "Your evidence base already includes **Stronger**-tier sources. To "
+        "strengthen further, add a comparison group or a contribution analysis "
+        "that rules out alternative explanations."
+    ),
+    None: (
+        "No recognizable evidence sources were detected. Describe your evidence "
+        "(e.g., attendance records, follow-up surveys, baseline/endline data) "
+        "to get an Evidence Ladder assessment."
+    ),
+}
+
+
+def get_evidence_ladder(ev_type: str, ev_desc: str, verifier_text: str = "") -> dict:
+    """Rule-based classification of evidence sources into Basic/Moderate/Stronger
+    tiers. Deterministic keyword matching only — no score impact."""
+    text = " ".join([ev_type or "", ev_desc or "", verifier_text or ""]).lower()
+
+    matches = {tier: [] for tier in EVIDENCE_LADDER_TIERS}
+    for tier, keywords in EVIDENCE_LADDER_KEYWORDS.items():
+        for kw in keywords:
+            if kw in text:
+                matches[tier].append(kw)
+
+    type_tier = EVIDENCE_TYPE_LADDER_TIER.get(ev_type)
+    counts = {tier: len(matches[tier]) for tier in EVIDENCE_LADDER_TIERS}
+    if type_tier:
+        counts[type_tier] += 1
+
+    if all(c == 0 for c in counts.values()):
+        dominant = None
+    else:
+        # Tie-break toward the lower tier: don't over-credit a single
+        # high-tier mention if Basic-tier evidence is just as prevalent.
+        dominant = max(EVIDENCE_LADDER_TIERS, key=lambda t: (counts[t], -EVIDENCE_LADDER_TIERS.index(t)))
+
+    return {
+        "tier_counts": counts,
+        "tier_matches": matches,
+        "dominant_tier": dominant,
+        "suggestion": EVIDENCE_LADDER_SUGGESTIONS[dominant],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Funder Readiness flags — Limitations disclosure & Learning/Adaptation
+# (informational only — no score impact, v3.2 weighting unchanged)
+# ---------------------------------------------------------------------------
+
+LIMITATIONS_KEYWORDS = [
+    "limitation", "limitations", "cannot conclude", "cannot confirm",
+    "cannot attribute", "does not capture", "not generalizable",
+    "caveat", "small sample size", "self-reported and may",
+]
+
+LEARNING_KEYWORDS = [
+    "we learned", "lesson learned", "lessons learned", "we adapted",
+    "we adjusted", "we revised", "as a result, we", "going forward, we will",
+    "we changed our approach",
+]
+
+
+def get_funder_readiness_flags(result_statement: str, evidence_description: str) -> dict:
+    """Rule-based detection of limitations-disclosure and learning/adaptation
+    language. Informational only — does not affect any score."""
+    text = " ".join([result_statement or "", evidence_description or ""]).lower()
+
+    limitations_hits = [kw for kw in LIMITATIONS_KEYWORDS if kw in text]
+    learning_hits = [kw for kw in LEARNING_KEYWORDS if kw in text]
+
+    return {
+        "limitations": {"detected": bool(limitations_hits), "matched": limitations_hits},
+        "learning":    {"detected": bool(learning_hits),    "matched": learning_hits},
+    }
+
+
 def get_verification_level(
     internal_review: str,
     external_review: str,
@@ -485,6 +607,58 @@ def get_recency_level(evidence_date: str, report_end_date) -> int:
     if months_between <= 12:
         return 2
     return 1
+
+
+# ---------------------------------------------------------------------------
+# Indicator Maturity (rule-based count-only detection + rewrite templates)
+# ---------------------------------------------------------------------------
+
+_INDICATOR_VERB_BEHAVIOR = {
+    "trained":     "applying the skills/practices from the training",
+    "supported":   "sustaining the support received",
+    "reached":     "adopting the promoted practice",
+    "disbursed":   "using the funds for their intended purpose",
+    "distributed": "using the items for their intended purpose",
+    "enrolled":    "remaining enrolled or completing the program",
+    "registered":  "actively using the registration or service",
+    "served":      "sustaining the benefit received",
+    "assisted":    "sustaining the benefit received",
+}
+
+_COUNT_ONLY_INDICATOR_RE = re.compile(
+    r"\bnumber of\s+(?P<group>[a-z][a-z\s\-/]*?)\s+"
+    r"(?P<verb>trained|supported|reached|disbursed|distributed|enrolled|registered|served|assisted)\b",
+    re.IGNORECASE,
+)
+
+_ALREADY_PROPORTIONAL_RE = re.compile(r"%|\bpercent\b|\bpercentage\b|\brate of\b", re.IGNORECASE)
+
+
+def get_indicator_maturity(indicator_text: str) -> dict:
+    """Rule-based check for count-only ('Number of X trained/...') indicators.
+    Returns a comparison ladder + a small Measurement-score adjustment
+    (clamped by the caller to the existing 0-1.25 Measurement range)."""
+    text = (indicator_text or "").strip()
+    if not text:
+        return {"flagged": False, "rows": [], "adjustment": 0.0}
+
+    match = _COUNT_ONLY_INDICATOR_RE.search(text)
+    if not match:
+        already_proportional = bool(_ALREADY_PROPORTIONAL_RE.search(text))
+        return {"flagged": False, "rows": [], "adjustment": 0.1 if already_proportional else 0.0}
+
+    group = match.group("group").strip()
+    verb  = match.group("verb").lower()
+    behavior = _INDICATOR_VERB_BEHAVIOR.get(verb, "sustaining the benefit received")
+
+    rows = [
+        ("Common (count-only)",       match.group(0)),
+        ("Strong (proportional)",     f"% of {group} {verb}"),
+        ("Stronger (behavior-based)", f"% of {group} {behavior} after [timeframe]"),
+        ("Stronger (verified)",       f"% of {group} with verified [records/improvement]"),
+    ]
+
+    return {"flagged": True, "group": group, "verb": verb, "rows": rows, "adjustment": -0.15}
 
 
 # ---------------------------------------------------------------------------
@@ -850,6 +1024,8 @@ def evaluate_submission(submission: dict) -> dict:
     direct_level  = get_directness_level(ev_type, ev_desc)
     verify_level  = get_verification_level(internal_review, external_review, verified_by)
     recency_level = get_recency_level(ev_date, report_end)
+    evidence_ladder = get_evidence_ladder(ev_type, ev_desc, verified_by)
+    funder_readiness = get_funder_readiness_flags(submission.get("result_statement", "") or "", ev_desc)
 
     direct_score  = round((direct_level  / 5) * 2.0, 2)
     verify_score  = round((verify_level  / 5) * 2.0, 2)
@@ -902,6 +1078,14 @@ def evaluate_submission(submission: dict) -> dict:
     gov_score_c  = round((clarity_params["governance_yes_count"] / 3) * 0.75, 2)
 
     clarity_score = compute_clarity(**clarity_params)
+
+    # Indicator Maturity: small clamped bonus/penalty on Measurement + Clarity
+    indicator_maturity = get_indicator_maturity(submission.get("logframe_indicator", "") or "")
+    meas_adj = indicator_maturity["adjustment"]
+    if meas_adj:
+        meas_score_c  = round(min(1.25, max(0.0, meas_score_c  + meas_adj)), 2)
+        clarity_score = round(min(5.0,  max(0.0, clarity_score + meas_adj)), 2)
+
     clarity_label, clarity_meaning = interpret_score(clarity_score)
 
     clarity_components = {
@@ -946,6 +1130,9 @@ def evaluate_submission(submission: dict) -> dict:
         "clarity_meaning":       clarity_meaning,
         "confidence_components": confidence_components,
         "clarity_components":    clarity_components,
+        "evidence_ladder":       evidence_ladder,
+        "indicator_maturity":    indicator_maturity,
+        "funder_readiness":      funder_readiness,
         "beneficiary_voice_bonus": bv_bonus,
         "verdict":               verdict,
         "fixes":                 fixes,

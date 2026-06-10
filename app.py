@@ -1035,6 +1035,8 @@ _BASE_FORM_KEYS = [
     "cl_bank_recon", "cl_indicators", "cl_data_sources", "cl_reporting_cal",
     "cl_roles", "cl_data_quality", "cl_case_studies", "cl_safeguarding",
     "cl_beneficiary",
+    # v3.4 advisory checklist (optional, score-neutral)
+    "attribution_contribution", "disaggregation_status",
 ]
 
 _BV_OPTIONS = [
@@ -1694,6 +1696,8 @@ def _build_submission_from_session(slot: int = 1) -> dict:
         "logframe_achievement": st.session_state.get(f"logframe_achievement{s}", ""),
         "reporting_start":      _format_date(st.session_state.get(f"reporting_start{s}")),
         "reporting_end":        _format_date(st.session_state.get(f"reporting_end{s}")),
+        "attribution_contribution": st.session_state.get(f"attribution_contribution{s}", "Not specified"),
+        "disaggregation_status":     st.session_state.get(f"disaggregation_status{s}", "Not specified"),
         "evidence": [{
             "type":        ev_type,
             "description": st.session_state.get(f"evidence_description{s}", ""),
@@ -2406,6 +2410,27 @@ def _render_tab3_slot(slot: int):
                 "Confidence Score for this session."
             )
     # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+
+    # --- ADVISORY CHECKLIST (v3.4, score-neutral) ---
+    with st.expander("📊 Reporting Quality Checklist (optional, advisory only)", expanded=False):
+        st.caption("These do not affect your Confidence or Clarity scores — they appear as advisory flags in your report.")
+        st.selectbox(
+            "Does your report distinguish attribution from contribution?",
+            options=["Not specified", "Yes", "No", "Not sure"],
+            key=f"attribution_contribution{s}",
+            help=(
+                "Attribution claims your program caused the change on its own. "
+                "Contribution acknowledges your program was one of several "
+                "contributing factors alongside others."
+            ),
+        )
+        st.selectbox(
+            "Is beneficiary data disaggregated (women, youth, PWD, rural)?",
+            options=["Not specified", "Yes — fully disaggregated", "Partially disaggregated", "No"],
+            key=f"disaggregation_status{s}",
+            help="Many funders now expect results broken down by sex, age, disability, and location.",
+        )
+    # --- END ADVISORY CHECKLIST (v3.4) ---
 
     prev_files = st.session_state.get(f"draft_uploaded_filenames{s}", [])
     if prev_files:
@@ -3466,6 +3491,44 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         st.divider()
         return
 
+    # --- Four Funder Questions summary (top of report) ---
+    ev_top      = (submission.get("evidence") or [{}])[0]
+    ev_type_top = ev_top.get("type", "") or "Not specified"
+    ladder_top  = ev.get("evidence_ladder", {})
+    fr_top      = ev.get("funder_readiness", {})
+    direct_level = conf_comp.get("direct_level", 0)
+    verify_level = conf_comp.get("verify_level", 0)
+    def_score    = clar_comp.get("definition_score", 0)
+
+    st.markdown("### What Funders Want to Know")
+    fq_col1, fq_col2 = st.columns(2)
+    with fq_col1:
+        st.markdown("**1. What has changed?**")
+        st.markdown(snippet if snippet else "_Not yet described._")
+        st.caption(f"Directness: Level {direct_level}/5 · Definition: {def_score}/1.25")
+
+        st.markdown("**3. How strong is the evidence?**")
+        st.markdown(f"Confidence: **{conf_score}/5.0** ({conf_label})")
+        st.caption(_VERIFICATION_TIPS.get(verify_level, ""))
+
+    with fq_col2:
+        st.markdown("**2. How do you know?**")
+        dominant = ladder_top.get("dominant_tier")
+        if dominant:
+            st.markdown(f"Evidence type: **{ev_type_top}** — evidence base is mainly **{dominant}**-tier.")
+        else:
+            st.markdown(f"Evidence type: **{ev_type_top}**")
+        st.caption(_DIRECTNESS_TIPS.get(direct_level, ""))
+
+        st.markdown("**4. What did you learn?**")
+        learn = fr_top.get("learning", {})
+        if learn.get("detected"):
+            st.markdown("Yes — the report describes what was learned and how the program adapted.")
+        else:
+            st.markdown("_Not yet stated._ Add a sentence on what you learned and changed as a result.")
+
+    st.divider()
+
     # Logframe linkage panel (guarded for backward-compat with stale evaluator deploys)
     linkage = ev.get("logframe_linkage", {})
     if linkage:
@@ -3558,6 +3621,82 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         st.metric("Governance", f"{gov}/0.75",
                   help=f"{_CLARITY_TIPS['governance']}\n\n{TOOLTIP_GOVERNANCE}")
         st.progress(min(gov / 0.75, 1.0))
+
+    # Evidence Ladder (rule-based, no score impact)
+    ladder = ev.get("evidence_ladder", {})
+    if ladder:
+        st.markdown("#### Evidence Ladder")
+        st.caption(
+            "Rule-based check of the evidence sources you described — does this "
+            "report rely mainly on Basic, Moderate, or Stronger evidence?"
+        )
+        counts = ladder.get("tier_counts", {})
+        dominant = ladder.get("dominant_tier")
+        tier_descriptions = {
+            "Basic": "Attendance, registration, logs, photos",
+            "Moderate": "Follow-up surveys, testimonials",
+            "Stronger": "Business/regulatory records, mentor verification, "
+                        "baseline/endline, external evaluation, comparison groups",
+        }
+        ladder_cols = st.columns(3)
+        for col, tier in zip(ladder_cols, _evaluator.EVIDENCE_LADDER_TIERS):
+            with col:
+                label = f"**{tier}**" + (" 👈" if tier == dominant else "")
+                st.markdown(label)
+                st.caption(tier_descriptions[tier])
+                st.metric("Sources detected", counts.get(tier, 0), label_visibility="collapsed")
+        st.info(ladder.get("suggestion", ""))
+
+    # Indicator Maturity (rule-based, count-only indicator detection)
+    maturity = ev.get("indicator_maturity", {})
+    if maturity.get("flagged"):
+        st.markdown("#### Indicator Maturity")
+        st.caption(
+            "This indicator is written as a raw count. Funders increasingly expect "
+            "indicators that show whether the result was sustained or verified."
+        )
+        st.table([{"Level": level, "Example wording": wording} for level, wording in maturity["rows"]])
+        st.caption(
+            f"Measurement score adjusted by **{maturity['adjustment']}** for this "
+            "count-only indicator framing."
+        )
+
+    # Funder Readiness flags (informational only — no score impact)
+    st.markdown("#### Funder Readiness")
+    st.caption(
+        "Two quick checks funders increasingly look for — these do not affect "
+        "your Confidence or Clarity scores."
+    )
+    fr = ev.get("funder_readiness", {})
+    lim = fr.get("limitations", {})
+    learn = fr.get("learning", {})
+
+    if lim.get("detected"):
+        st.success("Limitations disclosed — the report states what the data can't confidently say.")
+    else:
+        st.warning(
+            "No limitations disclosure detected. Consider adding a sentence on what "
+            "this data cannot confirm or cannot be generalized to."
+        )
+
+    if learn.get("detected"):
+        st.success("Learning & adaptation stated — the report describes what was learned and changed.")
+    else:
+        st.warning(
+            "No learning/adaptation statement detected. Consider adding what your "
+            "organization learned and how the program adapted as a result."
+        )
+
+    # Additional advisory flags (v3.4, score-neutral)
+    attrib = submission.get("attribution_contribution", "Not specified")
+    disagg = submission.get("disaggregation_status", "Not specified")
+    if attrib != "Not specified" or disagg != "Not specified":
+        st.markdown("#### Additional Advisory Flags")
+        st.caption("Optional checklist answers — advisory only, no effect on your score.")
+        if attrib != "Not specified":
+            st.markdown(f"- **Attribution vs. contribution distinguished:** {attrib}")
+        if disagg != "Not specified":
+            st.markdown(f"- **Beneficiary data disaggregated (women, youth, PWD, rural):** {disagg}")
 
     # Verdict banner
     css_class = _VERDICT_CSS.get(verdict, "")
