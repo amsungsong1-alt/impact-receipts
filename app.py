@@ -4270,6 +4270,108 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
     if not fixes:
         fixes_html = "<p style='color:#1B5E20;font-weight:700;'>No fixes needed — your result is ready to submit.</p>"
 
+    # --- What Funders Want to Know (four-question summary) ---
+    ladder   = evaluation.get("evidence_ladder", {})
+    maturity = evaluation.get("indicator_maturity", {})
+    fr       = evaluation.get("funder_readiness", {})
+    ev_top      = (submission.get("evidence") or [{}])[0]
+    ev_type_top = ev_top.get("type", "") or "Not specified"
+    dominant    = ladder.get("dominant_tier")
+    learn       = fr.get("learning", {})
+    lim         = fr.get("limitations", {})
+
+    q2_answer = f"Evidence type: <strong>{ev_type_top}</strong>"
+    if dominant:
+        q2_answer += f" &mdash; evidence base is mainly <strong>{dominant}</strong>-tier."
+    q4_answer = ("Yes &mdash; the report describes what was learned and how the program adapted."
+                  if learn.get("detected") else
+                  "Not yet stated. Add a sentence on what you learned and changed as a result.")
+
+    four_questions_html = f"""
+<h2>What Funders Want to Know</h2>
+<table>
+  <tr><th>Question</th><th>Answer</th></tr>
+  <tr><td><strong>1. What has changed?</strong></td>
+      <td>{submission.get('result_statement', '-')}<br/>
+          <span style="color:#616161;font-size:0.85rem;">Directness: Level {dl}/5 &middot; Definition: {def_s}/1.25</span></td></tr>
+  <tr><td><strong>2. How do you know?</strong></td><td>{q2_answer}</td></tr>
+  <tr><td><strong>3. How strong is the evidence?</strong></td>
+      <td>Confidence: <strong>{conf_score}/5.0</strong> ({conf_label})</td></tr>
+  <tr><td><strong>4. What did you learn?</strong></td><td>{q4_answer}</td></tr>
+</table>
+"""
+
+    # --- Evidence Ladder ---
+    ladder_html = ""
+    if ladder:
+        tier_descriptions = {
+            "Basic": "Attendance, registration, logs, photos",
+            "Moderate": "Follow-up surveys, testimonials",
+            "Stronger": "Business/regulatory records, mentor verification, "
+                        "baseline/endline, external evaluation, comparison groups",
+        }
+        counts = ladder.get("tier_counts", {})
+        ladder_rows = "".join(
+            f"<tr><td>{tier}{' &#128072;' if tier == dominant else ''}</td>"
+            f"<td>{tier_descriptions[tier]}</td>"
+            f"<td style='font-family:monospace;'>{counts.get(tier, 0)}</td></tr>"
+            for tier in _evaluator.EVIDENCE_LADDER_TIERS
+        )
+        ladder_html = f"""
+<h2>Evidence Ladder</h2>
+<p style="color:#616161;font-size:0.85rem;">Rule-based check of the evidence sources you described — does this report rely mainly on Basic, Moderate, or Stronger evidence?</p>
+<table><tr><th>Tier</th><th>Description</th><th>Sources detected</th></tr>{ladder_rows}</table>
+<p>{ladder.get('suggestion', '')}</p>
+"""
+
+    # --- Indicator Maturity ---
+    maturity_html = ""
+    if maturity.get("flagged"):
+        maturity_rows = "".join(
+            f"<tr><td>{level}</td><td>{wording}</td></tr>"
+            for level, wording in maturity["rows"]
+        )
+        maturity_html = f"""
+<h2>Indicator Maturity</h2>
+<p style="color:#616161;font-size:0.85rem;">This indicator is written as a raw count. Funders increasingly expect indicators that show whether the result was sustained or verified.</p>
+<table><tr><th>Level</th><th>Example wording</th></tr>{maturity_rows}</table>
+<p>Measurement score adjusted by <strong>{maturity['adjustment']}</strong> for this count-only indicator framing.</p>
+"""
+
+    # --- Funder Readiness flags ---
+    lim_text = ("Limitations disclosed &mdash; the report states what the data can't confidently say."
+                 if lim.get("detected") else
+                 "No limitations disclosure detected. Consider adding a sentence on what this data "
+                 "cannot confirm or cannot be generalized to.")
+    learn_text = ("Learning &amp; adaptation stated &mdash; the report describes what was learned and changed."
+                   if learn.get("detected") else
+                   "No learning/adaptation statement detected. Consider adding what your organization "
+                   "learned and how the program adapted as a result.")
+    funder_readiness_html = f"""
+<h2>Funder Readiness</h2>
+<p style="color:#616161;font-size:0.85rem;">These checks do not affect your Confidence or Clarity scores.</p>
+<ul>
+  <li>{lim_text}</li>
+  <li>{learn_text}</li>
+</ul>
+"""
+
+    # --- Additional advisory flags (v3.4, score-neutral) ---
+    attrib = submission.get("attribution_contribution", "Not specified")
+    disagg = submission.get("disaggregation_status", "Not specified")
+    advisory_html = ""
+    if attrib != "Not specified" or disagg != "Not specified":
+        advisory_items = ""
+        if attrib != "Not specified":
+            advisory_items += f"<li><strong>Attribution vs. contribution distinguished:</strong> {attrib}</li>"
+        if disagg != "Not specified":
+            advisory_items += f"<li><strong>Beneficiary data disaggregated (women, youth, PWD, rural):</strong> {disagg}</li>"
+        advisory_html = f"""
+<h2>Additional Advisory Flags</h2>
+<p style="color:#616161;font-size:0.85rem;">Optional checklist answers — advisory only, no effect on your score.</p>
+<ul>{advisory_items}</ul>
+"""
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4303,7 +4405,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
    <strong>Timeframe:</strong> {submission.get('timeframe', '-')}<br/>
    <strong>Geographic Scope:</strong> {submission.get('geographic_scope', '-')}</p>
 {files_row}
-
+{four_questions_html}
 <div style="background:{verdict_bg};color:white;border-radius:10px;padding:14px 20px;
      font-weight:700;text-align:center;margin:20px 0;font-size:1rem;
      -webkit-print-color-adjust:exact;print-color-adjust:exact;">
@@ -4337,7 +4439,10 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
     </table>
   </div>
 </div>
-
+{ladder_html}
+{maturity_html}
+{funder_readiness_html}
+{advisory_html}
 <h2>What To Fix</h2>
 {fixes_html}
 
