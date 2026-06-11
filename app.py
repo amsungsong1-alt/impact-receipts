@@ -100,6 +100,26 @@ PRICE_PER_CHECK_GHS   = 500        # pesewas  (GHS 5.00)
 PRICE_MONTHLY_GHS     = 5000       # pesewas  (GHS 50.00/month)
 # --- End payment constants ---
 
+# --- Disposable / temporary email domains (blocked at the email gate) ---
+# Prevents users from cycling through throwaway addresses to reset the
+# free-checks counter. Not exhaustive, but covers the most common services.
+DISPOSABLE_EMAIL_DOMAINS = {
+    "mailinator.com", "10minutemail.com", "10minutemail.net", "guerrillamail.com",
+    "guerrillamail.net", "guerrillamail.org", "guerrillamail.biz", "sharklasers.com",
+    "tempmail.com", "temp-mail.org", "tempmail.net", "tempmail.dev", "throwawaymail.com",
+    "yopmail.com", "yopmail.net", "fakeinbox.com", "trashmail.com", "trashmail.net",
+    "getnada.com", "mailnesia.com", "maildrop.cc", "mintemail.com", "mohmal.com",
+    "dispostable.com", "moakt.com", "emailondeck.com", "mailcatch.com", "spambog.com",
+    "33mail.com", "discard.email", "mytemp.email", "tempinbox.com", "burnermail.io",
+    "mail-temp.com", "fakemailgenerator.com", "inboxkitten.com", "tempm.com",
+}
+
+
+def _is_disposable_email(email: str) -> bool:
+    """Return True if the email's domain is a known disposable/temp-mail provider."""
+    domain = email.strip().lower().rsplit("@", 1)[-1]
+    return domain in DISPOSABLE_EMAIL_DOMAINS
+
 EVIDENCE_TYPES = [
     "Select evidence type...",
     "Attendance sheets / participant registers",
@@ -2665,7 +2685,11 @@ def render_screen_0():
         with st.form("email_gate_form"):
             _gate_email = st.text_input("Email address", placeholder="you@organisation.org")
             if st.form_submit_button("Continue →", use_container_width=True):
-                if "@" in _gate_email and "." in _gate_email.split("@")[-1]:
+                if "@" not in _gate_email or "." not in _gate_email.split("@")[-1]:
+                    st.warning("Please enter a valid email address.")
+                elif _is_disposable_email(_gate_email):
+                    st.warning("Please use a permanent work or personal email address — temporary/disposable email addresses aren't accepted.")
+                else:
                     _e = _gate_email.strip().lower()
                     st.session_state["user_email"] = _e
                     upsert_user(_e)
@@ -2686,8 +2710,6 @@ def render_screen_0():
                         st.session_state["screen"] = 1
                         st.session_state["entry_mode"] = "⚡ Instant Report Check"
                     st.rerun()
-                else:
-                    st.warning("Please enter a valid email address.")
         st.stop()
     # --- End email gate ---
 
