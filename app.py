@@ -56,6 +56,15 @@ except ImportError:
     def _anonymize_value(v): return None
 # --- End utils imports ---
 
+# --- OTP email verification ---
+try:
+    from utils.email_otp import otp_enabled, generate_otp, send_otp_email
+except ImportError:
+    def otp_enabled(): return False
+    def generate_otp(): return "000000"
+    def send_otp_email(e, c): return False, "Email verification is not configured."
+# --- End OTP email verification ---
+
 # --- UX: INSTANT REPORT CHECK IMPORTS (v3.2) ---
 import anthropic as _anthropic
 try:
@@ -2681,35 +2690,101 @@ def render_screen_0():
     if not st.session_state.get("user_email"):
         st.markdown("---")
         st.markdown("#### 📧 Enter your email to get started")
-        st.caption("No password needed. We use your email to track your free checks.")
-        with st.form("email_gate_form"):
-            _gate_email = st.text_input("Email address", placeholder="you@organisation.org")
-            if st.form_submit_button("Continue →", use_container_width=True):
-                if "@" not in _gate_email or "." not in _gate_email.split("@")[-1]:
-                    st.warning("Please enter a valid email address.")
-                elif _is_disposable_email(_gate_email):
-                    st.warning("Please use a permanent work or personal email address — temporary/disposable email addresses aren't accepted.")
+
+        def _complete_email_login(_e):
+            st.session_state["user_email"] = _e
+            upsert_user(_e)
+            # restore paid status from DB
+            _u = get_user(_e)
+            if _u and is_still_paid(_u):
+                st.session_state["is_paid"] = True
+            # complete any pending post-payment verification
+            _pending_ref = st.session_state.pop("pending_paystack_ref", None)
+            if _pending_ref:
+                _pr = verify_payment(_pending_ref)
+                if _pr.get("status") == "success":
+                    _pr_days = 30 if _pr.get("plan") == "monthly" else 1
+                    mark_paid(_e, days=_pr_days)
+                    st.session_state["is_paid"] = True
+            # if user came from IRC email gate, return them to Screen 1 with IRC active
+            if st.session_state.pop("_irc_pending_email", False):
+                st.session_state["screen"] = 1
+                st.session_state["entry_mode"] = "⚡ Instant Report Check"
+            for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
+                st.session_state.pop(_k, None)
+            st.rerun()
+
+        if otp_enabled() and st.session_state.get("_otp_email"):
+            # --- Step 2: enter the code we emailed ---
+            _otp_email = st.session_state["_otp_email"]
+            if time.time() - st.session_state.get("_otp_sent_at", 0) > 600:
+                st.warning("Your verification code expired. Please request a new one.")
+                for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
+                    st.session_state.pop(_k, None)
+                st.rerun()
+            st.caption(f"We sent a 6-digit verification code to **{_otp_email}**. Enter it below (expires in 10 minutes).")
+            with st.form("otp_verify_form"):
+                _otp_input = st.text_input("Verification code", max_chars=6, placeholder="123456")
+                _verify_clicked = st.form_submit_button("Verify →", use_container_width=True)
+            if _verify_clicked:
+                if _otp_input.strip() == st.session_state.get("_otp_code"):
+                    _complete_email_login(_otp_email)
                 else:
-                    _e = _gate_email.strip().lower()
-                    st.session_state["user_email"] = _e
-                    upsert_user(_e)
-                    # restore paid status from DB
-                    _u = get_user(_e)
-                    if _u and is_still_paid(_u):
-                        st.session_state["is_paid"] = True
-                    # complete any pending post-payment verification
-                    _pending_ref = st.session_state.pop("pending_paystack_ref", None)
-                    if _pending_ref:
-                        _pr = verify_payment(_pending_ref)
-                        if _pr.get("status") == "success":
-                            _pr_days = 30 if _pr.get("plan") == "monthly" else 1
-                            mark_paid(_e, days=_pr_days)
-                            st.session_state["is_paid"] = True
-                    # if user came from IRC email gate, return them to Screen 1 with IRC active
-                    if st.session_state.pop("_irc_pending_email", False):
-                        st.session_state["screen"] = 1
-                        st.session_state["entry_mode"] = "⚡ Instant Report Check"
+                    st.session_state["_otp_attempts"] = st.session_state.get("_otp_attempts", 0) + 1
+                    if st.session_state["_otp_attempts"] >= 5:
+                        st.error("Too many incorrect attempts. Please request a new code.")
+                        for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
+                            st.session_state.pop(_k, None)
+                        st.rerun()
+                    else:
+                        st.error("Incorrect code. Please try again.")
+            _otp_c1, _otp_c2 = st.columns(2)
+            with _otp_c1:
+                if st.button("Resend code", use_container_width=True):
+                    _new_code = generate_otp()
+                    _ok, _err = send_otp_email(_otp_email, _new_code)
+                    if _ok:
+                        st.session_state["_otp_code"] = _new_code
+                        st.session_state["_otp_sent_at"] = time.time()
+                        st.session_state["_otp_attempts"] = 0
+                        st.success("A new code has been sent.")
+                    else:
+                        st.error(f"Could not send code: {_err}")
+            with _otp_c2:
+                if st.button("Use a different email", use_container_width=True):
+                    for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
+                        st.session_state.pop(_k, None)
                     st.rerun()
+        else:
+            # --- Step 1: enter email ---
+            st.caption(
+                "No password needed. We'll email you a 6-digit code to confirm it's yours."
+                if otp_enabled() else
+                "No password needed. We use your email to track your free checks."
+            )
+            with st.form("email_gate_form"):
+                _gate_email = st.text_input("Email address", placeholder="you@organisation.org")
+                _submit_label = "Send verification code" if otp_enabled() else "Continue →"
+                if st.form_submit_button(_submit_label, use_container_width=True):
+                    if "@" not in _gate_email or "." not in _gate_email.split("@")[-1]:
+                        st.warning("Please enter a valid email address.")
+                    elif _is_disposable_email(_gate_email):
+                        st.warning("Please use a permanent work or personal email address — temporary/disposable email addresses aren't accepted.")
+                    else:
+                        _e = _gate_email.strip().lower()
+                        if otp_enabled():
+                            _code = generate_otp()
+                            _ok, _err = send_otp_email(_e, _code)
+                            if _ok:
+                                st.session_state["_otp_email"] = _e
+                                st.session_state["_otp_code"] = _code
+                                st.session_state["_otp_sent_at"] = time.time()
+                                st.session_state["_otp_attempts"] = 0
+                                st.rerun()
+                            else:
+                                st.error(f"Could not send verification email: {_err}")
+                        else:
+                            _complete_email_login(_e)
         st.stop()
     # --- End email gate ---
 
