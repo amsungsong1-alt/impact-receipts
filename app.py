@@ -3115,7 +3115,7 @@ def render_screen_1():
                 st.caption(
                     "Upload your donor report (PDF, DOCX, TXT, PPTX, or Excel), or a previously "
                     "downloaded Impact-Receipts draft (JSON) to pick up where you left off. "
-                    "AI pre-fills fields across all tabs using only what's written in your document — "
+                    "Responsible AI pre-fills fields across all tabs using only what's written in your document — "
                     "it never invents or assumes missing data. Always review before submitting."
                 )
                 _irc_paid_flag = (st.session_state.get("is_paid") or
@@ -4217,15 +4217,50 @@ def render_screen_2():
             "your submission with the relevant donor-required checklists. This moves your submission "
             "from a first-pass profile toward submission-ready integrity."
         )
-        st.markdown(
-            '<a href="mailto:info@impact-receipts.com'
-            '?subject=Stage%202%20Diagnostic%20Enquiry%20-%20Test"'
-            ' target="_top"'
-            ' style="display:inline-block;background:#1B5E20;color:white;padding:10px 24px;'
-            'border-radius:8px;text-decoration:none;font-weight:700;font-size:0.95rem;">'
-            '✉️ Request a Stage 2 Conversation</a>',
-            unsafe_allow_html=True,
-        )
+        if st.button("✉️ Request a Stage 2 Conversation", key="stage2_request_btn", type="primary"):
+            st.session_state["_show_stage2_mail_options"] = True
+
+        if st.session_state.get("_show_stage2_mail_options"):
+            _s2_to      = "info@impact-receipts.com"
+            _s2_subject = "Stage 2 Conversation Request"
+            _s2_body = (
+                "Hello Impact-Receipts team,\n\n"
+                "I would like to request a Stage 2 Diagnostic Engagement conversation "
+                "following my Instant Confidence & Clarity Check.\n\n"
+                "(Please attach your downloaded report to this email before sending.)\n\n"
+                "Organisation:\n"
+                "Programme/Project:\n"
+            )
+            _s2_subject_enc = urllib.parse.quote(_s2_subject)
+            _s2_body_enc    = urllib.parse.quote(_s2_body)
+
+            _s2_link_style = (
+                "display:inline-block;background:#1B5E20;color:white;padding:8px 18px;"
+                "border-radius:8px;text-decoration:none;font-weight:700;font-size:0.85rem;"
+                "text-align:center;width:100%;box-sizing:border-box;"
+            )
+            st.caption("Choose how you'd like to send your request:")
+            _s2_c1, _s2_c2, _s2_c3 = st.columns(3)
+            with _s2_c1:
+                st.markdown(
+                    f'<a href="mailto:{_s2_to}?subject={_s2_subject_enc}&body={_s2_body_enc}"'
+                    f' target="_top" style="{_s2_link_style}">📧 Default Mail App</a>',
+                    unsafe_allow_html=True,
+                )
+            with _s2_c2:
+                st.markdown(
+                    f'<a href="https://mail.google.com/mail/?view=cm&fs=1&to={_s2_to}'
+                    f'&su={_s2_subject_enc}&body={_s2_body_enc}"'
+                    f' target="_blank" style="{_s2_link_style}">Gmail</a>',
+                    unsafe_allow_html=True,
+                )
+            with _s2_c3:
+                st.markdown(
+                    f'<a href="https://outlook.office.com/mail/deeplink/compose?to={_s2_to}'
+                    f'&subject={_s2_subject_enc}&body={_s2_body_enc}"'
+                    f' target="_blank" style="{_s2_link_style}">Outlook</a>',
+                    unsafe_allow_html=True,
+                )
         st.caption("Tip: download your report below and attach it to the email before sending.")
     # --- End Stage 2 Card ---
 
