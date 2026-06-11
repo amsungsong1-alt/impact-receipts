@@ -1025,7 +1025,14 @@ def evaluate_submission(submission: dict) -> dict:
     verify_level  = get_verification_level(internal_review, external_review, verified_by)
     recency_level = get_recency_level(ev_date, report_end)
     evidence_ladder = get_evidence_ladder(ev_type, ev_desc, verified_by)
-    funder_readiness = get_funder_readiness_flags(submission.get("result_statement", "") or "", ev_desc)
+    funder_readiness = get_funder_readiness_flags(
+        " ".join([
+            submission.get("result_statement", "") or "",
+            submission.get("learning_notes", "") or "",
+            submission.get("limitations_notes", "") or "",
+        ]),
+        ev_desc,
+    )
 
     direct_score  = round((direct_level  / 5) * 2.0, 2)
     verify_score  = round((verify_level  / 5) * 2.0, 2)

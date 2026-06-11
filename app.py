@@ -1037,6 +1037,8 @@ _BASE_FORM_KEYS = [
     "cl_beneficiary",
     # v3.4 advisory checklist (optional, score-neutral)
     "attribution_contribution", "disaggregation_status",
+    # v3.5 learning / limitations / decision-ownership notes
+    "learning_notes", "limitations_notes", "additional_context",
 ]
 
 _BV_OPTIONS = [
@@ -1696,7 +1698,9 @@ def _build_submission_from_session(slot: int = 1) -> dict:
         "target_group":       st.session_state.get(f"target_group{s}", ""),
         "timeframe":          st.session_state.get(f"timeframe{s}", ""),
         "geographic_scope":   st.session_state.get(f"geographic_scope{s}", ""),
-        "additional_context": "",
+        "additional_context": st.session_state.get(f"additional_context{s}", ""),
+        "learning_notes":     st.session_state.get(f"learning_notes{s}", ""),
+        "limitations_notes":  st.session_state.get(f"limitations_notes{s}", ""),
         "internal_review":    int_rev,
         "external_review":    ext_rev,
         "attached_filenames": st.session_state.get(f"uploaded_files{s}", []),
@@ -2443,7 +2447,46 @@ def _render_tab3_slot(slot: int):
             key=f"disaggregation_status{s}",
             help="Many funders now expect results broken down by sex, age, disability, and location.",
         )
-    # --- END ADVISORY CHECKLIST (v3.4) ---
+        st.divider()
+        st.text_area(
+            "What did you learn from this result, and how did your program adapt? (optional)",
+            key=f"learning_notes{s}",
+            placeholder=(
+                "e.g., We learned that follow-up calls increased survey response rates, "
+                "so we adjusted our M&E plan to include monthly check-ins."
+            ),
+            help=(
+                "Funders increasingly look for evidence of learning and adaptation. "
+                "This appears as a Funder Readiness flag in your report — it does not "
+                "affect your Confidence or Clarity scores."
+            ),
+        )
+        st.text_area(
+            "What can this data NOT confirm or be generalized to? (optional)",
+            key=f"limitations_notes{s}",
+            placeholder=(
+                "e.g., This sample covers only urban participants and cannot be "
+                "generalized to rural areas."
+            ),
+            help=(
+                "Disclosing limitations builds credibility. This appears as a Funder "
+                "Readiness flag in your report — it does not affect your Confidence or "
+                "Clarity scores."
+            ),
+        )
+        st.text_area(
+            "Who owns this result, and what decision will it inform? (optional — improves Clarity)",
+            key=f"additional_context{s}",
+            placeholder=(
+                "e.g., The MEL Lead owns this result. It will inform the Q3 budget "
+                "reallocation decision for the livelihoods component."
+            ),
+            help=(
+                "Naming an owner and the decision this result informs strengthens your "
+                "Governance sub-score (part of Clarity)."
+            ),
+        )
+    # --- END ADVISORY CHECKLIST (v3.4/v3.5) ---
 
     prev_files = st.session_state.get(f"draft_uploaded_filenames{s}", [])
     if prev_files:
