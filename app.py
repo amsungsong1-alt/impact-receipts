@@ -1681,6 +1681,16 @@ def _build_submission_from_session(slot: int = 1) -> dict:
     if ext_rev == "Other":
         ext_rev = st.session_state.get(f"external_review_other{s}", "") or "Other"
 
+    donor = st.session_state.get("donor_selected", "(No donor specified)")
+    if donor == "Other":
+        donor = st.session_state.get("donor_other", "") or "Other"
+
+    sector = st.session_state.get("sector", SECTOR_OPTIONS[0])
+    if sector == "Other":
+        sector = st.session_state.get("sector_other", "") or "Other"
+
+    submission_type = st.session_state.get("submission_type", "Select submission type...")
+
     return {
         "result_statement":   st.session_state.get(f"result_statement{s}", ""),
         "target_group":       st.session_state.get(f"target_group{s}", ""),
@@ -1698,6 +1708,9 @@ def _build_submission_from_session(slot: int = 1) -> dict:
         "reporting_end":        _format_date(st.session_state.get(f"reporting_end{s}")),
         "attribution_contribution": st.session_state.get(f"attribution_contribution{s}", "Not specified"),
         "disaggregation_status":     st.session_state.get(f"disaggregation_status{s}", "Not specified"),
+        "donor":                     donor,
+        "sector":                    sector,
+        "submission_type":           submission_type,
         "evidence": [{
             "type":        ev_type,
             "description": st.session_state.get(f"evidence_description{s}", ""),
@@ -4129,12 +4142,19 @@ def _build_markdown_report(submission: dict, evaluation: dict, timestamp: str) -
 
 
 def _governance_radar_values(ev):
-    """Return (confidence, clarity, ethics_pct, compliance_pct) each 0–100."""
+    """Return (confidence, clarity, ethics_pct, compliance_pct) each 0–100.
+
+    Ethics maps to the Integrity component (max 1.0) and Compliance maps to
+    the Governance component (max 0.75) of the Clarity score, so the two
+    axes reflect distinct evaluator metrics rather than a single combined value.
+    """
     conf = min(100.0, round(ev.get("raw_confidence_score", 0) * 20, 1))
     clar = min(100.0, round(ev.get("clarity_score", 0) * 20, 1))
-    gov  = st.session_state.get("_gov_score_computed", 0)
-    eth  = round(gov / 15 * 100, 1)
-    comp = round(gov / 15 * 100, 1)
+    clar_comp = ev.get("clarity_components", {})
+    integ = clar_comp.get("integrity_score", 0)
+    gov   = clar_comp.get("governance_score", 0)
+    eth   = min(100.0, round(integ / 1.0 * 100, 1))
+    comp  = min(100.0, round(gov / 0.75 * 100, 1))
     return conf, clar, eth, comp
 
 
@@ -4248,9 +4268,17 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
     _radar_img = (f'<img src="data:image/png;base64,{_radar_b64}" '
                   f'alt="Radar Chart" style="width:280px;display:block;margin:0 auto 16px;" />'
                   ) if _radar_b64 else ""
-    _meta_donor  = st.session_state.get("donor_selected", "Not specified")
-    _meta_sector = st.session_state.get("sector", "Not specified")
-    _meta_rtype  = st.session_state.get("submission_type", "Not specified")
+    _meta_donor  = submission.get("donor") or st.session_state.get("donor_selected", "Not specified")
+    if _meta_donor == "(No donor specified)":
+        _meta_donor = "Not specified"
+
+    _meta_sector = submission.get("sector") or st.session_state.get("sector", "Not specified")
+    if _meta_sector == "(No sector selected)":
+        _meta_sector = "Not specified"
+
+    _meta_rtype = submission.get("submission_type") or st.session_state.get("submission_type", "Not specified")
+    if _meta_rtype == "Select submission type...":
+        _meta_rtype = "Not specified"
     _meta_html = (
         "<table style='margin-bottom:20px;'><tbody>"
         f"<tr><td style='padding:5px 12px;font-weight:700;'>Donor</td><td style='padding:5px 12px;'>{_meta_donor}</td></tr>"
