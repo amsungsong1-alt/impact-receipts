@@ -4240,7 +4240,7 @@ def render_screen_2():
             "This diagnostic provides a first-pass profile of your submission readiness posture. "
             "A Stage 2 Engagement with Impact-Receipts offers a structured deep-dive: facilitated "
             "sessions with your MEL/Reporting lead, prioritised fixes to strengthen the compliance, "
-            "ethics, governance, and confidence level of your reported results, and support in aligning "
+            "ethics, clarity, and confidence level of your reported results, and support in aligning "
             "your submission with the relevant donor-required checklists. This moves your submission "
             "from a first-pass profile toward submission-ready integrity."
         )
