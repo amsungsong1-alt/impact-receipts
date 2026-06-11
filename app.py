@@ -178,7 +178,10 @@ Map the described evidence to the closest standard type from this list:
 If multiple types apply, list the most dominant one.
 
 ### Rule 6 — Submission Type Selection
-Choose from: "Narrative / technical report", "Donor progress report", "Annual report", "Evaluation report", "Baseline / endline report", "Learning brief"
+Choose the closest match from this list, based on the document's title, framing, and content:
+"Quarterly progress report", "Annual progress report", "Baseline report", "Mid-term review",
+"End-line evaluation", "Final/closeout report", "Project proposal", "Financial report",
+"MEL plan", "Others (Special/Ad-hoc reports)"
 
 ### Rule 7 — Compliance Flags
 For the three compliance fields (consent, anonymisation, data protection), if the document does not explicitly address them, return "Not found" — do NOT assume compliance.
@@ -192,6 +195,46 @@ For "evidence_narrative", write a 2–4 sentence synthesis describing HOW the re
 ### Rule 10 — Result Statement
 The result statement should be the single clearest achievement sentence from the Executive Summary or KPI table. It must contain: (a) a number, (b) a target group, (c) a timeframe, and (d) a % achievement or comparison to target if available.
 
+### Rule 11 — Sector Selection
+Choose the closest match from this list based on the document's subject matter:
+"WASH", "Health", "Education", "Agriculture / Livelihoods", "Youth Employment",
+"Climate Resilience", "Governance", "Other"
+
+### Rule 12 — Primary Donor
+If the document names a specific donor/funder (e.g., USAID, FCDO, GIZ, RVO, World Bank, AfDB,
+EU/EuropeAid), return that donor's name. If a donor is mentioned but not one of these, return
+the donor's name as written. If no donor is mentioned anywhere, return "Not found".
+
+### Rule 13 — Funder Readiness Inputs
+Read the ENTIRE document — including annexes, appendices, lessons-learned sections, M&E/MEL
+sections, and any image captions or figure/table descriptions — for the following:
+- "learning_and_adaptation": A 1–3 sentence synthesis of what the implementing team learned
+  and how the program adapted as a result. Only include this if the document explicitly
+  describes a lesson learned, adaptation, course-correction, or change in approach.
+- "limitations": A 1–2 sentence synthesis of what the reported data does NOT show, cannot
+  confirm, or cannot be generalized to (e.g., sample limitations, geographic scope limits,
+  self-reported data caveats). Only include this if the document explicitly states a
+  limitation or caveat.
+- "result_owner_and_decision": If the document names a person, role, or unit responsible for
+  this result (e.g., "MEL Lead", "Project Manager") AND/OR describes a decision the result
+  will inform (e.g., "will inform the Q3 budget review"), synthesise both into one sentence.
+- "attribution_vs_contribution": Return "Yes" if the document explicitly distinguishes its
+  own contribution from other actors/factors (e.g., "alongside government and other NGOs"),
+  "No" if it claims sole credit without acknowledging other factors, or "Not found" if
+  attribution/contribution isn't discussed.
+- "disaggregation_status": Return "Yes — fully disaggregated" if beneficiary data is broken
+  down by sex, age, disability, AND location; "Partially disaggregated" if only some of these
+  dimensions are present; "No" if beneficiary numbers are reported only as totals; or
+  "Not found" if no beneficiary data is reported at all.
+For any of the above not found in the document, return "Not found".
+
+### Rule 14 — Documents Referenced
+Return a JSON array of short strings naming any standard report components that this
+document itself contains, references as attached, or refers to as available annexes —
+e.g., "Logframe", "Budget", "Financial report", "M&E plan", "Audit report", "Beneficiary
+list", "Disaggregated data", "Case studies", "Sustainability plan", "Action plan". Base
+this only on what is explicitly present or referenced in the text — do not guess.
+
 ## REQUIRED JSON OUTPUT STRUCTURE
 
 Return exactly this structure. Do not add or remove keys.
@@ -203,7 +246,8 @@ Return exactly this structure. Do not add or remove keys.
     "timeframe": "<string>",
     "geographic_scope": ["<string>"],
     "sector": "<string>",
-    "primary_donor": "<string>"
+    "primary_donor": "<string>",
+    "submission_type": "<string>"
   },
   "logframe_linkage": {
     "indicator_name": "<string>",
@@ -222,6 +266,14 @@ Return exactly this structure. Do not add or remove keys.
     "data_anonymised": "<string>",
     "data_protection_compliant": "<string>"
   },
+  "funder_readiness_inputs": {
+    "learning_and_adaptation": "<string>",
+    "limitations": "<string>",
+    "result_owner_and_decision": "<string>",
+    "attribution_vs_contribution": "<string>",
+    "disaggregation_status": "<string>"
+  },
+  "documents_referenced": ["<string>"],
   "extraction_metadata": {
     "implementing_org": "<string>",
     "report_prepared_by": "<string>",
@@ -3094,11 +3146,11 @@ def render_screen_1():
                                     _fewshot_str = _ijsonfs.dumps(_fewshot, indent=2) if _fewshot else ""
                                     _irc_msgs = [{"role": "user", "content": [
                                         *([{"type":"text","text":f"Field examples for better extraction:\n{_fewshot_str}"}] if _fewshot_str else []),
-                                        {"type":"text","text":f"Extract all fields from this report:\n\n{_full_text[:6000]}"}
+                                        {"type":"text","text":f"Extract all fields from this report:\n\n{_full_text[:60000]}"}
                                     ]}]
                                     _irc_resp = _irc_client.messages.create(
                                         model="claude-haiku-4-5-20251001",
-                                        max_tokens=2048,
+                                        max_tokens=3072,
                                         system=INSTANT_CHECK_SYSTEM_PROMPT,
                                         messages=_irc_msgs,
                                     )
@@ -3177,6 +3229,102 @@ def render_screen_1():
                                             pass
                                     _ver3 = _em.get("implementing_org") or _em.get("report_prepared_by","")
                                     _irc_set("verifier", _ver3)
+
+                                    # --- Sector ---
+                                    try:
+                                        _sec_raw = _irc_to_str(_rb.get("sector",""))
+                                        if _sec_raw and _sec_raw != "Not found":
+                                            _sec_mt = _irc_match_option(_sec_raw, SECTOR_OPTIONS)
+                                            if _sec_mt and _sec_mt != SECTOR_OPTIONS[0]:
+                                                st.session_state["sector"] = _sec_mt; _irc_filled += 1
+                                            else:
+                                                st.session_state["sector"] = "Other"
+                                                st.session_state["sector_other"] = _sec_raw
+                                                _irc_filled += 1
+                                    except Exception:
+                                        pass
+
+                                    # --- Primary donor ---
+                                    try:
+                                        _donor_raw = _irc_to_str(_rb.get("primary_donor",""))
+                                        if _donor_raw and _donor_raw != "Not found":
+                                            _don_mt = _irc_match_option(_donor_raw, ["USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "EU / EuropeAid"])
+                                            if _don_mt:
+                                                st.session_state["donor_selected"] = _don_mt; _irc_filled += 1
+                                            else:
+                                                st.session_state["donor_selected"] = "Other"
+                                                st.session_state["donor_other"] = _donor_raw
+                                                _irc_filled += 1
+                                    except Exception:
+                                        pass
+
+                                    # --- Submission type ---
+                                    _matched_sub_type = None
+                                    try:
+                                        _sub_raw = _irc_to_str(_rb.get("submission_type",""))
+                                        if _sub_raw and _sub_raw != "Not found":
+                                            _matched_sub_type = _irc_match_option(_sub_raw, list(SUBMISSION_CHECKLIST.keys()))
+                                            if _matched_sub_type:
+                                                st.session_state["submission_type"] = _matched_sub_type; _irc_filled += 1
+                                    except Exception:
+                                        pass
+
+                                    # --- Documents referenced -> tick required checklist items ---
+                                    try:
+                                        _docs_ref = _irc_data.get("documents_referenced", [])
+                                        if _matched_sub_type and isinstance(_docs_ref, list) and _docs_ref:
+                                            for _ckey, _clabel in SUBMISSION_CHECKLIST.get(_matched_sub_type, []):
+                                                for _docref in _docs_ref:
+                                                    _docref_str = _irc_to_str(_docref)
+                                                    if _docref_str and _irc_match_option(_docref_str, [_clabel]):
+                                                        st.session_state[_ckey] = True
+                                                        _irc_filled += 1
+                                                        break
+                                    except Exception:
+                                        pass
+
+                                    # --- Compliance fields ---
+                                    try:
+                                        _con_raw = _irc_to_str(_ev3.get("consent_documented",""))
+                                        if _con_raw and _con_raw != "Not found":
+                                            _con_mt = _irc_match_option(_con_raw, list(CONSENT_CHECKLIST_MAP.keys()))
+                                            if _con_mt: st.session_state["gov_consent_status"] = _con_mt; _irc_filled += 1
+                                    except Exception:
+                                        pass
+                                    try:
+                                        _anon_raw = _irc_to_str(_ev3.get("data_anonymised",""))
+                                        if _anon_raw and _anon_raw != "Not found":
+                                            _anon_mt = _irc_match_option(_anon_raw, list(ANON_CHECKLIST_MAP.keys()))
+                                            if _anon_mt: st.session_state["gov_anonymization_status"] = _anon_mt; _irc_filled += 1
+                                    except Exception:
+                                        pass
+                                    try:
+                                        _law_raw = _irc_to_str(_ev3.get("data_protection_compliant",""))
+                                        if _law_raw and _law_raw != "Not found":
+                                            _law_mt = _irc_match_option(_law_raw, list(LAW_CHECKLIST_MAP.keys()))
+                                            if _law_mt: st.session_state["gov_compliance_law_status"] = _law_mt; _irc_filled += 1
+                                    except Exception:
+                                        pass
+
+                                    # --- Funder Readiness inputs (v3.5) ---
+                                    _fri = _irc_data.get("funder_readiness_inputs", {})
+                                    _irc_set("learning_notes",     _fri.get("learning_and_adaptation"))
+                                    _irc_set("limitations_notes",  _fri.get("limitations"))
+                                    _irc_set("additional_context", _fri.get("result_owner_and_decision"))
+                                    try:
+                                        _attr_raw = _irc_to_str(_fri.get("attribution_vs_contribution",""))
+                                        if _attr_raw and _attr_raw != "Not found":
+                                            _attr_mt = _irc_match_option(_attr_raw, ["Yes","No","Not sure"])
+                                            if _attr_mt: st.session_state["attribution_contribution"] = _attr_mt; _irc_filled += 1
+                                    except Exception:
+                                        pass
+                                    try:
+                                        _disagg_raw = _irc_to_str(_fri.get("disaggregation_status",""))
+                                        if _disagg_raw and _disagg_raw != "Not found":
+                                            _disagg_mt = _irc_match_option(_disagg_raw, ["Yes — fully disaggregated","Partially disaggregated","No"])
+                                            if _disagg_mt: st.session_state["disaggregation_status"] = _disagg_mt; _irc_filled += 1
+                                    except Exception:
+                                        pass
 
                                     # store summary for persistent banner; disable auto-advance
                                     _skip_str3 = ", ".join(_skipped[:6]) if _skipped else ""
