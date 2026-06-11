@@ -4482,7 +4482,15 @@ def _governance_radar_values(ev):
 
 
 def _build_radar_b64(conf, clar, eth, comp):
-    """Build a 4-axis radar chart as base64 PNG using matplotlib."""
+    """Build a radar chart as base64 PNG using matplotlib.
+
+    Confidence and Clarity are the two primary, top-line scores and are
+    drawn as the bold filled shape. Ethics and Compliance are sub-scores
+    *within* Clarity (Integrity and Governance), so they are drawn as a
+    lighter secondary outline labeled "Clarity breakdown" rather than as
+    co-equal axes — this avoids double-counting the same evidence as both
+    a top-line score and a separate axis.
+    """
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -4491,19 +4499,36 @@ def _build_radar_b64(conf, clar, eth, comp):
         import io as _io_r
         import base64 as _b64
         labels = ["Confidence", "Clarity", "Ethics", "Compliance"]
-        vals   = [v / 100 for v in [conf, clar, eth, comp]]
-        vals  += vals[:1]
+        primary_vals = [conf / 100, clar / 100, None, None]
+        secondary_vals = [None, clar / 100, eth / 100, comp / 100]
         angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
         angles += angles[:1]
+
         fig, ax = plt.subplots(figsize=(4, 4), subplot_kw=dict(polar=True))
-        ax.fill(angles, vals, color="#1B5E20", alpha=0.25)
-        ax.plot(angles, vals, color="#1B5E20", linewidth=2)
+
+        # Primary shape: Confidence + Clarity only (top-line scores)
+        p_vals = [primary_vals[0], primary_vals[1]]
+        p_angles = [angles[0], angles[1], angles[0]]
+        p_vals_closed = p_vals + p_vals[:1]
+        ax.plot(p_angles, p_vals_closed, color="#1B5E20", linewidth=2.5,
+                label="Confidence / Clarity")
+        ax.fill(p_angles, p_vals_closed, color="#1B5E20", alpha=0.25)
+
+        # Secondary shape: Clarity breakdown (Clarity, Ethics, Compliance)
+        s_vals = [secondary_vals[1], secondary_vals[2], secondary_vals[3]]
+        s_angles = [angles[1], angles[2], angles[3], angles[1]]
+        s_vals_closed = s_vals + s_vals[:1]
+        ax.plot(s_angles, s_vals_closed, color="#B8860B", linewidth=1.5,
+                linestyle="--", label="Clarity breakdown")
+        ax.fill(s_angles, s_vals_closed, color="#B8860B", alpha=0.10)
+
         ax.set_xticks(angles[:-1])
         ax.set_xticklabels(labels, fontsize=9)
         ax.set_ylim(0, 1)
         ax.set_yticks([0.25, 0.5, 0.75, 1.0])
         ax.set_yticklabels(["25", "50", "75", "100"], fontsize=7, color="#9E9E9E")
         ax.grid(True, alpha=0.3)
+        ax.legend(loc="upper right", bbox_to_anchor=(1.35, 1.1), fontsize=7, frameon=False)
         plt.tight_layout()
         buf = _io_r.BytesIO()
         fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
@@ -4594,14 +4619,14 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
                   ) if _radar_b64 else ""
     _radar_legend = (
         "<ul style='font-size:0.8rem;color:#616161;max-width:560px;margin:0 auto 16px;padding-left:20px;'>"
-        "<li><strong>Confidence</strong> — how directly the evidence supports the result, "
+        "<li><strong>Confidence</strong> (solid green) — how directly the evidence supports the result, "
         "how independently it was verified, and how recent it is.</li>"
-        "<li><strong>Clarity</strong> — how precisely the result is defined, measured, "
+        "<li><strong>Clarity</strong> (solid green) — how precisely the result is defined, measured, "
         "and bounded in scope, with a documented audit trail.</li>"
-        "<li><strong>Ethics</strong> — completeness and integrity of the underlying data "
-        "(missing data, audit trail, sample adequacy).</li>"
-        "<li><strong>Compliance</strong> — consent, anonymisation, and data-protection-law "
-        "status for any beneficiary data used as evidence.</li>"
+        "<li><strong>Clarity breakdown</strong> (dashed gold) — Ethics and Compliance show what's "
+        "driving your Clarity score: Ethics is the completeness and integrity of the underlying data "
+        "(missing data, audit trail, sample adequacy), and Compliance is the consent, anonymisation, "
+        "and data-protection-law status for any beneficiary data used as evidence.</li>"
         "</ul>"
     ) if _radar_b64 else ""
 
@@ -4622,8 +4647,9 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
         "<td>Advisory only — not scored</td></tr>"
         "</table>"
         "<p style='font-size:0.75rem;color:#9E9E9E;margin-top:6px;'>"
-        "Ethics and Compliance (radar axes) reflect the Integrity and Governance "
-        "sub-scores within Clarity — see definitions above.</p>"
+        "Confidence and Clarity are your two top-line scores (solid shape on the radar above). "
+        "Ethics and Compliance are the Integrity and Governance sub-scores within Clarity, shown "
+        "as a dashed 'Clarity breakdown' overlay rather than separate scores — see definitions above.</p>"
         "</div>"
     )
     _meta_donor  = submission.get("donor") or st.session_state.get("donor_selected", "Not specified")
