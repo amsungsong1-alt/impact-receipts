@@ -4271,7 +4271,7 @@ def render_screen_2():
             with _s2_c1:
                 st.markdown(
                     f'<a href="mailto:{_s2_to}?subject={_s2_subject_enc}&body={_s2_body_enc}"'
-                    f' target="_top" style="{_s2_link_style}">📧 Default Mail App</a>',
+                    f' style="{_s2_link_style}">📧 Default Mail App</a>',
                     unsafe_allow_html=True,
                 )
             with _s2_c2:
