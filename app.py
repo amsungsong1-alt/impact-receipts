@@ -17,6 +17,7 @@ import json
 import os
 import pathlib
 import re
+import threading
 import time
 import urllib.parse
 from datetime import datetime, date
@@ -3156,7 +3157,7 @@ def render_screen_1():
                     # --- END v3.4 ---
                 elif _irc_run_clicked:
                     _irc_should_rerun = False
-                    with st.spinner("Extracting with AI…"):
+                    with st.spinner("Reading your document and pre-filling the form…"):
                         try:
                             # Step 1: extract raw text
                             _irc_file.seek(0)
@@ -3215,12 +3216,34 @@ def render_screen_1():
                                         *([{"type":"text","text":f"Field examples for better extraction:\n{_fewshot_str}"}] if _fewshot_str else []),
                                         {"type":"text","text":f"Extract all fields from this report:\n\n{_full_text[:60000]}"}
                                     ]}]
-                                    _irc_resp = _irc_client.messages.create(
-                                        model="claude-haiku-4-5-20251001",
-                                        max_tokens=3072,
-                                        system=INSTANT_CHECK_SYSTEM_PROMPT,
-                                        messages=_irc_msgs,
-                                    )
+                                    # Run the AI call in a background thread so we can
+                                    # show a live elapsed-time indicator while it works.
+                                    _irc_timer_ph = st.empty()
+                                    _irc_api_result = {}
+
+                                    def _irc_call_api():
+                                        try:
+                                            _irc_api_result["resp"] = _irc_client.messages.create(
+                                                model="claude-haiku-4-5-20251001",
+                                                max_tokens=3072,
+                                                system=INSTANT_CHECK_SYSTEM_PROMPT,
+                                                messages=_irc_msgs,
+                                            )
+                                        except Exception as _irc_api_exc:
+                                            _irc_api_result["error"] = _irc_api_exc
+
+                                    _irc_thread = threading.Thread(target=_irc_call_api, daemon=True)
+                                    _irc_start_t = time.time()
+                                    _irc_thread.start()
+                                    while _irc_thread.is_alive():
+                                        _irc_elapsed = time.time() - _irc_start_t
+                                        _irc_timer_ph.info(f"🤖 Extracting fields with AI… {_irc_elapsed:.0f}s elapsed (usually 10-30s)")
+                                        time.sleep(0.5)
+                                    _irc_thread.join()
+                                    _irc_timer_ph.empty()
+                                    if "error" in _irc_api_result:
+                                        raise _irc_api_result["error"]
+                                    _irc_resp = _irc_api_result["resp"]
                                     import json as _ijson3
                                     _irc_raw = (_irc_resp.content[0].text if _irc_resp.content else "").strip()
                                     if _irc_raw.startswith("```"):
@@ -4831,6 +4854,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
   <div>
     <strong>Confidence Score</strong><br/>
     {badge(conf_label, conf_score, 5.0)}
+    {bar(conf_score, 5.0)}
     <p style="color:#616161;font-size:0.85rem;">{evaluation.get('confidence_meaning','')}</p>
     <table>
       <tr><th>Component</th><th>Score</th><th>Bar</th></tr>
@@ -4842,6 +4866,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
   <div>
     <strong>Clarity Score</strong><br/>
     {badge(clar_label, clar_score, 5.0)}
+    {bar(clar_score, 5.0)}
     <p style="color:#616161;font-size:0.85rem;">{evaluation.get('clarity_meaning','')}</p>
     <table>
       <tr><th>Component</th><th>Score</th><th>Bar</th></tr>
