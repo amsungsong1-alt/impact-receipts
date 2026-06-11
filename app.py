@@ -4324,9 +4324,14 @@ def render_screen_2():
     for _ev in evs:
         _all_fixes.extend(_ev.get("fixes", []))
     if _all_fixes:
-        with st.expander("💡 Suggested fixes to improve your submission"):
+        with st.expander("💡 Suggested fixes to improve your submission", expanded=True):
             for _fix in _all_fixes[:5]:
-                st.markdown(f"- {_fix.get('text', '')}")
+                _fix_msg    = _fix.get("message", "")
+                _fix_impact = _fix.get("score_impact", "")
+                if _fix_impact:
+                    st.markdown(f"- {_fix_msg} *({_fix_impact})*")
+                else:
+                    st.markdown(f"- {_fix_msg}")
 
     _render_tagline_footer()
 
@@ -4535,9 +4540,10 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
                 f"{score}/{max_s} &nbsp; {label.upper()}</div>")
 
     def bar(value, max_v):
-        pct = min(value / max_v * 100, 100)
-        return (f"<div style='background:#E0E0E0;border-radius:4px;height:10px;margin-bottom:10px;{_pca}'>"
-                f"<div style='background:#1B5E20;width:{pct:.1f}%;height:10px;border-radius:4px;{_pca}'></div></div>")
+        pct = min(value / max_v * 100, 100) if max_v else 0
+        fill_px = round(pct / 100 * 120)
+        return (f"<div style='background:#E0E0E0;border-radius:4px;height:10px;width:120px;margin-bottom:10px;{_pca}'>"
+                f"<div style='background:#1B5E20;width:{fill_px}px;height:10px;border-radius:4px;{_pca}'></div></div>")
 
     def row(label, score, max_v, tip=""):
         title = f' title="{tip}"' if tip else ""
