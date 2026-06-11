@@ -4559,6 +4559,28 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
         "status for any beneficiary data used as evidence.</li>"
         "</ul>"
     ) if _radar_b64 else ""
+
+    _methodology_table = (
+        "<div style='max-width:620px;margin:0 auto 24px;'>"
+        "<p style='font-size:0.85rem;font-weight:700;color:#1B5E20;margin-bottom:6px;'>What this report checks:</p>"
+        "<table style='width:100%;font-size:0.8rem;'>"
+        "<tr><th>Check</th><th>Reflected in</th></tr>"
+        "<tr><td>Logframe linkage — does your result tie to an approved indicator?</td>"
+        "<td>Clarity &rarr; Measurement</td></tr>"
+        "<tr><td>Evidence quality — direct, verified, recent, defensible?</td>"
+        "<td>Confidence</td></tr>"
+        "<tr><td>Beneficiary voice — were they part of the evidence?</td>"
+        "<td>Confidence (bonus)</td></tr>"
+        "<tr><td>Definition clarity — would two readers interpret it the same way?</td>"
+        "<td>Clarity &rarr; Definition</td></tr>"
+        "<tr><td>Submission completeness — is your package donor-ready?</td>"
+        "<td>Advisory only — not scored</td></tr>"
+        "</table>"
+        "<p style='font-size:0.75rem;color:#9E9E9E;margin-top:6px;'>"
+        "Ethics and Compliance (radar axes) reflect the Integrity and Governance "
+        "sub-scores within Clarity — see definitions above.</p>"
+        "</div>"
+    )
     _meta_donor  = submission.get("donor") or st.session_state.get("donor_selected", "Not specified")
     if _meta_donor == "(No donor specified)":
         _meta_donor = "Not specified"
@@ -4719,6 +4741,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
 {_meta_html}
 {_radar_img}
 {_radar_legend}
+{_methodology_table}
 <h2>Result Statement</h2>
 <p>{submission.get('result_statement', '-')}</p>
 <p><strong>Target Group:</strong> {submission.get('target_group', '-')}<br/>
