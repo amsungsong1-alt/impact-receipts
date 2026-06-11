@@ -235,6 +235,28 @@ e.g., "Logframe", "Budget", "Financial report", "M&E plan", "Audit report", "Ben
 list", "Disaggregated data", "Case studies", "Sustainability plan", "Action plan". Base
 this only on what is explicitly present or referenced in the text — do not guess.
 
+### Rule 15 — Beneficiary Voice
+Choose the closest match from this list, based on whether and how beneficiaries
+contributed to or validated the evidence in this document:
+- "No beneficiary voice captured"
+- "Direct beneficiary feedback collected (e.g., Lean Data survey, focus groups, NPS)"
+- "Beneficiary representatives consulted (community leaders, beneficiary committees)"
+- "Anecdotal beneficiary quotes only (uncollected, not systematic)"
+- "Not applicable to this result type"
+If the document doesn't address this at all, return "Not found".
+
+### Rule 16 — Evidence Strengthening Checks
+Read the entire document for verifiable details that strengthen the credibility of the
+evidence — e.g., whether attendance sheets are dated/stamped, whether photos contain
+GPS metadata or timestamps, whether a sampling method is documented, whether financial
+records are reconciled with bank statements, whether an auditor was independent, whether
+a partner letter is signed and on letterhead, whether a tracer survey documents its
+response rate, etc. Return a JSON array of short plain-language phrases describing each
+such detail that is EXPLICITLY confirmed in the document (e.g., "Sheets dated and
+stamped", "Photos contain GPS metadata", "Auditor independent from implementer"). Only
+include items explicitly evidenced in the text — do not guess or infer ones that aren't
+directly supported.
+
 ## REQUIRED JSON OUTPUT STRUCTURE
 
 Return exactly this structure. Do not add or remove keys.
@@ -247,7 +269,8 @@ Return exactly this structure. Do not add or remove keys.
     "geographic_scope": ["<string>"],
     "sector": "<string>",
     "primary_donor": "<string>",
-    "submission_type": "<string>"
+    "submission_type": "<string>",
+    "beneficiary_voice": "<string>"
   },
   "logframe_linkage": {
     "indicator_name": "<string>",
@@ -274,6 +297,7 @@ Return exactly this structure. Do not add or remove keys.
     "disaggregation_status": "<string>"
   },
   "documents_referenced": ["<string>"],
+  "evidence_strengthening_checks": ["<string>"],
   "extraction_metadata": {
     "implementing_org": "<string>",
     "report_prepared_by": "<string>",
@@ -728,6 +752,45 @@ SUBMISSION_CHECKLIST = {
         ("cl_annexes",        "Donor-specific annexes"),
         ("cl_case_studies",   "Case studies / special studies"),
         ("cl_safeguarding",   "Safeguarding / compliance reports"),
+    ],
+}
+
+# "Strengthen this evidence" checklist items, keyed by evidence type (v3.6 IRC auto-fill)
+EVIDENCE_STRENGTHEN_CHECKLIST = {
+    "Attendance sheets / participant registers": [
+        ("signatures_verified", "Signatures verified against ID list"),
+        ("date_stamped",        "Sheets dated and stamped"),
+        ("cross_ref",           "Cross-referenced with another source (e.g., facilitator notes)"),
+    ],
+    "Raw datasets or survey exports": [
+        ("sample_doc",   "Sampling method documented"),
+        ("clean_data",   "Dataset cleaned and de-duplicated"),
+        ("version_ctrl", "Original raw export retained for audit"),
+    ],
+    "Partner verification letters": [
+        ("letterhead",       "Letter on official partner letterhead"),
+        ("authority_signed", "Signed by authorized partner representative"),
+        ("recent_letter",    "Letter dated within 6 months of reporting period"),
+    ],
+    "Photos with metadata": [
+        ("gps_meta",       "Photos contain GPS metadata"),
+        ("timestamp_photo","Timestamps visible/verifiable"),
+        ("consent_photo",  "Beneficiary consent obtained for photos"),
+    ],
+    "Tracer survey results": [
+        ("followup_tracer", "Follow-up conducted at appropriate interval (3+ months)"),
+        ("response_rate",   "Response rate documented (target: 60%+)"),
+        ("bias_ack",        "Sampling bias / non-response acknowledged"),
+    ],
+    "Financial records": [
+        ("receipts_dated", "Receipts/transactions dated"),
+        ("reconciled_ev",  "Reconciled with bank/MoMo statements"),
+        ("audit_trail_ev", "Audit trail intact (request → approval → payment)"),
+    ],
+    "Third-party audits": [
+        ("independent_ev",     "Auditor independent from implementer"),
+        ("signed_audit",       "Audit report signed and dated"),
+        ("recommendations_ev", "Audit recommendations addressed/disclosed"),
     ],
 }
 
@@ -2239,37 +2302,37 @@ def _render_tab3_slot(slot: int):
 
         _sub_lbl = "📝 Strengthen this evidence (optional — helps defend in donor reviews)"
         if ev_type == "Attendance sheets / participant registers":
-            with st.expander(_sub_lbl, expanded=False):
+            with st.expander(_sub_lbl, expanded=st.session_state.get("_irc_used", False)):
                 st.checkbox("Signatures verified against ID list", key=f"signatures_verified{s}")
                 st.checkbox("Sheets dated and stamped", key=f"date_stamped{s}")
                 st.checkbox("Cross-referenced with another source (e.g., facilitator notes)", key=f"cross_ref{s}")
         elif ev_type == "Raw datasets or survey exports":
-            with st.expander(_sub_lbl, expanded=False):
+            with st.expander(_sub_lbl, expanded=st.session_state.get("_irc_used", False)):
                 st.checkbox("Sampling method documented", key=f"sample_doc{s}")
                 st.checkbox("Dataset cleaned and de-duplicated", key=f"clean_data{s}")
                 st.checkbox("Original raw export retained for audit", key=f"version_ctrl{s}")
         elif ev_type == "Partner verification letters":
-            with st.expander(_sub_lbl, expanded=False):
+            with st.expander(_sub_lbl, expanded=st.session_state.get("_irc_used", False)):
                 st.checkbox("Letter on official partner letterhead", key=f"letterhead{s}")
                 st.checkbox("Signed by authorized partner representative", key=f"authority_signed{s}")
                 st.checkbox("Letter dated within 6 months of reporting period", key=f"recent_letter{s}")
         elif ev_type == "Photos with metadata":
-            with st.expander(_sub_lbl, expanded=False):
+            with st.expander(_sub_lbl, expanded=st.session_state.get("_irc_used", False)):
                 st.checkbox("Photos contain GPS metadata", key=f"gps_meta{s}")
                 st.checkbox("Timestamps visible/verifiable", key=f"timestamp_photo{s}")
                 st.checkbox("Beneficiary consent obtained for photos", key=f"consent_photo{s}")
         elif ev_type == "Tracer survey results":
-            with st.expander(_sub_lbl, expanded=False):
+            with st.expander(_sub_lbl, expanded=st.session_state.get("_irc_used", False)):
                 st.checkbox("Follow-up conducted at appropriate interval (3+ months)", key=f"followup_tracer{s}")
                 st.checkbox("Response rate documented (target: 60%+)", key=f"response_rate{s}")
                 st.checkbox("Sampling bias / non-response acknowledged", key=f"bias_ack{s}")
         elif ev_type == "Financial records":
-            with st.expander(_sub_lbl, expanded=False):
+            with st.expander(_sub_lbl, expanded=st.session_state.get("_irc_used", False)):
                 st.checkbox("Receipts/transactions dated", key=f"receipts_dated{s}")
                 st.checkbox("Reconciled with bank/MoMo statements", key=f"reconciled_ev{s}")
                 st.checkbox("Audit trail intact (request → approval → payment)", key=f"audit_trail_ev{s}")
         elif ev_type == "Third-party audits":
-            with st.expander(_sub_lbl, expanded=False):
+            with st.expander(_sub_lbl, expanded=st.session_state.get("_irc_used", False)):
                 st.checkbox("Auditor independent from implementer", key=f"independent_ev{s}")
                 st.checkbox("Audit report signed and dated", key=f"signed_audit{s}")
                 st.checkbox("Audit recommendations addressed/disclosed", key=f"recommendations_ev{s}")
@@ -2409,7 +2472,7 @@ def _render_tab3_slot(slot: int):
     _ev_type_now = st.session_state.get(f"evidence_type{s}", "")
     _pii_triggered = _ev_type_now in PII_EVIDENCE_TYPES
     st.markdown("---")
-    with st.expander("🛡️ Compliance & Data Governance", expanded=_pii_triggered):
+    with st.expander("🛡️ Compliance & Data Governance", expanded=_pii_triggered or st.session_state.get("_irc_used", False)):
         st.subheader("🛡️ Compliance & Ethics Check")
         st.caption("*Ensure your evidence is not just credible — but legally safe.*")
         if _pii_triggered:
@@ -2481,7 +2544,7 @@ def _render_tab3_slot(slot: int):
     # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
     # --- ADVISORY CHECKLIST (v3.4, score-neutral) ---
-    with st.expander("📊 Reporting Quality Checklist (optional, advisory only)", expanded=False):
+    with st.expander("📊 Reporting Quality Checklist (optional, advisory only)", expanded=st.session_state.get("_irc_used", False)):
         st.caption("These do not affect your Confidence or Clarity scores — they appear as advisory flags in your report.")
         st.selectbox(
             "Does your report distinguish attribution from contribution?",
@@ -2950,7 +3013,7 @@ def render_screen_1():
                 st.warning(f"⚠️ Compliance gaps not found: {_irc_summary['compliance_gaps']}")
         # --- END IRC fill summary banner ---
 
-        with st.expander("📦 Submission Package Completeness Check (Recommended)", expanded=False):
+        with st.expander("📦 Submission Package Completeness Check (Recommended)", expanded=st.session_state.get("_irc_used", False)):
             st.caption(
                 "Most donor rejections happen because something was missing from the submission package "
                 "— not because the work was bad. Confirm what your donor expects."
@@ -3204,6 +3267,7 @@ def render_screen_1():
 
                                     # --- Evidence & Verification ---
                                     _irc_set("evidence_description", _ev3.get("evidence_narrative"))
+                                    _vmt = None
                                     try:
                                         _vmt = _irc_match_option(_irc_to_str(_ev3.get("evidence_type","")), EVIDENCE_TYPES)
                                         if _vmt: st.session_state["evidence_type"] = _vmt; _irc_filled += 1
@@ -3323,6 +3387,30 @@ def render_screen_1():
                                         if _disagg_raw and _disagg_raw != "Not found":
                                             _disagg_mt = _irc_match_option(_disagg_raw, ["Yes — fully disaggregated","Partially disaggregated","No"])
                                             if _disagg_mt: st.session_state["disaggregation_status"] = _disagg_mt; _irc_filled += 1
+                                    except Exception:
+                                        pass
+
+                                    # --- Beneficiary voice ---
+                                    try:
+                                        _bv_raw = _irc_to_str(_rb.get("beneficiary_voice",""))
+                                        if _bv_raw and _bv_raw != "Not found":
+                                            _bv_mt = _irc_match_option(_bv_raw, _BV_OPTIONS)
+                                            if _bv_mt and _bv_mt != _BV_OPTIONS[0]:
+                                                st.session_state["beneficiary_voice"] = _bv_mt; _irc_filled += 1
+                                    except Exception:
+                                        pass
+
+                                    # --- Strengthen this evidence -> tick verifiable checks ---
+                                    try:
+                                        _esc = _irc_data.get("evidence_strengthening_checks", [])
+                                        if _vmt and isinstance(_esc, list) and _esc:
+                                            for _ekey, _elabel in EVIDENCE_STRENGTHEN_CHECKLIST.get(_vmt, []):
+                                                for _eitem in _esc:
+                                                    _eitem_str = _irc_to_str(_eitem)
+                                                    if _eitem_str and _irc_match_option(_eitem_str, [_elabel]):
+                                                        st.session_state[_ekey] = True
+                                                        _irc_filled += 1
+                                                        break
                                     except Exception:
                                         pass
 
@@ -4459,6 +4547,18 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
     _radar_img = (f'<img src="data:image/png;base64,{_radar_b64}" '
                   f'alt="Radar Chart" style="width:280px;display:block;margin:0 auto 16px;" />'
                   ) if _radar_b64 else ""
+    _radar_legend = (
+        "<ul style='font-size:0.8rem;color:#616161;max-width:560px;margin:0 auto 16px;padding-left:20px;'>"
+        "<li><strong>Confidence</strong> — how directly the evidence supports the result, "
+        "how independently it was verified, and how recent it is.</li>"
+        "<li><strong>Clarity</strong> — how precisely the result is defined, measured, "
+        "and bounded in scope, with a documented audit trail.</li>"
+        "<li><strong>Ethics</strong> — completeness and integrity of the underlying data "
+        "(missing data, audit trail, sample adequacy).</li>"
+        "<li><strong>Compliance</strong> — consent, anonymisation, and data-protection-law "
+        "status for any beneficiary data used as evidence.</li>"
+        "</ul>"
+    ) if _radar_b64 else ""
     _meta_donor  = submission.get("donor") or st.session_state.get("donor_selected", "Not specified")
     if _meta_donor == "(No donor specified)":
         _meta_donor = "Not specified"
@@ -4618,6 +4718,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
 <p style="color:#616161;font-size:0.88rem;">Generated: {timestamp}</p>
 {_meta_html}
 {_radar_img}
+{_radar_legend}
 <h2>Result Statement</h2>
 <p>{submission.get('result_statement', '-')}</p>
 <p><strong>Target Group:</strong> {submission.get('target_group', '-')}<br/>
