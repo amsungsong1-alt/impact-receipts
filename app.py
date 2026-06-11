@@ -2752,7 +2752,7 @@ def render_screen_0():
             <ul style="color: #1B5E20 !important;">
               <li style="color: #1B5E20 !important;">A quick confidence check for reported results before submission</li>
               <li style="color: #1B5E20 !important;">A transparent guide that shows what to fix and why</li>
-              <li style="color: #1B5E20 !important;">Fully local — runs on your device, no data sent anywhere</li>
+              <li style="color: #1B5E20 !important;">Privacy-conscious — your raw documents are processed and discarded, never stored</li>
               <li style="color: #1B5E20 !important;">Your first 3 checks are free</li>
             </ul>
           </div>
@@ -2799,7 +2799,11 @@ def render_screen_0():
         unsafe_allow_html=True,
     )
 
-    st.caption("Your data stays on your device. Nothing is stored or shared.")
+    st.caption(
+        "We store your account email and usage status to manage your free checks. "
+        "Uploaded documents are processed (including by AI for Instant Report Check) "
+        "but not stored. Anonymised text snippets are saved only if you opt in below."
+    )
     st.markdown(
         '<p style="color:#B8860B;font-style:italic;font-size:14px;margin:4px 0 8px 0;">'
         "Anchored in USAID DQA, OECD-DAC, FCDO, and Bond Evidence Principles.</p>",
