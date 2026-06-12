@@ -1387,7 +1387,18 @@ _TUTORIAL_COPY = {
             "The **What to Fix** section tells you exactly how to improve."
         ),
     },
+    3: {
+        "title": "📄 Download your report and submit it to your donor.",
+        "body": (
+            "Use the **Download HTML Report** or **Download PDF Report** buttons below "
+            "to get a shareable copy of your results.\n\n"
+            "Used your free checks? Upgrade options (pay-per-check or monthly) appear "
+            "wherever you've reached the free-check limit."
+        ),
+    },
 }
+
+_TUTORIAL_LAST_STEP = max(_TUTORIAL_COPY)
 
 
 def _render_tutorial(step: int):
@@ -1401,16 +1412,14 @@ def _render_tutorial(step: int):
     col_got, col_skip = st.columns([1, 1])
     with col_got:
         if st.button("Got it →", key=f"tutorial_got_{step}"):
-            if step == 2:
+            if step == _TUTORIAL_LAST_STEP:
                 st.session_state["has_seen_tutorial"] = True
-                st.session_state["tutorial_step"] = 3
-            else:
-                st.session_state["tutorial_step"] = step + 1
+            st.session_state["tutorial_step"] = step + 1
             st.rerun()
     with col_skip:
         if st.button("Skip tutorial", key=f"tutorial_skip_{step}"):
             st.session_state["has_seen_tutorial"] = True
-            st.session_state["tutorial_step"] = 3
+            st.session_state["tutorial_step"] = _TUTORIAL_LAST_STEP + 1
             st.rerun()
 
 
@@ -4387,6 +4396,8 @@ def render_screen_2():
                 )
         st.caption("Tip: download your report below and attach it to the email before sending.")
     # --- End Stage 2 Card ---
+
+    _render_tutorial(3)
 
     timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
     html_report = _build_html_report(subs[0], evs[0], timestamp) if n == 1 else \
