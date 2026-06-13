@@ -4715,7 +4715,7 @@ def _build_markdown_report(submission: dict, evaluation: dict, timestamp: str) -
 
 
 
-def _governance_radar_values(ev):
+def _overview_score_values(ev):
     """Return (confidence, clarity, ethics_pct, compliance_pct) each 0–100.
 
     Ethics maps to the Integrity component (max 1.0) and Compliance maps to
@@ -4732,54 +4732,59 @@ def _governance_radar_values(ev):
     return conf, clar, eth, comp
 
 
-def _build_radar_b64(conf, clar, eth, comp):
-    """Build a radar chart as base64 PNG using matplotlib.
+def _build_overview_chart_b64(conf, clar, eth, comp):
+    """Build a simple horizontal bar chart (0-100) as base64 PNG, summarizing
+    the four headline diagnostic scores.
 
-    Confidence and Clarity are the two primary, top-line scores and are
-    drawn as the bold filled shape. Ethics and Compliance are sub-scores
-    *within* Clarity (Integrity and Governance), so they are drawn as a
-    lighter secondary outline labeled "Clarity breakdown" rather than as
-    co-equal axes — this avoids double-counting the same evidence as both
-    a top-line score and a separate axis.
+    Replaces an earlier radar chart that overlaid Confidence/Clarity with a
+    "Clarity breakdown" (Ethics/Compliance) shape sharing the Clarity vertex —
+    that overlap made the chart hard to read. Four independent bars, each
+    clearly labeled and color-coded by score band, communicate the same
+    information without the ambiguity.
     """
     try:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        import numpy as np
         import io as _io_r
         import base64 as _b64
-        labels = ["Confidence", "Clarity", "Ethics", "Compliance"]
-        primary_vals = [conf / 100, clar / 100, None, None]
-        secondary_vals = [None, clar / 100, eth / 100, comp / 100]
-        angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
-        angles += angles[:1]
 
-        fig, ax = plt.subplots(figsize=(4, 4), subplot_kw=dict(polar=True))
+        labels = [
+            "Confidence\n(evidence quality)",
+            "Clarity\n(result definition)",
+            "Ethics\n(data integrity)",
+            "Compliance\n(consent & data protection)",
+        ]
+        values = [conf, clar, eth, comp]
 
-        # Primary shape: Confidence + Clarity only (top-line scores)
-        p_vals = [primary_vals[0], primary_vals[1]]
-        p_angles = [angles[0], angles[1], angles[0]]
-        p_vals_closed = p_vals + p_vals[:1]
-        ax.plot(p_angles, p_vals_closed, color="#1B5E20", linewidth=2.5,
-                label="Confidence / Clarity")
-        ax.fill(p_angles, p_vals_closed, color="#1B5E20", alpha=0.25)
+        def _band_color(v):
+            if v >= 75:
+                return "#1B5E20"
+            if v >= 50:
+                return "#8A6500"
+            return "#C62828"
 
-        # Secondary shape: Clarity breakdown (Clarity, Ethics, Compliance)
-        s_vals = [secondary_vals[1], secondary_vals[2], secondary_vals[3]]
-        s_angles = [angles[1], angles[2], angles[3], angles[1]]
-        s_vals_closed = s_vals + s_vals[:1]
-        ax.plot(s_angles, s_vals_closed, color="#8A6500", linewidth=1.5,
-                linestyle="--", label="Clarity breakdown")
-        ax.fill(s_angles, s_vals_closed, color="#8A6500", alpha=0.10)
+        colors = [_band_color(v) for v in values]
 
-        ax.set_xticks(angles[:-1])
-        ax.set_xticklabels(labels, fontsize=9)
-        ax.set_ylim(0, 1)
-        ax.set_yticks([0.25, 0.5, 0.75, 1.0])
-        ax.set_yticklabels(["25", "50", "75", "100"], fontsize=7, color="#9E9E9E")
-        ax.grid(True, alpha=0.3)
-        ax.legend(loc="upper right", bbox_to_anchor=(1.35, 1.1), fontsize=7, frameon=False)
+        fig, ax = plt.subplots(figsize=(5.2, 2.8))
+        y_pos = list(range(len(labels)))
+        ax.barh(y_pos, values, color=colors, height=0.55)
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(labels, fontsize=9)
+        ax.invert_yaxis()
+        ax.set_xlim(0, 100)
+        ax.set_xlabel("Score out of 100", fontsize=8, color="#616161")
+        ax.tick_params(axis="x", labelsize=8, colors="#616161")
+        ax.tick_params(axis="y", length=0)
+        for spine in ["top", "right", "left"]:
+            ax.spines[spine].set_visible(False)
+        for i, v in enumerate(values):
+            label_x = v - 4 if v >= 12 else v + 2
+            ha = "right" if v >= 12 else "left"
+            color = "white" if v >= 12 else "#212121"
+            ax.text(label_x, i, f"{v:.0f}", va="center", ha=ha,
+                    fontsize=9, fontweight="bold", color=color)
+        ax.grid(axis="x", alpha=0.25)
         plt.tight_layout()
         buf = _io_r.BytesIO()
         fig.savefig(buf, format="png", dpi=100, bbox_inches="tight")
@@ -4862,29 +4867,32 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
     scope  = clar_comp.get("scope_score", 0)
     gov    = clar_comp.get("governance_score", 0)
 
-    # --- Radar chart for report ---
-    _r_conf, _r_clar, _r_eth, _r_comp = _governance_radar_values(evaluation)
-    _radar_b64 = _build_radar_b64(_r_conf, _r_clar, _r_eth, _r_comp)
-    _radar_alt = (
-        f"Radar chart of diagnostic scores: Confidence {_r_conf:.0f}/100, "
-        f"Clarity {_r_clar:.0f}/100, Clarity breakdown — Ethics {_r_eth:.0f}/100, "
-        f"Compliance {_r_comp:.0f}/100."
+    # --- Overview chart for report ---
+    _r_conf, _r_clar, _r_eth, _r_comp = _overview_score_values(evaluation)
+    _overview_b64 = _build_overview_chart_b64(_r_conf, _r_clar, _r_eth, _r_comp)
+    _overview_alt = (
+        f"Overview chart of diagnostic scores out of 100: Confidence {_r_conf:.0f}, "
+        f"Clarity {_r_clar:.0f}, Ethics {_r_eth:.0f}, Compliance {_r_comp:.0f}."
     )
-    _radar_img = (f'<img src="data:image/png;base64,{_radar_b64}" '
-                  f'alt="{_radar_alt}" style="width:280px;display:block;margin:0 auto 16px;" />'
-                  ) if _radar_b64 else ""
-    _radar_legend = (
+    _overview_img = (f'<img src="data:image/png;base64,{_overview_b64}" '
+                     f'alt="{_overview_alt}" style="max-width:420px;width:100%;display:block;margin:0 auto 12px;" />'
+                     ) if _overview_b64 else ""
+    _overview_legend = (
         "<ul style='font-size:0.8rem;color:#616161;max-width:560px;margin:0 auto 16px;padding-left:20px;'>"
-        "<li><strong>Confidence</strong> (solid green) — how directly the evidence supports the result, "
+        "<li><strong>Confidence</strong> — how directly the evidence supports the result, "
         "how independently it was verified, and how recent it is.</li>"
-        "<li><strong>Clarity</strong> (solid green) — how precisely the result is defined, measured, "
+        "<li><strong>Clarity</strong> — how precisely the result is defined, measured, "
         "and bounded in scope, with a documented audit trail.</li>"
-        "<li><strong>Clarity breakdown</strong> (dashed gold) — Ethics and Compliance show what's "
-        "driving your Clarity score: Ethics is the completeness and integrity of the underlying data "
-        "(missing data, audit trail, sample adequacy), and Compliance is the consent, anonymisation, "
-        "and data-protection-law status for any beneficiary data used as evidence.</li>"
+        "<li><strong>Ethics</strong> — completeness and integrity of the underlying data "
+        "(missing data, audit trail, sample adequacy). Feeds into Clarity.</li>"
+        "<li><strong>Compliance</strong> — consent, anonymisation, and data-protection-law status "
+        "for any beneficiary data used as evidence. Feeds into Clarity.</li>"
+        "<li style='margin-top:6px;'>Bar color shows the score band: "
+        "<span style='color:#1B5E20;font-weight:700;'>green = 75&ndash;100 (strong)</span>, "
+        "<span style='color:#8A6500;font-weight:700;'>gold = 50&ndash;74 (acceptable)</span>, "
+        "<span style='color:#C62828;font-weight:700;'>red = below 50 (needs work)</span>.</li>"
         "</ul>"
-    ) if _radar_b64 else ""
+    ) if _overview_b64 else ""
 
     # --- Interactive (vega-embed) sub-score charts for the downloadable report ---
     _conf_spec_json = _subscore_chart([
@@ -4935,9 +4943,9 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
         "<td>Advisory only — not scored</td></tr>"
         "</table>"
         "<p style='font-size:0.75rem;color:#9E9E9E;margin-top:6px;'>"
-        "Confidence and Clarity are your two top-line scores (solid shape on the radar above). "
-        "Ethics and Compliance are the Integrity and Governance sub-scores within Clarity, shown "
-        "as a dashed 'Clarity breakdown' overlay rather than separate scores — see definitions above.</p>"
+        "Confidence and Clarity are your two top-line scores. Ethics and Compliance are the "
+        "Integrity and Governance sub-scores within Clarity, shown separately above so you can "
+        "see what's driving your Clarity score — see definitions above.</p>"
         "</div>"
     )
     _meta_donor  = submission.get("donor") or st.session_state.get("donor_selected", "Not specified")
@@ -5107,8 +5115,8 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
 <h1>Impact-Receipts Evaluation Report</h1>
 <p style="color:#616161;font-size:0.88rem;">Generated: {timestamp}</p>
 {_meta_html}
-{_radar_img}
-{_radar_legend}
+{_overview_img}
+{_overview_legend}
 {_methodology_table}
 <h2>Result Statement</h2>
 <p>{submission.get('result_statement', '-')}</p>
