@@ -686,8 +686,8 @@ SECTOR_PLACEHOLDERS = {
 
 _DIAGNOSTIC_BADGE = {
     "STRONG":             {"bg": "#1B5E20", "text": "#FFFFFF", "subtitle": "Ready for submission"},
-    "MISLEADING":         {"bg": "#B8860B", "text": "#FFFFFF", "subtitle": "Sharpen the definition"},
-    "UNDEREVIDENCED":     {"bg": "#B8860B", "text": "#FFFFFF", "subtitle": "Strengthen the evidence"},
+    "MISLEADING":         {"bg": "#8A6500", "text": "#FFFFFF", "subtitle": "Sharpen the definition"},
+    "UNDEREVIDENCED":     {"bg": "#8A6500", "text": "#FFFFFF", "subtitle": "Strengthen the evidence"},
     "NEEDS REFINEMENT":   {"bg": "#FFF9C4", "text": "#F57F17", "subtitle": "Specific gaps to address"},
     "FUNDAMENTALLY WEAK": {"bg": "#B71C1C", "text": "#FFFFFF", "subtitle": "Redefine the claim AND gather new evidence"},
     "INVALID INPUT":      {"bg": "#B71C1C", "text": "#FFFFFF", "subtitle": "Placeholder text detected — please provide real content"},
@@ -834,7 +834,7 @@ CSS = """
 
 :root {
   --brand-green: #1B5E20;
-  --gold:        #B8860B;
+  --gold:        #8A6500;
   --body-text:   #212121;
   --muted:       #616161;
   --bg-card:     #F5F5F5;
@@ -881,8 +881,8 @@ h1, h2, h3, h4 {
 /* Secondary button -> Trust Gold outline */
 .stButton > button[kind="secondary"],
 .stFormSubmitButton > button[kind="secondary"] {
-  border-color: #B8860B !important;
-  color: #B8860B !important;
+  border-color: #8A6500 !important;
+  color: #8A6500 !important;
   font-family: 'Inter', sans-serif;
   background: transparent !important;
 }
@@ -956,7 +956,7 @@ h1, h2, h3, h4 {
 /* Hero section */
 .hero-block {
   padding: 12px 0 20px 0;
-  border-bottom: 1px solid #B8860B;
+  border-bottom: 1px solid #8A6500;
   margin-bottom: 20px;
 }
 .hero-block h1 {
@@ -966,7 +966,7 @@ h1, h2, h3, h4 {
 }
 .hero-tagline {
   font-style: italic;
-  color: #B8860B;
+  color: #8A6500;
   font-size: 1rem;
   margin: 4px 0 14px 0;
 }
@@ -1002,7 +1002,7 @@ h1, h2, h3, h4 {
 /* CTA call button */
 .cta-call-btn a {
   display: inline-block;
-  background: #B8860B;
+  background: #8A6500;
   color: white !important;
   font-family: 'Inter', sans-serif;
   font-weight: 700;
@@ -1015,17 +1015,17 @@ h1, h2, h3, h4 {
 /* Trust Gold tagline footer */
 .trust-tagline {
   font-style: italic;
-  color: #B8860B;
+  color: #8A6500;
   font-size: 0.82rem;
   text-align: center;
   padding: 12px 0 4px 0;
-  border-top: 1px solid rgba(184,134,11,0.2);
+  border-top: 1px solid rgba(138,101,0,0.2);
   margin-top: 24px;
 }
 
 /* GTM conversion hook card */
 .gtm-card {
-  border: 1px solid #B8860B;
+  border: 1px solid #8A6500;
   border-radius: 10px;
   padding: 20px 24px;
   margin: 24px 0;
@@ -1037,8 +1037,8 @@ h1, h2, h3, h4 {
 /* GTM buttons */
 .gtm-btn-gold a {
   display: inline-block;
-  border: 2px solid #B8860B;
-  color: #B8860B !important;
+  border: 2px solid #8A6500;
+  color: #8A6500 !important;
   padding: 8px 18px;
   border-radius: 8px;
   text-decoration: none;
@@ -1051,7 +1051,7 @@ h1, h2, h3, h4 {
 /* Gold info box */
 .gold-info-box {
   background: #FFFEF7;
-  border-left: 4px solid #B8860B;
+  border-left: 4px solid #8A6500;
   padding: 10px 16px;
   border-radius: 6px;
   font-size: 0.9rem;
@@ -1563,7 +1563,7 @@ def _render_live_score_preview(slot: int = 1):
             "Fix these to remove the penalty."
         )
         # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
-        if st.button("→ Fix: Go to Result Basics", key="fix_content_quality"):
+        if st.button("→ Fix: Go to Result Basics", key="fix_content_quality", type="primary"):
             st.session_state["current_tab"] = 0
             st.rerun()
         # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
@@ -1618,15 +1618,15 @@ def _render_live_score_preview(slot: int = 1):
 
     # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
     if state in ("MISLEADING", "FUNDAMENTALLY WEAK"):
-        if st.button("→ Fix: Sharpen Result Statement", key="fix_misleading"):
+        if st.button("→ Fix: Sharpen Result Statement", key="fix_misleading", type="primary"):
             st.session_state["current_tab"] = 0
             st.rerun()
     if state in ("UNDEREVIDENCED", "FUNDAMENTALLY WEAK"):
-        if st.button("→ Fix: Strengthen Evidence", key="fix_underevidenced"):
+        if st.button("→ Fix: Strengthen Evidence", key="fix_underevidenced", type="primary"):
             st.session_state["current_tab"] = 2
             st.rerun()
     if state == "NEEDS REFINEMENT":
-        if st.button("→ Fix: Review Specific Gaps", key="fix_refinement"):
+        if st.button("→ Fix: Review Specific Gaps", key="fix_refinement", type="primary"):
             st.session_state["current_tab"] = 1
             st.rerun()
     # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
@@ -1673,6 +1673,12 @@ def _render_live_score_preview(slot: int = 1):
     else:
         st.markdown(f"**Governance requirements partially met ({gov_score}/15) — review items below.**")
 
+    # Remediation action — placed right next to the status line so the fix is one click away
+    if gov_score < 12:
+        if st.button("Fix governance issues →", key="fix_gov_btn", type="primary"):
+            st.session_state["current_tab"] = 2
+            st.rerun()
+
     # Per-item checklist
     with st.expander("Governance checklist detail", expanded=(gov_score < 7)):
         for _lbl, _val, _max, _cmap in [
@@ -1686,12 +1692,6 @@ def _render_live_score_preview(slot: int = 1):
             st.markdown("✓ **Data protection policy** — uploaded (+5 bonus)")
         else:
             st.caption("◦ Data protection policy not uploaded (optional +5 bonus)")
-
-    # Remediation action
-    if gov_score < 12:
-        if st.button("Fix governance issues →", key="fix_gov_btn"):
-            st.session_state["current_tab"] = 2
-            st.rerun()
     # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
 
@@ -2260,7 +2260,11 @@ def _render_tab1_slot(slot: int):
     if _rs_filled and not _gs:
         st.caption(f"💡 Hint: {_gs_hint}")
     elif len(_gs) > 5 and not any(m in _gs.lower() for m in _LOC_MARKERS):
-        st.warning("Geographic scope should name specific districts, regions, or locations.")
+        _gs_example = re.sub(r"^e\.g\.,\s*", "", _gs_hint)
+        st.warning(
+            "Geographic scope should name specific districts, regions, or locations "
+            f"(e.g., {_gs_example})."
+        )
 
     st.caption("Specificity in these fields adds to your Clarity score. Generic terms cap it.")
 
@@ -2666,7 +2670,7 @@ def render_screen_0():
             f'<img src="data:image/png;base64,{_logo_b64}" alt="Impact-Receipts" style="height:56px;">'
             f'<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
             f'<span style="color:#1B5E20;">Impact Integrity</span><br>'
-            f'<span style="color:#B8860B;">Diagnostic</span>'
+            f'<span style="color:#8A6500;">Diagnostic</span>'
             f'</span>'
             f'</div>'
         )
@@ -2675,7 +2679,7 @@ def render_screen_0():
             '<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">'
             '<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
             '<span style="color:#1B5E20;">Impact Integrity</span><br>'
-            '<span style="color:#B8860B;">Diagnostic</span>'
+            '<span style="color:#8A6500;">Diagnostic</span>'
             '</span>'
             '</div>'
         )
@@ -2819,7 +2823,7 @@ def render_screen_0():
 
     st.markdown(
         """
-        <div style="border-left:4px solid #B8860B; border-radius:8px; padding:14px 20px; margin:16px 0; background:transparent;">
+        <div style="border-left:4px solid #8A6500; border-radius:8px; padding:14px 20px; margin:16px 0; background:transparent;">
           <p style="margin:0; font-size:0.95rem; color:#212121;">
             <strong>Funders now ask:</strong> What changed? How do you know? How strong is the evidence?
             What did you learn? &mdash; <em>This check tells you before they do.</em>
@@ -2893,7 +2897,7 @@ def render_screen_0():
 
     st.markdown(
         """
-        <div style="border-left:3px solid #B8860B;padding:8px 12px;margin:8px 0 12px 0;
+        <div style="border-left:3px solid #8A6500;padding:8px 12px;margin:8px 0 12px 0;
                     background:transparent;">
           <p style="margin:0;font-size:0.85rem;color:#212121;">
             <strong style="color:#1B5E20;">&#128204; Real case from 2024:</strong>
@@ -2912,7 +2916,7 @@ def render_screen_0():
         "but not stored. Anonymised text snippets are saved only if you opt in below."
     )
     st.markdown(
-        '<p style="color:#B8860B;font-style:italic;font-size:14px;margin:4px 0 8px 0;">'
+        '<p style="color:#8A6500;font-style:italic;font-size:14px;margin:4px 0 8px 0;">'
         "Anchored in USAID DQA, OECD-DAC, FCDO, and Bond Evidence Principles.</p>",
         unsafe_allow_html=True,
     )
@@ -4275,7 +4279,7 @@ def render_screen_2():
     n = len(evs)
     st.markdown(
         "<h2 style='color:#1B5E20;margin-bottom:4px;'>Your Confidence Snapshot</h2>"
-        "<p style='color:#B8860B;font-style:italic;font-size:0.95rem;margin-bottom:16px;'>"
+        "<p style='color:#8A6500;font-style:italic;font-size:0.95rem;margin-bottom:16px;'>"
         "Here&rsquo;s what would move your result from where it is now to where it needs to be.</p>",
         unsafe_allow_html=True,
     )
@@ -4649,9 +4653,9 @@ def _build_radar_b64(conf, clar, eth, comp):
         s_vals = [secondary_vals[1], secondary_vals[2], secondary_vals[3]]
         s_angles = [angles[1], angles[2], angles[3], angles[1]]
         s_vals_closed = s_vals + s_vals[:1]
-        ax.plot(s_angles, s_vals_closed, color="#B8860B", linewidth=1.5,
+        ax.plot(s_angles, s_vals_closed, color="#8A6500", linewidth=1.5,
                 linestyle="--", label="Clarity breakdown")
-        ax.fill(s_angles, s_vals_closed, color="#B8860B", alpha=0.10)
+        ax.fill(s_angles, s_vals_closed, color="#8A6500", alpha=0.10)
 
         ax.set_xticks(angles[:-1])
         ax.set_xticklabels(labels, fontsize=9)
@@ -4745,8 +4749,13 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
     # --- Radar chart for report ---
     _r_conf, _r_clar, _r_eth, _r_comp = _governance_radar_values(evaluation)
     _radar_b64 = _build_radar_b64(_r_conf, _r_clar, _r_eth, _r_comp)
+    _radar_alt = (
+        f"Radar chart of diagnostic scores: Confidence {_r_conf:.0f}/100, "
+        f"Clarity {_r_clar:.0f}/100, Clarity breakdown — Ethics {_r_eth:.0f}/100, "
+        f"Compliance {_r_comp:.0f}/100."
+    )
     _radar_img = (f'<img src="data:image/png;base64,{_radar_b64}" '
-                  f'alt="Radar Chart" style="width:280px;display:block;margin:0 auto 16px;" />'
+                  f'alt="{_radar_alt}" style="width:280px;display:block;margin:0 auto 16px;" />'
                   ) if _radar_b64 else ""
     _radar_legend = (
         "<ul style='font-size:0.8rem;color:#616161;max-width:560px;margin:0 auto 16px;padding-left:20px;'>"
@@ -4924,7 +4933,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet"/>
 <style>
   body{{font-family:'Inter',sans-serif;color:#212121;max-width:860px;margin:40px auto;padding:0 24px;}}
-  h1,h2,h3{{color:#1B5E20;}} h1{{font-size:1.6rem;}} h2{{font-size:1.2rem;border-bottom:1px solid #B8860B;padding-bottom:4px;margin-top:28px;}}
+  h1,h2,h3{{color:#1B5E20;}} h1{{font-size:1.6rem;}} h2{{font-size:1.2rem;border-bottom:1px solid #8A6500;padding-bottom:4px;margin-top:28px;}}
   table{{width:100%;border-collapse:collapse;margin-bottom:16px;}}
   td,th{{border:1px solid #E0E0E0;text-align:left;}}
   th{{background:#F5F5F5;padding:7px 8px;font-size:0.85rem;}}
@@ -5015,7 +5024,7 @@ def _build_combined_html_report(submissions: list, evaluations: list, timestamp:
                 start = section.find("<h2 ")
             end   = section.rfind("</body>")
             insert_at = parts[0].rfind("</body>")
-            divider = f"<hr style='margin:40px 0;border:2px solid #B8860B;'/><h2 style='color:#1B5E20;'>Result {i+1}</h2>"
+            divider = f"<hr style='margin:40px 0;border:2px solid #8A6500;'/><h2 style='color:#1B5E20;'>Result {i+1}</h2>"
             parts[0] = parts[0][:insert_at] + divider + section[start:end] + parts[0][insert_at:]
     return parts[0]
 
