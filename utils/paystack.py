@@ -5,7 +5,6 @@ All secrets via st.secrets / environment variables.
 """
 from __future__ import annotations
 import os
-import urllib.parse
 import requests
 
 
@@ -57,7 +56,12 @@ def initialize_payment(email: str, amount_kobo: int, plan: str = "per_use") -> s
     if not key:
         _last_payment_error = "PAYSTACK_SECRET_KEY not configured."
         return ""
-    callback_url = f"{_base_url()}?user_email={urllib.parse.quote(email, safe='')}"
+    # Paystack appends "?trxref=...&reference=..." to whatever callback_url we
+    # send, even if it already contains a "?" — embedding our own query string
+    # here produced a malformed double-"?" URL that Streamlit could not parse
+    # correctly on return. Keep the callback_url bare; the email is recovered
+    # from Paystack's verify response instead (see verify_payment).
+    callback_url = _base_url()
     payload = {
         "email": email,
         "amount": amount_kobo,
@@ -102,7 +106,8 @@ def verify_payment(reference: str) -> dict:
         if data.get("status") and data["data"].get("status") == "success":
             meta = data["data"].get("metadata", {})
             plan = meta.get("plan", "per_use")
-            return {"status": "success", "amount": data["data"].get("amount", 0), "plan": plan}
-        return {"status": "failed", "amount": 0, "plan": ""}
+            email = (data["data"].get("customer") or {}).get("email", "")
+            return {"status": "success", "amount": data["data"].get("amount", 0), "plan": plan, "email": email}
+        return {"status": "failed", "amount": 0, "plan": "", "email": ""}
     except Exception:
-        return {"status": "error", "amount": 0, "plan": ""}
+        return {"status": "error", "amount": 0, "plan": "", "email": ""}

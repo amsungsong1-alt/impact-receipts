@@ -5214,51 +5214,51 @@ def main():
     _init_session_state()
 
     # --- Paystack payment callback handler ---
-    # Paystack redirects with ?trxref=REF&reference=REF (and our custom ?user_email=...)
+    # Paystack always appends "?trxref=...&reference=..." to the callback_url
+    # on redirect, even if it already contains a "?" — so the callback_url is
+    # kept bare (see utils/paystack.initialize_payment) and the paying user's
+    # email is recovered from Paystack's own verify response below, rather
+    # than round-tripped through our own query-string params.
     _paystack_ref = (
         st.query_params.get("paystack_ref", "")
         or st.query_params.get("reference", "")
         or st.query_params.get("trxref", "")
     )
-    _qp_email = st.query_params.get("user_email", "")
-
-    # Restore email to session state if this is a fresh post-payment session
-    if _qp_email and not st.session_state.get("user_email"):
-        _qp_e = _qp_email.strip().lower()
-        st.session_state["user_email"] = _qp_e
-        upsert_user(_qp_e)
-        _qp_u = get_user(_qp_e)
-        if _qp_u and is_still_paid(_qp_u):
-            st.session_state["is_paid"] = True
-
-    _ref_email = st.session_state.get("user_email") or _qp_email
-    if _paystack_ref and _ref_email:
+    if _paystack_ref:
         _pay_result = verify_payment(_paystack_ref)
         if _pay_result.get("status") == "success":
-            _days = 30 if _pay_result.get("plan") == "monthly" else 1
-            mark_paid(_ref_email, days=_days)
-            st.session_state["user_email"] = _ref_email
-            st.session_state["is_paid"] = True
-            st.session_state.pop("_pay_once_url", None)
-            st.session_state.pop("_pay_monthly_url", None)
-            st.session_state["screen"] = 1
-            st.session_state["current_tab"] = 0
-            st.session_state["entry_mode"] = "⚡ Instant Report Check"
-            st.session_state["_payment_success"] = True
+            _pay_email = (_pay_result.get("email") or st.session_state.get("user_email") or "").strip().lower()
+            if _pay_email:
+                _days = 30 if _pay_result.get("plan") == "monthly" else 1
+                upsert_user(_pay_email)
+                mark_paid(_pay_email, days=_days)
+                st.session_state["user_email"] = _pay_email
+                st.session_state["is_paid"] = True
+                st.session_state.pop("_pay_once_url", None)
+                st.session_state.pop("_pay_monthly_url", None)
+                st.session_state["screen"] = 1
+                st.session_state["current_tab"] = 0
+                st.session_state["entry_mode"] = "⚡ Instant Report Check"
+                st.session_state["_payment_success"] = True
+                try:
+                    st.query_params.clear()
+                except Exception:
+                    pass
+                st.rerun()
+            else:
+                # Paid, but no email on either side yet — defer until the
+                # user signs in via the email gate, which completes this.
+                st.session_state["pending_paystack_ref"] = _paystack_ref
+                try:
+                    st.query_params.clear()
+                except Exception:
+                    pass
+        elif _pay_result.get("status") == "failed":
+            st.warning("Payment was not completed. Please try again.")
             try:
                 st.query_params.clear()
             except Exception:
                 pass
-            st.rerun()
-        elif _pay_result.get("status") == "failed":
-            st.warning("Payment was not completed. Please try again.")
-    elif _paystack_ref and not _ref_email:
-        # Ref present but no email — store it; email gate will complete verification
-        st.session_state["pending_paystack_ref"] = _paystack_ref
-        try:
-            st.query_params.clear()
-        except Exception:
-            pass
     # --- End Paystack handler ---
 
     screen = st.session_state["screen"]
