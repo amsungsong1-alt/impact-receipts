@@ -1564,7 +1564,7 @@ def _render_subscore_chart(items, key: str):
                 alt.Tooltip("Detail:N", title="Why"),
             ],
         )
-        .properties(height=alt.Step(28))
+        .properties(width="container", height=alt.Step(28))
     )
     st.altair_chart(chart, use_container_width=True, key=key)
 
