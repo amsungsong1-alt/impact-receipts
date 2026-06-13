@@ -1522,6 +1522,53 @@ def _render_paywall(irc_context: bool = False):
                 st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
 
 
+def _render_subscore_chart(items, key: str):
+    """Render an interactive horizontal bar chart of sub-scores with hover tooltips.
+
+    items: list of (label, score, max_val, detail) tuples.
+    """
+    import pandas as pd
+    import altair as alt
+
+    rows = []
+    for label, score, max_val, detail in items:
+        pct = round(min(score / max_val, 1.0) * 100, 1) if max_val else 0.0
+        status = "Strong" if pct >= 75 else ("Acceptable" if pct >= 50 else "Below target")
+        rows.append({
+            "Component": label, "Score": score, "Max": max_val,
+            "% of target": pct, "Status": status,
+            "Detail": (detail or "").split("\n\n")[0],
+        })
+    df = pd.DataFrame(rows)
+
+    chart = (
+        alt.Chart(df)
+        .mark_bar()
+        .encode(
+            x=alt.X("% of target:Q", scale=alt.Scale(domain=[0, 100]), title="% of target"),
+            y=alt.Y("Component:N", sort=None, title=None),
+            color=alt.Color(
+                "Status:N",
+                scale=alt.Scale(
+                    domain=["Strong", "Acceptable", "Below target"],
+                    range=["#1B5E20", "#8A6500", "#C62828"],
+                ),
+                legend=alt.Legend(title=None, orient="bottom"),
+            ),
+            tooltip=[
+                alt.Tooltip("Component:N", title="Component"),
+                alt.Tooltip("Score:Q", title="Score", format=".2f"),
+                alt.Tooltip("Max:Q", title="Max", format=".2f"),
+                alt.Tooltip("% of target:Q", title="% of target"),
+                alt.Tooltip("Status:N", title="Status"),
+                alt.Tooltip("Detail:N", title="Why"),
+            ],
+        )
+        .properties(height=alt.Step(28))
+    )
+    st.altair_chart(chart, use_container_width=True, key=key)
+
+
 def _render_live_score_preview(slot: int = 1):
     sub = _build_submission_from_session(slot)
     try:
@@ -1570,9 +1617,6 @@ def _render_live_score_preview(slot: int = 1):
 
     bd1, bd2 = st.columns(2)
 
-    def _bar(val: float, max_val: float):
-        st.progress(min(val / max_val, 1.0) if max_val else 0.0)
-
     with bd1:
         st.markdown("**Confidence**")
         dl = conf_comp.get("direct_level", 0)
@@ -1581,18 +1625,11 @@ def _render_live_score_preview(slot: int = 1):
         ds = conf_comp.get("direct_score", 0)
         vs = conf_comp.get("verify_score", 0)
         rs = conf_comp.get("recency_score", 0)
-        st.metric("Directness", f"{ds}/2.0",
-                  help=_DIRECTNESS_TIPS.get(dl, "How directly traceable the evidence is to the result. Target: 1.5+/2.0."))
-        _bar(ds, 2.0)
-        st.caption("**Strong**" if ds >= 1.5 else ("**Acceptable**" if ds >= 1.0 else "**Below target**"))
-        st.metric("Verification", f"{vs}/2.0",
-                  help=_VERIFICATION_TIPS.get(vl, "How rigorously the evidence has been reviewed. Target: 1.5+/2.0."))
-        _bar(vs, 2.0)
-        st.caption("**Strong**" if vs >= 1.5 else ("**Acceptable**" if vs >= 1.0 else "**Below target**"))
-        st.metric("Recency", f"{rs}/1.0",
-                  help=_RECENCY_TIPS.get(rl, "How recent the evidence is relative to the reporting period. Target: 0.7+/1.0."))
-        _bar(rs, 1.0)
-        st.caption("**Strong**" if rs >= 0.75 else ("**Acceptable**" if rs >= 0.5 else "**Below target**"))
+        _render_subscore_chart([
+            ("Directness", ds, 2.0, _DIRECTNESS_TIPS.get(dl, "How directly traceable the evidence is to the result. Target: 1.5+/2.0.")),
+            ("Verification", vs, 2.0, _VERIFICATION_TIPS.get(vl, "How rigorously the evidence has been reviewed. Target: 1.5+/2.0.")),
+            ("Recency", rs, 1.0, _RECENCY_TIPS.get(rl, "How recent the evidence is relative to the reporting period. Target: 0.7+/1.0.")),
+        ], key=f"live_conf_chart{s}")
 
     with bd2:
         st.markdown("**Clarity**")
@@ -1601,16 +1638,13 @@ def _render_live_score_preview(slot: int = 1):
         integ  = clar_comp.get("integrity_score", 0)
         scope  = clar_comp.get("scope_score", 0)
         gov    = clar_comp.get("governance_score", 0)
-        st.caption(f"Definition {def_s}/1.25")
-        _bar(def_s, 1.25)
-        st.caption(f"Measurement {meas_s}/1.25")
-        _bar(meas_s, 1.25)
-        st.caption(f"Integrity {integ}/1.0")
-        _bar(integ, 1.0)
-        st.caption(f"Scope {scope}/0.75")
-        _bar(scope, 0.75)
-        st.caption(f"Governance {gov}/0.75")
-        _bar(gov, 0.75)
+        _render_subscore_chart([
+            ("Definition", def_s, 1.25, _CLARITY_TIPS["definition"]),
+            ("Measurement", meas_s, 1.25, _CLARITY_TIPS["measurement"]),
+            ("Integrity", integ, 1.0, _CLARITY_TIPS["integrity"]),
+            ("Scope", scope, 0.75, _CLARITY_TIPS["scope"]),
+            ("Governance", gov, 0.75, _CLARITY_TIPS["governance"]),
+        ], key=f"live_clar_chart{s}")
 
     # Gate assessment uses penalized conf_score
     state, state_sub = get_diagnostic_state(conf_score, clar_score)
@@ -2755,7 +2789,8 @@ def render_screen_0():
             with _otp_c1:
                 if st.button("Resend code", use_container_width=True):
                     _new_code = generate_otp()
-                    _ok, _err = send_otp_email(_otp_email, _new_code)
+                    with st.spinner("Sending verification code…"):
+                        _ok, _err = send_otp_email(_otp_email, _new_code)
                     if _ok:
                         st.session_state["_otp_code"] = _new_code
                         st.session_state["_otp_sent_at"] = time.time()
@@ -2787,7 +2822,8 @@ def render_screen_0():
                         _e = _gate_email.strip().lower()
                         if otp_enabled():
                             _code = generate_otp()
-                            _ok, _err = send_otp_email(_e, _code)
+                            with st.spinner("Sending verification code…"):
+                                _ok, _err = send_otp_email(_e, _code)
                             if _ok:
                                 st.session_state["_otp_email"] = _e
                                 st.session_state["_otp_code"] = _code
@@ -3733,8 +3769,9 @@ A **content quality penalty** (×0.5 to ×1.0) applies when the result statement
             ev_other = _ss_str("evidence_type_other").strip()
             if ev_type == "Other" and not ev_other:
                 st.warning("Please specify your evidence type in Tab 3 — Evidence & Verification.")
-            elif not all(mandatory):
-                st.warning("Complete Result Basics (Tab 1) and Evidence (Tab 3) before running the check.")
+            elif not all(mandatory) or _missing_b:
+                _missing_labels = ", ".join(lbl for _, lbl in _missing_b) or "required fields"
+                st.warning(f"Please complete the following before running the check: {_missing_labels}.")
             else:
                 if not st.session_state.get("has_seen_tutorial"):
                     st.session_state["tutorial_step"] = 2
@@ -3964,7 +4001,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         lk_state = linkage.get("state", "MISSING")
         lk_rat   = linkage.get("rationale", "")
         lk_issues = linkage.get("issues", [])
-        st.markdown("### Logframe Linkage")
+        st.markdown("#### Logframe Linkage")
         if lk_state == "STRONG":
             st.success(f"✓ {lk_rat}")
         elif lk_state == "WEAK":
@@ -4014,17 +4051,18 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         rs = conf_comp.get("recency_score", 0)
         st.metric("Directness", f"{ds}/2.0",
                   help=_evaluator.get_score_rationale("directness", dl, ds, 2.0))
-        st.progress(min(ds / 2.0, 1.0))
         st.metric("Verification", f"{vs}/2.0",
                   help=_evaluator.get_score_rationale("verification", vl, vs, 2.0))
-        st.progress(min(vs / 2.0, 1.0))
         st.metric("Recency", f"{rs}/1.0",
                   help=_evaluator.get_score_rationale("recency", rl, rs, 1.0))
-        st.progress(min(rs / 1.0, 1.0))
         bv_bonus = conf_comp.get("bv_bonus", 0.0)
         st.metric("Beneficiary Voice Bonus", f"+{bv_bonus}/0.5",
                   help=BENEFICIARY_VOICE_TOOLTIP)
-        st.progress(min(bv_bonus / 0.5, 1.0) if bv_bonus > 0 else 0.0)
+        _render_subscore_chart([
+            ("Directness", ds, 2.0, _evaluator.get_score_rationale("directness", dl, ds, 2.0)),
+            ("Verification", vs, 2.0, _evaluator.get_score_rationale("verification", vl, vs, 2.0)),
+            ("Recency", rs, 1.0, _evaluator.get_score_rationale("recency", rl, rs, 1.0)),
+        ], key=f"snapshot_conf_chart_{card_idx}")
 
     with col_clar:
         st.markdown("#### Clarity Score")
@@ -4037,19 +4075,21 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         gov    = clar_comp.get("governance_score",  0)
         st.metric("Definition", f"{def_s}/1.25",
                   help=f"{_CLARITY_TIPS['definition']}\n\n{TOOLTIP_DEFINITION}")
-        st.progress(min(def_s / 1.25, 1.0))
         st.metric("Measurement", f"{meas_s}/1.25",
                   help=f"{_CLARITY_TIPS['measurement']}\n\n{TOOLTIP_MEASUREMENT}")
-        st.progress(min(meas_s / 1.25, 1.0))
         st.metric("Integrity", f"{integ}/1.0",
                   help=f"{_CLARITY_TIPS['integrity']}\n\n{TOOLTIP_INTEGRITY}")
-        st.progress(min(integ / 1.0, 1.0))
         st.metric("Scope", f"{scope}/0.75",
                   help=f"{_CLARITY_TIPS['scope']}\n\n{TOOLTIP_SCOPE}")
-        st.progress(min(scope / 0.75, 1.0))
         st.metric("Governance", f"{gov}/0.75",
                   help=f"{_CLARITY_TIPS['governance']}\n\n{TOOLTIP_GOVERNANCE}")
-        st.progress(min(gov / 0.75, 1.0))
+        _render_subscore_chart([
+            ("Definition", def_s, 1.25, _CLARITY_TIPS["definition"]),
+            ("Measurement", meas_s, 1.25, _CLARITY_TIPS["measurement"]),
+            ("Integrity", integ, 1.0, _CLARITY_TIPS["integrity"]),
+            ("Scope", scope, 0.75, _CLARITY_TIPS["scope"]),
+            ("Governance", gov, 0.75, _CLARITY_TIPS["governance"]),
+        ], key=f"snapshot_clar_chart_{card_idx}")
 
     # Evidence Ladder (rule-based, no score impact)
     ladder = ev.get("evidence_ladder", {})
