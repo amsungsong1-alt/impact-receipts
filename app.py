@@ -1522,8 +1522,8 @@ def _render_paywall(irc_context: bool = False):
                 st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
 
 
-def _render_subscore_chart(items, key: str):
-    """Render an interactive horizontal bar chart of sub-scores with hover tooltips.
+def _subscore_chart(items):
+    """Build an interactive horizontal bar chart of sub-scores with hover tooltips.
 
     items: list of (label, score, max_val, detail) tuples.
     """
@@ -1541,7 +1541,7 @@ def _render_subscore_chart(items, key: str):
         })
     df = pd.DataFrame(rows)
 
-    chart = (
+    return (
         alt.Chart(df)
         .mark_bar()
         .encode(
@@ -1566,7 +1566,92 @@ def _render_subscore_chart(items, key: str):
         )
         .properties(width="container", height=alt.Step(28))
     )
-    st.altair_chart(chart, use_container_width=True, key=key)
+
+
+def _render_subscore_chart(items, key: str):
+    """Render an interactive horizontal bar chart of sub-scores with hover tooltips."""
+    st.altair_chart(_subscore_chart(items), use_container_width=True, key=key)
+
+
+_EVIDENCE_LADDER_TIER_DESCRIPTIONS = {
+    "Basic": "Attendance, registration, logs, photos",
+    "Moderate": "Follow-up surveys, testimonials",
+    "Stronger": "Business/regulatory records, mentor verification, "
+                "baseline/endline, external evaluation, comparison groups",
+}
+
+
+def _evidence_ladder_chart(ladder):
+    """Build an interactive 'climb the ladder' chart: one rung per evidence tier,
+    with the rung you're currently standing on highlighted and hover detail on
+    what was matched."""
+    import pandas as pd
+    import altair as alt
+
+    counts   = ladder.get("tier_counts", {})
+    matches  = ladder.get("tier_matches", {})
+    dominant = ladder.get("dominant_tier")
+
+    rows = []
+    for rung, tier in enumerate(_evaluator.EVIDENCE_LADDER_TIERS, start=1):
+        rows.append({
+            "Tier": tier,
+            "Rung": f"Rung {rung} — {tier}",
+            "Sources detected": counts.get(tier, 0),
+            "You are here": "👈 Your evidence currently sits here" if tier == dominant else "",
+            "Matched keywords": ", ".join(matches.get(tier, [])) or "None detected yet",
+            "What counts": _EVIDENCE_LADDER_TIER_DESCRIPTIONS[tier],
+        })
+    df = pd.DataFrame(rows)
+
+    if dominant:
+        opacity_enc = alt.condition(
+            alt.FieldEqualPredicate(field="Tier", equal=dominant),
+            alt.value(1.0), alt.value(0.35),
+        )
+    else:
+        opacity_enc = alt.value(0.85)
+
+    bars = (
+        alt.Chart(df)
+        .mark_bar(cornerRadiusEnd=4)
+        .encode(
+            x=alt.X("Sources detected:Q", title="Sources detected"),
+            y=alt.Y("Rung:N", sort=["Rung 3 — Stronger", "Rung 2 — Moderate", "Rung 1 — Basic"], title=None),
+            color=alt.Color(
+                "Tier:N",
+                scale=alt.Scale(
+                    domain=["Basic", "Moderate", "Stronger"],
+                    range=["#C62828", "#8A6500", "#1B5E20"],
+                ),
+                legend=alt.Legend(title=None, orient="bottom"),
+            ),
+            opacity=opacity_enc,
+            tooltip=[
+                alt.Tooltip("Tier:N", title="Tier"),
+                alt.Tooltip("What counts:N", title="What counts"),
+                alt.Tooltip("Sources detected:Q", title="Sources detected"),
+                alt.Tooltip("Matched keywords:N", title="Matched keywords"),
+                alt.Tooltip("You are here:N", title=" "),
+            ],
+        )
+    )
+
+    labels = (
+        alt.Chart(df)
+        .mark_text(align="left", dx=6, fontWeight="bold", color="#1B5E20")
+        .encode(
+            x=alt.X("Sources detected:Q"),
+            y=alt.Y("Rung:N", sort=["Rung 3 — Stronger", "Rung 2 — Moderate", "Rung 1 — Basic"]),
+            text="You are here:N",
+        )
+    )
+
+    return (bars + labels).properties(width="container", height=alt.Step(40))
+
+
+def _render_evidence_ladder_chart(ladder, key: str):
+    st.altair_chart(_evidence_ladder_chart(ladder), use_container_width=True, key=key)
 
 
 def _render_live_score_preview(slot: int = 1):
@@ -4097,23 +4182,10 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         st.markdown("#### Evidence Ladder")
         st.caption(
             "Rule-based check of the evidence sources you described — does this "
-            "report rely mainly on Basic, Moderate, or Stronger evidence?"
+            "report rely mainly on Basic, Moderate, or Stronger evidence? Hover "
+            "over a rung below for details."
         )
-        counts = ladder.get("tier_counts", {})
-        dominant = ladder.get("dominant_tier")
-        tier_descriptions = {
-            "Basic": "Attendance, registration, logs, photos",
-            "Moderate": "Follow-up surveys, testimonials",
-            "Stronger": "Business/regulatory records, mentor verification, "
-                        "baseline/endline, external evaluation, comparison groups",
-        }
-        ladder_cols = st.columns(3)
-        for col, tier in zip(ladder_cols, _evaluator.EVIDENCE_LADDER_TIERS):
-            with col:
-                label = f"**{tier}**" + (" 👈" if tier == dominant else "")
-                st.markdown(label)
-                st.caption(tier_descriptions[tier])
-                st.metric("Sources detected", counts.get(tier, 0), label_visibility="collapsed")
+        _render_evidence_ladder_chart(ladder, key=f"ladder_chart_{card_idx}")
         st.info(ladder.get("suggestion", ""))
 
     # Indicator Maturity (rule-based, count-only indicator detection)
@@ -4124,7 +4196,11 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             "This indicator is written as a raw count. Funders increasingly expect "
             "indicators that show whether the result was sustained or verified."
         )
-        st.table([{"Level": level, "Example wording": wording} for level, wording in maturity["rows"]])
+        _your_indicator = (submission.get("logframe_indicator", "") or "").strip() or "(not specified)"
+        st.markdown(f"**Your indicator (as written):** {_your_indicator}")
+        _maturity_rows = [{"Level": level, "Example wording": wording} for level, wording in maturity["rows"]]
+        _maturity_rows[0]["Level"] = "👈 " + _maturity_rows[0]["Level"] + " — what you wrote"
+        st.table(_maturity_rows)
         st.caption(
             f"Measurement score adjusted by **{maturity['adjustment']}** for this "
             "count-only indicator framing."
@@ -4714,7 +4790,7 @@ def _build_radar_b64(conf, clar, eth, comp):
         return ""
 
 
-def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> str:
+def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart_id: str = "0") -> str:
     conf_score = evaluation.get("confidence_score", 0)
     clar_score = evaluation.get("clarity_score", 0)
     conf_label = evaluation.get("confidence_label", "")
@@ -4809,6 +4885,38 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
         "and data-protection-law status for any beneficiary data used as evidence.</li>"
         "</ul>"
     ) if _radar_b64 else ""
+
+    # --- Interactive (vega-embed) sub-score charts for the downloadable report ---
+    _conf_spec_json = _subscore_chart([
+        (f"Directness (Level {dl}/5)", ds, 2.0, _DIRECTNESS_TIPS.get(dl, "")),
+        (f"Verification (Level {vl}/5)", vs, 2.0, _VERIFICATION_TIPS.get(vl, "")),
+        (f"Recency (Level {rl}/5)", rs, 1.0, _RECENCY_TIPS.get(rl, "")),
+    ]).to_json()
+    _clar_spec_json = _subscore_chart([
+        ("Definition", def_s, 1.25, _CLARITY_TIPS["definition"]),
+        ("Measurement", meas_s, 1.25, _CLARITY_TIPS["measurement"]),
+        ("Integrity", integ, 1.0, _CLARITY_TIPS["integrity"]),
+        ("Scope", scope, 0.75, _CLARITY_TIPS["scope"]),
+        ("Governance", gov, 0.75, _CLARITY_TIPS["governance"]),
+    ]).to_json()
+    _conf_chart_div = f'<div id="conf-chart-{chart_id}" class="no-print" style="margin-top:10px;"></div>'
+    _clar_chart_div = f'<div id="clar-chart-{chart_id}" class="no-print" style="margin-top:10px;"></div>'
+    _charts_script = f"""
+<script type="application/json" id="conf-spec-{chart_id}">{_conf_spec_json}</script>
+<script type="application/json" id="clar-spec-{chart_id}">{_clar_spec_json}</script>
+<script>
+(function(){{
+  function renderImpactReceiptsCharts_{chart_id}(){{
+    if (!window.vegaEmbed) {{ setTimeout(renderImpactReceiptsCharts_{chart_id}, 200); return; }}
+    var confSpec = JSON.parse(document.getElementById('conf-spec-{chart_id}').textContent);
+    var clarSpec = JSON.parse(document.getElementById('clar-spec-{chart_id}').textContent);
+    vegaEmbed('#conf-chart-{chart_id}', confSpec, {{actions: false}});
+    vegaEmbed('#clar-chart-{chart_id}', clarSpec, {{actions: false}});
+  }}
+  renderImpactReceiptsCharts_{chart_id}();
+}})();
+</script>
+"""
 
     _methodology_table = (
         "<div style='max-width:620px;margin:0 auto 24px;'>"
@@ -4919,13 +5027,19 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
     # --- Indicator Maturity ---
     maturity_html = ""
     if maturity.get("flagged"):
-        maturity_rows = "".join(
-            f"<tr><td>{level}</td><td>{wording}</td></tr>"
-            for level, wording in maturity["rows"]
-        )
+        _maturity_row_parts = []
+        for i, (level, wording) in enumerate(maturity["rows"]):
+            tr_style = ' style="background:#FFF9E0;"' if i == 0 else ""
+            level_label = f"\U0001F448 {level} — what you wrote" if i == 0 else level
+            _maturity_row_parts.append(
+                f"<tr{tr_style}><td>{level_label}</td><td>{wording}</td></tr>"
+            )
+        maturity_rows = "".join(_maturity_row_parts)
+        _your_indicator = (submission.get("logframe_indicator", "") or "").strip() or "(not specified)"
         maturity_html = f"""
 <h2>Indicator Maturity</h2>
 <p style="color:#616161;font-size:0.85rem;">This indicator is written as a raw count. Funders increasingly expect indicators that show whether the result was sustained or verified.</p>
+<p><strong>Your indicator (as written):</strong> {_your_indicator}</p>
 <table><tr><th>Level</th><th>Example wording</th></tr>{maturity_rows}</table>
 <p>Measurement score adjusted by <strong>{maturity['adjustment']}</strong> for this count-only indicator framing.</p>
 """
@@ -4971,6 +5085,9 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Impact-Receipts Report</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@6"></script>
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
 <style>
   body{{font-family:'Inter',sans-serif;color:#212121;max-width:860px;margin:40px auto;padding:0 24px;}}
   h1,h2,h3{{color:#1B5E20;}} h1{{font-size:1.6rem;}} h2{{font-size:1.2rem;border-bottom:1px solid #8A6500;padding-bottom:4px;margin-top:28px;}}
@@ -5019,6 +5136,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
       {row(f"Verification (Level {vl}/5)", vs, 2.0, _VERIFICATION_TIPS.get(vl,''))}
       {row(f"Recency (Level {rl}/5)", rs, 1.0, _RECENCY_TIPS.get(rl,''))}
     </table>
+    {_conf_chart_div}
   </div>
   <div>
     <strong>Clarity Score</strong><br/>
@@ -5033,8 +5151,11 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
       {row("Scope", scope, 0.75, _CLARITY_TIPS['scope'])}
       {row("Governance", gov, 0.75, _CLARITY_TIPS['governance'])}
     </table>
+    {_clar_chart_div}
   </div>
 </div>
+<p class="no-print" style="color:#9E9E9E;font-size:0.75rem;">Hover over the charts above for details (requires an internet connection to load the chart library).</p>
+{_charts_script}
 {ladder_html}
 {maturity_html}
 {funder_readiness_html}
@@ -5054,7 +5175,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str) -> st
 def _build_combined_html_report(submissions: list, evaluations: list, timestamp: str) -> str:
     parts = []
     for i, (sub, ev) in enumerate(zip(submissions, evaluations)):
-        section = _build_html_report(sub, ev, timestamp)
+        section = _build_html_report(sub, ev, timestamp, chart_id=str(i))
         # Strip outer HTML wrapper from all but the first, append just the body content
         if i == 0:
             parts.append(section)
