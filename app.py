@@ -1675,7 +1675,7 @@ def _render_live_score_preview(slot: int = 1):
 
     # Remediation action — placed right next to the status line so the fix is one click away
     if gov_score < 12:
-        if st.button("Fix governance issues →", key="fix_gov_btn", type="primary"):
+        if st.button("→ Fix: Governance Issues", key="fix_gov_btn", type="primary"):
             st.session_state["current_tab"] = 2
             st.rerun()
 
@@ -3663,7 +3663,7 @@ def render_screen_1():
             with st.expander(f"⚠ {len(_missing_b)} required field(s) incomplete", expanded=True):
                 for _fk, _fl in _missing_b:
                     st.markdown(f"- {_fl}")
-                if st.button("Jump to first missing field", key="jump_missing_b"):
+                if st.button("→ Fix: Jump to First Missing Field", key="jump_missing_b", type="primary"):
                     _first_b = _TAB_IDX_B[_missing_b[0][0]]
                     st.session_state["current_tab"] = _first_b
                     st.rerun()
@@ -3799,7 +3799,7 @@ A **content quality penalty** (×0.5 to ×1.0) applies when the result statement
                 st.session_state["confirm_reset"] = True
                 st.rerun()
 
-        if st.button("Back", use_container_width=False):
+        if st.button("← Back to Home", use_container_width=False):
             _go_to_screen(0)
 
     _save_draft()
@@ -3913,7 +3913,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             st.caption(
                 f"Raw score before quality adjustment: {raw_conf}/5.0 — multiplier applied: ×{mult}"
             )
-        if st.button("← Return to Screen 1", key=f"invalid_back_{card_idx}"):
+        if st.button("← Edit Submission", key=f"invalid_back_{card_idx}"):
             st.session_state["screen"] = 1
             st.session_state["evaluations"] = None
             st.rerun()
@@ -4258,7 +4258,7 @@ def render_screen_2():
 
     if st.session_state.get("error_message"):
         st.error(st.session_state["error_message"])
-        if st.button("Go Back and Try Again"):
+        if st.button("← Edit Submission"):
             st.session_state["screen"] = 1
             st.session_state["evaluations"]  = None
             st.session_state["error_message"] = None
@@ -4270,7 +4270,7 @@ def render_screen_2():
 
     if not evs:
         st.warning("No evaluation results found. Please go back and try again.")
-        if st.button("Back"):
+        if st.button("← Edit Submission"):
             _go_to_screen(1)
         return
 
