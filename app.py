@@ -5176,6 +5176,42 @@ def render_screen_2():
                     use_container_width=True,
                     key="verification_summary_pdf_btn",
                 )
+
+            st.markdown(f"##### {_DONOR_TEMPLATE_COPY['section_header']}")
+            if _HAS_DOCX:
+                _donor_key = st.selectbox(
+                    _DONOR_TEMPLATE_COPY["selector_label"],
+                    options=list(_DONOR_TEMPLATES.keys()),
+                    format_func=lambda k: _DONOR_TEMPLATES[k]["label"],
+                    key="donor_template_select",
+                )
+                _template = _DONOR_TEMPLATES[_donor_key]
+                _field_rows = _donor_template_field_rows(_template, subs[0], evs[0])
+
+                with st.expander(f"{_DONOR_TEMPLATE_COPY['preview_label']} — {_template['label']}"):
+                    import pandas as pd
+                    st.dataframe(
+                        pd.DataFrame(_field_rows)[["Section", "Template field", "Diagnostic source", "Value"]],
+                        use_container_width=True, hide_index=True,
+                    )
+
+                _missing_required = [r["Template field"] for r in _field_rows if r["required"] and not r["provided"]]
+                if _missing_required:
+                    st.warning(
+                        _DONOR_TEMPLATE_COPY["missing_required_intro"] + "\n"
+                        + "\n".join(f"- {m}" for m in _missing_required)
+                    )
+
+                st.download_button(
+                    label=f"📄 Download {_template['label']} Template (DOCX)",
+                    data=_build_donor_template_docx(_template, subs[0], evs[0], timestamp),
+                    file_name=f"{_donor_key}_template_{timestamp}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True,
+                    key="donor_template_docx_btn",
+                )
+            else:
+                st.caption(_DONOR_TEMPLATE_COPY["no_docx"])
         else:
             st.caption("PDF: install xhtml2pdf to enable one-click PDF download.")
     with col_json:
@@ -5483,6 +5519,183 @@ def render_trends_view(history_df) -> None:
         _render_trend_chart(compare_df.sort_values("date"), "confidence_score", "Confidence (0-5)", color_col="label")
         st.markdown("##### Clarity comparison")
         _render_trend_chart(compare_df.sort_values("date"), "clarity_score", "Clarity (0-5)", color_col="label")
+
+
+# ---------------------------------------------------------------------------
+# Donor template export
+# ---------------------------------------------------------------------------
+
+_DONOR_TEMPLATE_COPY = {
+    "section_header": "Donor Template Export",
+    "selector_label": "Export for:",
+    "preview_label": "Preview field mapping",
+    "missing_required_intro": "Before exporting, note: these required fields have no verified data yet and will be marked \"Not provided\" in the export:",
+    "no_docx": "Donor template export needs python-docx. Install it to enable this.",
+}
+
+_DONOR_TEMPLATES = {
+    "generic": {
+        "label": "Generic",
+        "sections": [
+            {
+                "heading": "Result Overview",
+                "fields": [
+                    {"label": "Project / Programme Name", "source": "submission.project_name"},
+                    {"label": "Result Statement",          "source": "submission.result_statement"},
+                    {"label": "Logframe Indicator",         "source": "submission.logframe_indicator"},
+                    {"label": "Reporting Period",           "source": "submission.timeframe"},
+                    {"label": "Target Group",               "source": "submission.target_group"},
+                    {"label": "Geographic Scope",           "source": "submission.geographic_scope"},
+                ],
+                "required": ["Project / Programme Name", "Result Statement", "Logframe Indicator"],
+            },
+            {
+                "heading": "Evidence Quality Scores",
+                "fields": [
+                    {"label": "Confidence Score (0-5)", "source": "evaluation.confidence_score"},
+                    {"label": "Confidence Rating",       "source": "evaluation.confidence_label"},
+                    {"label": "Clarity Score (0-5)",     "source": "evaluation.clarity_score"},
+                    {"label": "Clarity Rating",          "source": "evaluation.clarity_label"},
+                ],
+                "required": [],
+            },
+            {
+                "heading": "Verification & Sign-off",
+                "fields": [
+                    {"label": "Internal Review Level", "source": "submission.internal_review"},
+                    {"label": "External Review Level", "source": "submission.external_review"},
+                    {"label": "Prepared By",            "source": "session.report_prepared_by"},
+                    {"label": "Status",                 "source": "session.report_status"},
+                ],
+                "required": [],
+            },
+        ],
+    },
+    "usaid": {
+        "label": "USAID",
+        "sections": [
+            {
+                "heading": "Activity / Indicator Information",
+                "fields": [
+                    {"label": "Activity Name",          "source": "submission.project_name"},
+                    {"label": "Performance Indicator",  "source": "submission.logframe_indicator"},
+                    {"label": "Reporting Period",        "source": "submission.timeframe"},
+                    {"label": "Target",                  "source": "submission.logframe_target"},
+                    {"label": "Achieved Result",         "source": "submission.logframe_achievement"},
+                ],
+                "required": ["Activity Name", "Performance Indicator", "Target", "Achieved Result"],
+            },
+            {
+                "heading": "Data Quality Assessment (DQA)",
+                "fields": [
+                    {"label": "Validity (Directness)",                  "source": "subscore.Directness"},
+                    {"label": "Reliability / Integrity (Verification)", "source": "subscore.Verification"},
+                    {"label": "Timeliness (Recency)",                   "source": "subscore.Recency"},
+                    {"label": "Precision (Definition)",                 "source": "subscore.Definition"},
+                    {"label": "Precision (Measurement)",                "source": "subscore.Measurement"},
+                    {"label": "Integrity (Ethics)",                     "source": "subscore.Integrity"},
+                    {"label": "Confidence Rating",                      "source": "evaluation.confidence_label"},
+                    {"label": "Clarity Rating",                         "source": "evaluation.clarity_label"},
+                ],
+                "required": ["Validity (Directness)", "Reliability / Integrity (Verification)"],
+            },
+            {
+                "heading": "DQA Limitations & Sign-off",
+                "fields": [
+                    {"label": "Known Data Limitations", "source": "submission.limitations_notes"},
+                    {"label": "Prepared By",             "source": "session.report_prepared_by"},
+                    {"label": "Status",                  "source": "session.report_status"},
+                ],
+                "required": [],
+            },
+        ],
+    },
+}
+
+
+def _resolve_donor_field_value(source: str, submission: dict, evaluation: dict):
+    """Resolve a 'namespace.key' source string from a donor template config
+    against the current submission/evaluation/session data.
+    Returns (value, provided) — provided=False means no real data exists,
+    caller must render 'Not provided' and never fabricate a value."""
+    if not source:
+        return None, False
+    namespace, _, key = source.partition(".")
+    if namespace == "submission":
+        val = submission.get(key)
+    elif namespace == "evaluation":
+        val = evaluation.get(key)
+    elif namespace == "subscore":
+        conf = evaluation.get("confidence_components", {}) or {}
+        clar = evaluation.get("clarity_components", {}) or {}
+        val = {
+            "Directness":   conf.get("direct_score"),
+            "Verification": conf.get("verify_score"),
+            "Recency":      conf.get("recency_score"),
+            "Definition":   clar.get("definition_score"),
+            "Measurement":  clar.get("measurement_score"),
+            "Integrity":    clar.get("integrity_score"),
+            "Scope":        clar.get("scope_score"),
+            "Governance":   clar.get("governance_score"),
+        }.get(key)
+    elif namespace == "session":
+        val = st.session_state.get(key)
+    else:
+        val = None
+    provided = val is not None and str(val).strip() != ""
+    return val, provided
+
+
+def _donor_template_field_rows(template: dict, submission: dict, evaluation: dict) -> list:
+    """One row per template field: section, label, source, value (or
+    'Not provided'), provided flag, required flag. Used for both the
+    mapping-preview table and the pre-export checklist."""
+    rows = []
+    for section in template["sections"]:
+        required = set(section.get("required", []))
+        for field in section["fields"]:
+            value, provided = _resolve_donor_field_value(field["source"], submission, evaluation)
+            rows.append({
+                "Section": section["heading"],
+                "Template field": field["label"],
+                "Diagnostic source": field["source"],
+                "Value": value if provided else "Not provided",
+                "provided": provided,
+                "required": field["label"] in required,
+            })
+    return rows
+
+
+def _build_donor_template_docx(template: dict, submission: dict, evaluation: dict, timestamp: str) -> bytes:
+    """Render submission/evaluation into the selected donor template as an
+    editable DOCX. Fields with no verified data are written literally as
+    'Not provided' — never inferred or fabricated."""
+    import io
+
+    doc = _docx.Document()
+    doc.add_heading(f"{template['label']} Report", level=0)
+    doc.add_paragraph(f"Generated by Impact-Receipts: {timestamp}")
+
+    for section in template["sections"]:
+        doc.add_heading(section["heading"], level=1)
+        table = doc.add_table(rows=0, cols=2)
+        table.style = "Light Grid Accent 1"
+        for field in section["fields"]:
+            value, provided = _resolve_donor_field_value(field["source"], submission, evaluation)
+            cells = table.add_row().cells
+            cells[0].text = field["label"]
+            cells[1].text = str(value) if provided else "Not provided"
+
+    doc.add_heading("About this export", level=1)
+    doc.add_paragraph(
+        f"Evaluated using {METHODOLOGY_STACK}. {_LIMITS_DISCLAIMER} "
+        "Fields marked 'Not provided' had no verified data entered for this "
+        "submission and were intentionally left blank."
+    )
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
 
 
 def _html_to_pdf_bytes(html: str) -> bytes | None:
