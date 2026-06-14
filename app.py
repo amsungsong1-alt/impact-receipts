@@ -2256,6 +2256,7 @@ def _build_submission_from_session(slot: int = 1) -> dict:
         "disaggregation_status":     st.session_state.get(f"disaggregation_status{s}", "Not specified"),
         "donor":                     donor,
         "sector":                    sector,
+        "project_name":              st.session_state.get("project_name", ""),
         "submission_type":           submission_type,
         "evidence": [{
             "type":        ev_type,
@@ -3554,6 +3555,11 @@ def render_screen_1():
         options=["(No donor specified)", "USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "EU / EuropeAid", "Other"],
         index=0,
         help="Select your primary donor to receive tailored reporting tips and donor-specific diagnostic guidance.",
+    )
+    st.text_input(
+        "Project name (optional — used to group/compare indicators in Trends over time)",
+        key="project_name",
+        placeholder="e.g., Northern Region WASH Programme",
     )
     _donor_val = st.session_state.get("donor_selected", "(No donor specified)")
     if _donor_val == "Other":
@@ -5233,6 +5239,29 @@ def save_all_files(submission: dict, evaluation: dict) -> dict:
         json.dump(submission, f, indent=2, ensure_ascii=False, default=str)
 
     save_eval = {k: v for k, v in evaluation.items() if not k.startswith("_")}
+
+    # --- Trends over time: additive fields, no scoring math changed ---
+    _conf_comp = evaluation.get("confidence_components", {}) or {}
+    _clar_comp = evaluation.get("clarity_components", {}) or {}
+    _indicator_label = (submission.get("logframe_indicator") or "").strip()
+    save_eval.update({
+        "indicator_id":    _indicator_label.lower(),
+        "indicator_label": _indicator_label,
+        "project_name":    submission.get("project_name", ""),
+        "submission_date": datetime.now().strftime("%Y-%m-%d"),
+        "sub_scores": {
+            "Directness":   _conf_comp.get("direct_score"),
+            "Verification": _conf_comp.get("verify_score"),
+            "Recency":      _conf_comp.get("recency_score"),
+            "Definition":   _clar_comp.get("definition_score"),
+            "Measurement":  _clar_comp.get("measurement_score"),
+            "Integrity":    _clar_comp.get("integrity_score"),
+            "Scope":        _clar_comp.get("scope_score"),
+            "Governance":   _clar_comp.get("governance_score"),
+        },
+    })
+    # --- END Trends over time ---
+
     with open(paths["evaluation"], "w", encoding="utf-8") as f:
         json.dump(save_eval, f, indent=2, ensure_ascii=False)
 
@@ -5247,6 +5276,213 @@ def _make_slug(text: str, max_len: int = 45) -> str:
     slug = re.sub(r"[^\w\s-]", "", text.lower())
     slug = re.sub(r"[\s_-]+", "-", slug).strip("-")
     return slug[:max_len]
+
+
+# ---------------------------------------------------------------------------
+# Trends over time
+# ---------------------------------------------------------------------------
+
+_TREND_COPY = {
+    "header": "📈 Trends over time",
+    "intro": "See how each indicator's Confidence and Clarity scores change across reporting cycles.",
+    "no_data": "No saved submissions yet. Run a check on Screen 2 to start building history for this view.",
+    "one_point": "Not enough history yet to show a trend — only one submission recorded so far for this indicator.",
+    "select_primary": "Select an indicator/result to view its trend",
+    "select_compare": "Compare with other indicators (optional)",
+    "delta_caption": "Change since previous submission ({prev_date} → {curr_date}):",
+}
+
+_TREND_SUB_SCORE_DIMS = [
+    "Directness", "Verification", "Recency", "Definition",
+    "Measurement", "Integrity", "Scope", "Governance",
+]
+
+
+def _load_trend_history():
+    """Scan evaluations/*_evaluation.json and build a tidy history of saved
+    submissions: one row per file with indicator_id, indicator_label,
+    project_name, date, confidence_score, clarity_score, and the 8 sub-scores.
+
+    Pre-existing evaluation files (saved before this feature) are backfilled
+    from their paired inputs/*_input.json and filename timestamp. Rows with
+    no indicator label are skipped — never fabricated.
+    """
+    import glob
+    import pandas as pd
+
+    rows = []
+    for path in sorted(glob.glob(os.path.join("evaluations", "*_evaluation.json"))):
+        try:
+            with open(path, encoding="utf-8") as f:
+                ev = json.load(f)
+        except Exception:
+            continue
+
+        base = os.path.basename(path)[: -len("_evaluation.json")]
+
+        indicator_label = ev.get("indicator_label")
+        project_name    = ev.get("project_name")
+        date_str        = ev.get("submission_date")
+        sub_scores      = ev.get("sub_scores")
+
+        if indicator_label is None or project_name is None:
+            sub = {}
+            input_path = os.path.join("inputs", f"{base}_input.json")
+            if os.path.exists(input_path):
+                try:
+                    with open(input_path, encoding="utf-8") as f:
+                        sub = json.load(f)
+                except Exception:
+                    sub = {}
+            if indicator_label is None:
+                indicator_label = (sub.get("logframe_indicator") or "").strip()
+            if project_name is None:
+                project_name = sub.get("project_name", "")
+
+        if not date_str:
+            try:
+                date_str = datetime.strptime(base[:15], "%Y%m%d_%H%M%S").strftime("%Y-%m-%d")
+            except ValueError:
+                date_str = ""
+
+        if not indicator_label:
+            continue  # can't place on a per-indicator trend without a label
+
+        if not sub_scores:
+            _conf_comp = ev.get("confidence_components", {}) or {}
+            _clar_comp = ev.get("clarity_components", {}) or {}
+            sub_scores = {
+                "Directness":   _conf_comp.get("direct_score"),
+                "Verification": _conf_comp.get("verify_score"),
+                "Recency":      _conf_comp.get("recency_score"),
+                "Definition":   _clar_comp.get("definition_score"),
+                "Measurement":  _clar_comp.get("measurement_score"),
+                "Integrity":    _clar_comp.get("integrity_score"),
+                "Scope":        _clar_comp.get("scope_score"),
+                "Governance":   _clar_comp.get("governance_score"),
+            }
+
+        row = {
+            "indicator_id":     indicator_label.strip().lower(),
+            "indicator_label":  indicator_label,
+            "project_name":     project_name or "",
+            "date":             date_str,
+            "confidence_score": ev.get("confidence_score"),
+            "clarity_score":    ev.get("clarity_score"),
+        }
+        for dim in _TREND_SUB_SCORE_DIMS:
+            row[dim] = sub_scores.get(dim)
+        rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
+def _trend_indicator_options(history_df):
+    """Return {indicator_id: display_label} for the selectors, in first-seen order."""
+    options = {}
+    for _, row in history_df.iterrows():
+        iid = row["indicator_id"]
+        if iid in options:
+            continue
+        label = row["indicator_label"]
+        if row.get("project_name"):
+            label = f"{label} — {row['project_name']}"
+        options[iid] = label
+    return options
+
+
+def _render_trend_chart(plot_df, value_col, y_title, color_col=None):
+    """Render a date-vs-score line chart, Altair normally, st.line_chart in lite mode."""
+    if st.session_state.get("lite_mode", False):
+        if color_col:
+            pivoted = plot_df.pivot(index="date", columns=color_col, values=value_col)
+        else:
+            pivoted = plot_df.set_index("date")[[value_col]]
+        st.line_chart(pivoted)
+        return
+
+    import altair as alt
+    enc = {
+        "x": alt.X("date:T", title="Date"),
+        "y": alt.Y(f"{value_col}:Q", title=y_title, scale=alt.Scale(domain=[0, 5])),
+        "tooltip": ["date:T", f"{value_col}:Q"] + ([f"{color_col}:N"] if color_col else []),
+    }
+    if color_col:
+        enc["color"] = alt.Color(f"{color_col}:N", title=None)
+        enc["tooltip"] = ["date:T", f"{color_col}:N", f"{value_col}:Q"]
+    chart = alt.Chart(plot_df).mark_line(point=True).encode(**enc).properties(width="container")
+    st.altair_chart(chart, use_container_width=True)
+
+
+def render_trends_view(history_df) -> None:
+    """Render the 'Trends over time' section for a selected indicator,
+    with optional side-by-side comparison against other indicators."""
+    import pandas as pd
+
+    if history_df.empty:
+        st.info(_TREND_COPY["no_data"])
+        return
+
+    options = _trend_indicator_options(history_df)
+    ids = list(options.keys())
+
+    primary_id = st.selectbox(
+        _TREND_COPY["select_primary"],
+        options=ids,
+        format_func=lambda i: options[i],
+        key="trend_primary_indicator",
+    )
+    compare_ids = st.multiselect(
+        _TREND_COPY["select_compare"],
+        options=[i for i in ids if i != primary_id],
+        format_func=lambda i: options[i],
+        key="trend_compare_indicators",
+    )
+
+    primary_df = (history_df[history_df["indicator_id"] == primary_id]
+                   .sort_values("date").reset_index(drop=True))
+
+    if len(primary_df) == 1:
+        row = primary_df.iloc[0]
+        st.info(_TREND_COPY["one_point"])
+        cols = st.columns(2)
+        cols[0].metric("Confidence", f"{row['confidence_score']}/5.0")
+        cols[1].metric("Clarity", f"{row['clarity_score']}/5.0")
+        sub_cols = st.columns(4)
+        for i, dim in enumerate(_TREND_SUB_SCORE_DIMS):
+            val = row.get(dim)
+            if pd.notna(val):
+                sub_cols[i % 4].metric(dim, val)
+    else:
+        long_rows = []
+        for _, row in primary_df.iterrows():
+            long_rows.append({"date": row["date"], "series": "Confidence", "score": row["confidence_score"]})
+            long_rows.append({"date": row["date"], "series": "Clarity", "score": row["clarity_score"]})
+        _render_trend_chart(pd.DataFrame(long_rows), "score", "Score (0-5)", color_col="series")
+
+        prev, curr = primary_df.iloc[-2], primary_df.iloc[-1]
+        st.caption(_TREND_COPY["delta_caption"].format(prev_date=prev["date"], curr_date=curr["date"]))
+        cols = st.columns(2)
+        cols[0].metric("Confidence", f"{curr['confidence_score']}/5.0",
+                        delta=round(curr["confidence_score"] - prev["confidence_score"], 2))
+        cols[1].metric("Clarity", f"{curr['clarity_score']}/5.0",
+                        delta=round(curr["clarity_score"] - prev["clarity_score"], 2))
+        sub_cols = st.columns(4)
+        for i, dim in enumerate(_TREND_SUB_SCORE_DIMS):
+            cv, pv = curr.get(dim), prev.get(dim)
+            if pd.isna(cv) or pd.isna(pv):
+                continue
+            delta = round(cv - pv, 2)
+            if delta != 0:
+                sub_cols[i % 4].metric(dim, cv, delta=delta)
+
+    if compare_ids:
+        compare_df = history_df[history_df["indicator_id"].isin([primary_id] + compare_ids)].copy()
+        compare_df["label"] = compare_df["indicator_id"].map(options)
+        st.markdown("##### Confidence comparison")
+        _render_trend_chart(compare_df.sort_values("date"), "confidence_score", "Confidence (0-5)", color_col="label")
+        st.markdown("##### Clarity comparison")
+        _render_trend_chart(compare_df.sort_values("date"), "clarity_score", "Clarity (0-5)", color_col="label")
 
 
 def _html_to_pdf_bytes(html: str) -> bytes | None:
@@ -5646,6 +5882,12 @@ def render_screen_3():
             )
         else:
             st.caption("PDF: install xhtml2pdf to enable one-click PDF download.")
+
+    # place this here: end of render_screen_3(), after the existing portfolio block
+    st.divider()
+    st.markdown(f"### {_TREND_COPY['header']}")
+    st.caption(_TREND_COPY["intro"])
+    render_trends_view(_load_trend_history())
 
 
 def _overview_score_values(ev):
