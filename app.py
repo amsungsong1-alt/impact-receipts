@@ -694,6 +694,57 @@ _DIAGNOSTIC_BADGE = {
     "INCOMPLETE":         {"bg": "#9E9E9E", "text": "#FFFFFF", "subtitle": "Fill remaining fields"},
 }
 
+# Three-state "is this good enough to submit?" headline, collapsed from the
+# 7-state diagnostic classification above.
+_READINESS_BAND = {
+    "STRONG":             "Submission-Ready",
+    "NEEDS REFINEMENT":   "Needs Work",
+    "MISLEADING":         "Needs Work",
+    "UNDEREVIDENCED":     "Needs Work",
+    "INCOMPLETE":         "Needs Work",
+    "FUNDAMENTALLY WEAK": "Not Defensible",
+    "INVALID INPUT":      "Not Defensible",
+}
+
+_READINESS_STYLE = {
+    "Submission-Ready": {
+        "bg": "#1B5E20", "icon": "✅",
+        "caption": "Both axes are strong enough to include in a donor report as written.",
+    },
+    "Needs Work": {
+        "bg": "#8A6500", "icon": "✏️",
+        "caption": "Specific gaps remain — address the items below before submitting.",
+    },
+    "Not Defensible": {
+        "bg": "#B71C1C", "icon": "🛑",
+        "caption": "Major gaps on one or both axes — likely to be challenged or rejected as written.",
+    },
+}
+
+
+def _render_readiness_banner(diag_state: str):
+    band = _READINESS_BAND.get(diag_state, "Needs Work")
+    style = _READINESS_STYLE[band]
+    _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
+    st.markdown(
+        f"<div class='readiness-banner' style='background:{style['bg']};{_pca}'>"
+        f"{style['icon']} {band} &mdash; {style['caption']}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _readiness_banner_html(diag_state: str) -> str:
+    band = _READINESS_BAND.get(diag_state, "Needs Work")
+    style = _READINESS_STYLE[band]
+    return (
+        f"<div style='background:{style['bg']};color:#FFFFFF;border-radius:10px;"
+        f"padding:14px 20px;font-weight:700;text-align:center;margin:16px 0;font-size:1.1rem;"
+        f"-webkit-print-color-adjust:exact;print-color-adjust:exact;'>"
+        f"{style['icon']} {band} &mdash; {style['caption']}"
+        f"</div>"
+    )
+
 INTERNAL_REVIEW_OPTIONS = [
     "Choose an option...",
     "Reviewed by MEL Officer",
@@ -1072,6 +1123,17 @@ h1, h2, h3, h4 {
   margin-bottom: 12px;
   display: inline-block;
   letter-spacing: 0.02em;
+}
+
+/* Top-line "is this good enough to submit?" banner */
+.readiness-banner {
+  padding: 14px 20px;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-bottom: 12px;
+  color: #FFFFFF;
+  text-align: center;
 }
 
 /* Mobile-first improvements */
@@ -1677,6 +1739,11 @@ def _render_live_score_preview(slot: int = 1):
 
     # Labels derived from the raw confidence so they match the displayed number
     raw_conf_label, _ = _evaluator.interpret_score(raw_conf) if hasattr(_evaluator, "interpret_score") else (ev.get("confidence_label", "—"), "")
+
+    # Headline: is this good enough to submit?
+    _live_diag_state, _ = get_diagnostic_state(raw_conf, clar_score, content_issues, sub.get("beneficiary_voice", ""))
+    if _live_diag_state != "INVALID INPUT":
+        _render_readiness_banner(_live_diag_state)
 
     c1, c2 = st.columns(2)
     with c1:
@@ -4011,6 +4078,11 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     content_issues    = ev.get("content_issues", [])
     bv_voice_field    = submission.get("beneficiary_voice", "")
     diag_state, diag_sub = get_diagnostic_state(conf_score, clar_score, content_issues, bv_voice_field)
+
+    # Headline: is this good enough to submit?
+    if diag_state != "INVALID INPUT":
+        _render_readiness_banner(diag_state)
+
     diag_cfg = _DIAGNOSTIC_BADGE.get(diag_state, {"bg": "#9E9E9E", "text": "#FFFFFF", "subtitle": ""})
     _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
     st.markdown(
@@ -4852,6 +4924,14 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
     }
     verdict_bg = verdict_colors.get(verdict, "#1B5E20")
 
+    # Headline: is this good enough to submit?
+    _diag_state, _ = get_diagnostic_state(
+        conf_score, clar_score,
+        evaluation.get("content_issues", []),
+        submission.get("beneficiary_voice", ""),
+    )
+    _readiness_html = _readiness_banner_html(_diag_state)
+
     files_row = (f"<p><strong>Attached documents:</strong> {', '.join(filenames)}</p>"
                  if filenames else "")
 
@@ -5124,6 +5204,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
    <strong>Timeframe:</strong> {submission.get('timeframe', '-')}<br/>
    <strong>Geographic Scope:</strong> {submission.get('geographic_scope', '-')}</p>
 {files_row}
+{_readiness_html}
 {four_questions_html}
 <div style="background:{verdict_bg};color:white;border-radius:10px;padding:14px 20px;
      font-weight:700;text-align:center;margin:20px 0;font-size:1rem;
