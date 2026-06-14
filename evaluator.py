@@ -182,13 +182,14 @@ def score_directness(evidence_description: str, evidence_type: str) -> float:
 
     if any(kw in text for kw in [
         "alternative explanation", "ruled out", "counterfactual",
-        "independent evaluation", "contribution analysis", "process trace",
+        "contribution analysis", "process trace", "triangulat",
+        "multiple independent sources", "cross-checked", "corroborat",
     ]):
         return 5.0
 
     if any(kw in text for kw in [
         "theory of change", "toc", "outcome data", "baseline",
-        "endline", "comparison group", "control",
+        "endline", "comparison group", "control", "independent evaluation",
     ]):
         return 4.0
 
@@ -787,6 +788,18 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict) -> li
             "score_impact": f"+up to {_gain} on Confidence",
             "score_impact_value": _gain,
         })
+    elif direct_score < 2.0:
+        _gain = round(2.0 - direct_score, 2)
+        fixes.append({
+            "dimension": "confidence",
+            "message": (
+                "Strengthen your contribution case — note what else could explain "
+                "this result and how you ruled it out, or triangulate with a "
+                "second independent data source."
+            ),
+            "score_impact": f"+up to {_gain} on Confidence",
+            "score_impact_value": _gain,
+        })
 
     if verify_score < (3 / 5) * 2.0:
         current   = round(verify_score, 1)
@@ -904,12 +917,12 @@ def get_score_rationale(dimension: str, level: int, current_score: float, max_sc
     """
     _rationales = {
         "directness": {
-            "standard": "USAID ADS 201.3.5.7 — Validity",
+            "standard": "USAID ADS 201.3.5.7 — Validity; Bond Evidence Principles — Triangulation",
             "interpretations": {
-                5: "Direct primary evidence with 1:1 traceability to the claim.",
-                4: "Mostly direct evidence with minor inconsistencies acknowledged.",
-                3: "Indirect but relevant evidence — aggregated reports without raw source records.",
-                2: "Weak proxy evidence — verbal reports or photos without metadata.",
+                5: "Contribution rigorously established — alternative explanations considered and ruled out, or evidence triangulated across independent sources.",
+                4: "Strong contribution signal — baseline/endline, comparison group, theory of change, or an independent evaluation.",
+                3: "Programme records (attendance, logs, outputs) show the activity occurred, but not yet the contribution story.",
+                2: "Perception-based evidence (surveys, interviews, self-report) — useful for triangulation, not standalone proof.",
                 1: "Very weak proxy — estimates or back-calculated figures.",
                 0: "No supporting evidence provided.",
             },

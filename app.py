@@ -4026,11 +4026,11 @@ _VERDICT_CSS = {
 
 
 _DIRECTNESS_TIPS = {
-    5: "Level 5 — Direct measurement: strongest possible evidence, fully traceable to the result.",
-    4: "Level 4 — Near-direct evidence with high traceability (e.g. attendance sheets, photos with metadata).",
-    3: "Level 3 — Moderately direct evidence; some verification gaps (e.g. partner letters, third-party audits).",
-    2: "Level 2 — Indirect evidence; limited ability to trace back to the result.",
-    1: "Level 1 — Very indirect evidence; cannot reliably attribute to this result.",
+    5: "Level 5 — Contribution rigorously established: alternative explanations considered and ruled out, or evidence triangulated across independent sources.",
+    4: "Level 4 — Strong contribution signal: baseline/endline, comparison group, theory of change, or an independent evaluation.",
+    3: "Level 3 — Programme records (attendance, logs, outputs) show the activity occurred, but not yet the contribution story.",
+    2: "Level 2 — Perception-based evidence (surveys, interviews, self-report) — useful for triangulation, not standalone proof.",
+    1: "Level 1 — No evidence yet linking activities to this result.",
 }
 
 _VERIFICATION_TIPS = {
