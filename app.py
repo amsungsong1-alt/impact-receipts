@@ -1274,6 +1274,7 @@ def _init_session_state():
         "sector":              SECTOR_OPTIONS[0],
         "confirm_reset":       False,
         "gov_dpp_uploaded":    False,
+        "lite_mode":           False,
         # --- UX (v3.2) ---
         "current_tab":         0,
         "remembered_donor":    "",
@@ -1727,7 +1728,15 @@ def _subscore_chart(items):
 
 
 def _render_subscore_chart(items, key: str):
-    """Render an interactive horizontal bar chart of sub-scores with hover tooltips."""
+    """Render an interactive horizontal bar chart of sub-scores with hover tooltips.
+
+    In low-bandwidth mode, render plain progress bars instead of an Altair chart.
+    """
+    if st.session_state.get("lite_mode", False):
+        for label, score, max_val, _detail in items:
+            pct = min(score / max_val, 1.0) if max_val else 0.0
+            st.progress(pct, text=f"{label}: {score}/{max_val}")
+        return
     st.altair_chart(_subscore_chart(items), use_container_width=True, key=key)
 
 
@@ -1809,6 +1818,17 @@ def _evidence_ladder_chart(ladder):
 
 
 def _render_evidence_ladder_chart(ladder, key: str):
+    """Render the Evidence Ladder chart.
+
+    In low-bandwidth mode, render a plain markdown list instead of an Altair chart.
+    """
+    if st.session_state.get("lite_mode", False):
+        dominant = ladder.get("dominant_tier")
+        counts   = ladder.get("tier_counts", {})
+        for tier in _evaluator.EVIDENCE_LADDER_TIERS:
+            marker = "👉 " if tier == dominant else "◦ "
+            st.markdown(f"{marker}**{tier}** — {counts.get(tier, 0)} source(s) detected")
+        return
     st.altair_chart(_evidence_ladder_chart(ladder), use_container_width=True, key=key)
 
 
@@ -3075,6 +3095,8 @@ def render_screen_0():
         """,
         unsafe_allow_html=True,
     )
+
+    st.caption("On a slow connection? Open the sidebar («, top-left) and turn on ⚡ Low-bandwidth mode.")
 
     if st.button("Run My Confidence Check", type="primary", use_container_width=True, key="cta_top"):
         if not st.session_state.get("has_seen_tutorial"):
@@ -4810,6 +4832,8 @@ def render_screen_2():
             mime="text/html",
             use_container_width=True,
         )
+        if st.session_state.get("lite_mode", False):
+            st.caption("Low-bandwidth mode: report will be a smaller, self-contained file viewable offline.")
         _pdf_bytes = _html_to_pdf_bytes(html_report)
         if _pdf_bytes:
             st.download_button(
@@ -5267,7 +5291,13 @@ def render_screen_3():
             "Sourcing & Triangulation (case/respondent selection, triangulation, and bias "
             "mitigation) instead of measurement precision."
         )
-        st.altair_chart(_portfolio_heatmap_chart(results_df), use_container_width=True, key="portfolio_heatmap")
+        if st.session_state.get("lite_mode", False):
+            st.caption(
+                "Heatmap hidden in low-bandwidth mode — see the results table "
+                "below for the same data."
+            )
+        else:
+            st.altair_chart(_portfolio_heatmap_chart(results_df), use_container_width=True, key="portfolio_heatmap")
 
         st.markdown("#### Results table")
         st.dataframe(
@@ -5379,6 +5409,7 @@ def _build_overview_chart_b64(conf, clar, eth, comp):
 
 
 def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart_id: str = "0") -> str:
+    lite = st.session_state.get("lite_mode", False)
     conf_score = evaluation.get("confidence_score", 0)
     clar_score = evaluation.get("clarity_score", 0)
     conf_label = evaluation.get("confidence_label", "")
@@ -5463,7 +5494,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
 
     # --- Overview chart for report ---
     _r_conf, _r_clar, _r_eth, _r_comp = _overview_score_values(evaluation)
-    _overview_b64 = _build_overview_chart_b64(_r_conf, _r_clar, _r_eth, _r_comp)
+    _overview_b64 = "" if lite else _build_overview_chart_b64(_r_conf, _r_clar, _r_eth, _r_comp)
     _overview_alt = (
         f"Overview chart of diagnostic scores out of 100: Confidence {_r_conf:.0f}, "
         f"Clarity {_r_clar:.0f}, Ethics {_r_eth:.0f}, Compliance {_r_comp:.0f}."
@@ -5489,21 +5520,26 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
     ) if _overview_b64 else ""
 
     # --- Interactive (vega-embed) sub-score charts for the downloadable report ---
-    _conf_spec_json = _subscore_chart([
-        (f"Directness (Level {dl}/5)", ds, 2.0, _DIRECTNESS_TIPS.get(dl, "")),
-        (f"Verification (Level {vl}/5)", vs, 2.0, _VERIFICATION_TIPS.get(vl, "")),
-        (f"Recency (Level {rl}/5)", rs, 1.0, _RECENCY_TIPS.get(rl, "")),
-    ]).to_json()
-    _clar_spec_json = _subscore_chart([
-        ("Definition", def_s, 1.25, _CLARITY_TIPS["definition"]),
-        (meas_label, meas_s, 1.25, meas_tip),
-        ("Integrity", integ, 1.0, _CLARITY_TIPS["integrity"]),
-        ("Scope", scope, 0.75, _CLARITY_TIPS["scope"]),
-        ("Governance", gov, 0.75, _CLARITY_TIPS["governance"]),
-    ]).to_json()
-    _conf_chart_div = f'<div id="conf-chart-{chart_id}" class="no-print" style="margin-top:10px;"></div>'
-    _clar_chart_div = f'<div id="clar-chart-{chart_id}" class="no-print" style="margin-top:10px;"></div>'
-    _charts_script = f"""
+    if lite:
+        _conf_chart_div = ""
+        _clar_chart_div = ""
+        _charts_script = ""
+    else:
+        _conf_spec_json = _subscore_chart([
+            (f"Directness (Level {dl}/5)", ds, 2.0, _DIRECTNESS_TIPS.get(dl, "")),
+            (f"Verification (Level {vl}/5)", vs, 2.0, _VERIFICATION_TIPS.get(vl, "")),
+            (f"Recency (Level {rl}/5)", rs, 1.0, _RECENCY_TIPS.get(rl, "")),
+        ]).to_json()
+        _clar_spec_json = _subscore_chart([
+            ("Definition", def_s, 1.25, _CLARITY_TIPS["definition"]),
+            (meas_label, meas_s, 1.25, meas_tip),
+            ("Integrity", integ, 1.0, _CLARITY_TIPS["integrity"]),
+            ("Scope", scope, 0.75, _CLARITY_TIPS["scope"]),
+            ("Governance", gov, 0.75, _CLARITY_TIPS["governance"]),
+        ]).to_json()
+        _conf_chart_div = f'<div id="conf-chart-{chart_id}" class="no-print" style="margin-top:10px;"></div>'
+        _clar_chart_div = f'<div id="clar-chart-{chart_id}" class="no-print" style="margin-top:10px;"></div>'
+        _charts_script = f"""
 <script type="application/json" id="conf-spec-{chart_id}">{_conf_spec_json}</script>
 <script type="application/json" id="clar-spec-{chart_id}">{_clar_spec_json}</script>
 <script>
@@ -5683,6 +5719,16 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
 <ul>{advisory_items}</ul>
 """
 
+    _vega_scripts = "" if lite else (
+        '<script src="https://cdn.jsdelivr.net/npm/vega@5"></script>\n'
+        '<script src="https://cdn.jsdelivr.net/npm/vega-lite@6"></script>\n'
+        '<script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>'
+    )
+    _lite_note = (
+        '<p style="color:#8A6500;font-size:0.85rem;">'
+        'Low-bandwidth mode &mdash; simplified report (no embedded charts).</p>'
+    ) if lite else ""
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5690,9 +5736,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Impact-Receipts Report</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet"/>
-<script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
-<script src="https://cdn.jsdelivr.net/npm/vega-lite@6"></script>
-<script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+{_vega_scripts}
 <style>
   body{{font-family:'Inter',sans-serif;color:#212121;max-width:860px;margin:40px auto;padding:0 24px;}}
   h1,h2,h3{{color:#1B5E20;}} h1{{font-size:1.6rem;}} h2{{font-size:1.2rem;border-bottom:1px solid #8A6500;padding-bottom:4px;margin-top:28px;}}
@@ -5711,6 +5755,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
 <body>
 <h1>Impact-Receipts Evaluation Report</h1>
 <p style="color:#616161;font-size:0.88rem;">Generated: {timestamp}</p>
+{_lite_note}
 {_meta_html}
 {_overview_img}
 {_overview_legend}
@@ -6022,6 +6067,15 @@ def main():
 
     st.markdown(CSS, unsafe_allow_html=True)
     _init_session_state()
+
+    with st.sidebar:
+        st.toggle(
+            "⚡ Low-bandwidth mode",
+            key="lite_mode",
+            help="Fewer interactive charts and a smaller, self-contained "
+                 "downloadable report — for offices with slow or unreliable "
+                 "internet.",
+        )
 
     # --- Paystack payment callback handler ---
     # Paystack always appends "?trxref=...&reference=..." to the callback_url
