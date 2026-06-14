@@ -481,7 +481,7 @@ _IRC_PATTERNS = {
 
 
 def _extract_text_from_file(fname_lower, raw):
-    """Extract plain text from a PDF, DOCX, TXT, PPTX, or XLSX file's raw bytes.
+    """Extract plain text from a PDF, DOCX, TXT, CSV, PPTX, or XLSX file's raw bytes.
 
     Returns (text, error_message). On success error_message is "".
     On failure text is "" and error_message describes why.
@@ -501,7 +501,7 @@ def _extract_text_from_file(fname_lower, raw):
             return "", "python-docx not installed. Run: pip install python-docx"
         _dobj = _docx.Document(_io.BytesIO(raw))
         text = "\n".join(p.text for p in _dobj.paragraphs)
-    elif fname_lower.endswith(".txt"):
+    elif fname_lower.endswith(".txt") or fname_lower.endswith(".csv"):
         text = raw.decode("utf-8", errors="replace")
     elif fname_lower.endswith(".pptx"):
         if not _HAS_PPTX:
@@ -524,7 +524,7 @@ def _extract_text_from_file(fname_lower, raw):
             text += f"\n--- Sheet: {_sheet_name} ---\n"
             text += _df.to_string(index=False) + "\n"
     else:
-        return "", "Unsupported file type. Upload a PDF, DOCX, TXT, PPTX, or XLSX."
+        return "", "Unsupported file type. Upload a PDF, DOCX, TXT, CSV, PPTX, or XLSX."
     return text, ""
 
 
@@ -3708,7 +3708,7 @@ def render_screen_1():
                 expanded=True,
             ):
                 st.caption(
-                    "Upload your donor report (PDF, DOCX, TXT, PPTX, or Excel), or a previously "
+                    "Upload your donor report (PDF, DOCX, TXT, CSV, PPTX, or Excel), or a previously "
                     "downloaded Impact-Receipts draft (JSON) to pick up where you left off. "
                     "Responsible AI pre-fills fields across all tabs using only what's written in your document — "
                     "it never invents or assumes missing data. Always review before submitting."
@@ -3723,7 +3723,7 @@ def render_screen_1():
                 else:
                     _irc_files = st.file_uploader(
                         "Upload report file(s) (or a previously downloaded draft.json)",
-                        type=["pdf", "docx", "txt", "pptx", "xlsx", "xls", "json"],
+                        type=["pdf", "docx", "txt", "csv", "pptx", "xlsx", "xls", "json"],
                         key="instant_report_upload",
                         accept_multiple_files=True,
                     )
