@@ -554,6 +554,35 @@ def _extract_report_fields(uploaded_file):
     return fields, found, not_found
 
 
+def _irc_extract_combined(doc_files):
+    """Extract and combine text + rule-based fields from one or more uploaded files.
+
+    Returns (full_text, raw_fields, error_message). error_message is "" on success.
+    """
+    if not doc_files:
+        return "", {}, ("No readable text found in this document. Please upload a "
+                         "text-based PDF, DOCX, TXT, PPTX, or XLSX — scanned image "
+                         "files cannot be extracted.")
+    parts = []
+    raw_fields = {}
+    for f in doc_files:
+        f.seek(0)
+        text, err = _extract_text_from_file(f.name.lower(), f.read())
+        if err:
+            return "", {}, f"{f.name}: {err}"
+        if not text.strip():
+            return "", {}, (f"No readable text found in {f.name}. Please upload a "
+                             f"text-based PDF, DOCX, TXT, PPTX, or XLSX — scanned image "
+                             f"files cannot be extracted.")
+        parts.append(f"--- Document: {f.name} ---\n\n{text}")
+        f.seek(0)
+        fields, _, _ = _extract_report_fields(f)
+        for fk, fv in (fields or {}).items():
+            if fv and not raw_fields.get(fk):
+                raw_fields[fk] = fv
+    return "\n\n".join(parts), raw_fields, ""
+
+
 def _irc_parse_date(s):
     """Parse YYYY/MM/DD string to date, return None on failure."""
     if not s or s == "Not found":
@@ -3686,23 +3715,36 @@ def render_screen_1():
                 )
                 _irc_paid_flag = (st.session_state.get("is_paid") or
                                   is_still_paid(get_user(st.session_state.get("user_email",""))))
-                _irc_file = None
+                _irc_files = []
                 if not _irc_paid_flag:
                     st.info("🔒 **Instant Report Check is a paid feature.** "
                             "Upgrade to auto-fill all form fields from your uploaded document.")
                     _render_paywall(irc_context=True)
                 else:
-                    _irc_file = st.file_uploader(
-                        "Upload report file (or a previously downloaded draft.json)",
+                    _irc_files = st.file_uploader(
+                        "Upload report file(s) (or a previously downloaded draft.json)",
                         type=["pdf", "docx", "txt", "pptx", "xlsx", "xls", "json"],
                         key="instant_report_upload",
+                        accept_multiple_files=True,
                     )
+                    # --- track and display when each file was added ---
+                    _irc_upload_times = st.session_state.setdefault("_irc_upload_times", {})
+                    for _f in _irc_files:
+                        _fkey = f"{_f.name}_{_f.size}"
+                        if _fkey not in _irc_upload_times:
+                            _irc_upload_times[_fkey] = datetime.now().strftime("%H:%M:%S")
+                    if _irc_files:
+                        for _f in _irc_files:
+                            _fkey = f"{_f.name}_{_f.size}"
+                            st.caption(f"📄 {_f.name} — added {_irc_upload_times.get(_fkey, '')}")
                 _irc_run_clicked = (_irc_paid_flag and st.button("🔍 Run Instant Check", key="run_instant_check")
-                                     and _irc_file is not None)
-                _irc_is_draft_json = _irc_run_clicked and _irc_file.name.lower().endswith(".json")
+                                     and bool(_irc_files))
+                _irc_is_draft_json = (_irc_run_clicked and len(_irc_files) == 1
+                                       and _irc_files[0].name.lower().endswith(".json"))
 
                 if _irc_is_draft_json:
                     # --- v3.4: returning user re-upload of a previously downloaded draft ---
+                    _irc_file = _irc_files[0]
                     try:
                         _irc_file.seek(0)
                         _draft_data = json.loads(_irc_file.read())
@@ -3718,25 +3760,15 @@ def render_screen_1():
                     # --- END v3.4 ---
                 elif _irc_run_clicked:
                     _irc_should_rerun = False
-                    with st.spinner("Reading your document and pre-filling the form…"):
+                    with st.spinner("Reading your document(s) and pre-filling the form…"):
                         try:
-                            # Step 1: extract raw text
-                            _irc_file.seek(0)
-                            _raw3 = _irc_file.read()
-                            _fname3 = _irc_file.name.lower()
-                            _full_text, _ext_err = _extract_text_from_file(_fname3, _raw3)
+                            # Step 1: extract and combine raw text from all uploaded documents
+                            _doc_files = [f for f in _irc_files if not f.name.lower().endswith(".json")]
+                            _full_text, _raw_fields, _ext_err = _irc_extract_combined(_doc_files)
                             if _ext_err:
                                 st.warning(_ext_err)
                                 st.stop()
-                            elif not _full_text.strip():
-                                st.warning("No readable text found in this document. Please upload a text-based PDF, DOCX, TXT, PPTX, or XLSX — scanned image files cannot be extracted.")
-                                st.stop()
                             else:
-                                _irc_file.seek(0)
-                                _raw_fields, _rf_found, _rf_not_found = _extract_report_fields(_irc_file)
-                                if _raw_fields is None:
-                                    _raw_fields = {}
-
                                 # Step 2: Claude API extraction
                                 try:
                                     _irc_key = st.secrets.get("ANTHROPIC_API_KEY")
