@@ -1290,6 +1290,9 @@ def _init_session_state():
         "_pay_monthly_url":    "",
         # --- end auth ---
         "report_level":        "(Not specified)",
+        "report_prepared_by":  "",
+        "report_status":       _REPORT_STATUS_OPTIONS[0],
+        "report_notes":        "",
         "_tab1_auto_advanced": False,
         "_tab2_auto_advanced": False,
         # --- END v3.3 ---
@@ -4844,6 +4847,10 @@ def render_screen_2():
                 use_container_width=True,
                 key="pdf_download_btn",
             )
+            with st.expander("Report handoff details"):
+                st.text_input("Prepared by (your name)", key="report_prepared_by")
+                st.selectbox("Status", _REPORT_STATUS_OPTIONS, key="report_status")
+                st.text_area("Notes for reviewer (optional)", key="report_notes", height=80)
             _summary_html = _build_verification_summary_html(subs, evs, timestamp)
             _summary_pdf  = _html_to_pdf_bytes(_summary_html)
             if _summary_pdf:
@@ -5312,6 +5319,11 @@ def render_screen_3():
             mime="text/csv",
             key="portfolio_results_dl",
         )
+
+        with st.expander("Report handoff details"):
+            st.text_input("Prepared by (your name)", key="report_prepared_by")
+            st.selectbox("Status", _REPORT_STATUS_OPTIONS, key="report_status")
+            st.text_area("Notes for reviewer (optional)", key="report_notes", height=80)
 
         _timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         _portfolio_summary_html = _build_portfolio_verification_summary_html(results_df, warnings, _timestamp)
@@ -5848,6 +5860,7 @@ _VERIFICATION_SUMMARY_CSS = """
   td,th{border:1px solid #E0E0E0;text-align:left;padding:5px 8px;font-size:0.85rem;}
   th{background:#F5F5F5;}
   .signoff{margin-top:28px;border-top:1px solid #E0E0E0;padding-top:18px;font-size:0.9rem;}
+  .signoff p{margin:6px 0;}
   .signoff .line{display:inline-block;min-width:220px;border-bottom:1px solid #212121;margin:0 6px;}
   .footer{color:#616161;font-style:italic;font-size:0.8rem;border-top:1px solid #E0E0E0;margin-top:28px;padding-top:12px;}
   @media print{ body{margin:20px;} *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;} }
@@ -5867,6 +5880,20 @@ _VERIFICATION_SUMMARY_VERDICT_COLORS = {
     "High risk — strengthen both axes before relying on this result": "#B71C1C",
 }
 
+_REPORT_STATUS_OPTIONS = [
+    "Draft – pending review",
+    "Submitted for review",
+    "Reviewed – changes requested",
+    "Approved – ready to submit",
+]
+
+_REPORT_STATUS_COLORS = {
+    "Draft – pending review":        ("#F5F5F5", "#616161"),
+    "Submitted for review":           ("#FFF9C4", "#F57F17"),
+    "Reviewed – changes requested":   ("#FFE0B2", "#E65100"),
+    "Approved – ready to submit":     ("#C8E6C9", "#1B5E20"),
+}
+
 
 def _verification_summary_badge(label: str, score: float, max_s: float) -> str:
     bg, fg = _VERIFICATION_SUMMARY_BADGE_COLORS.get(label, ("#F5F5F5", "#212121"))
@@ -5876,17 +5903,36 @@ def _verification_summary_badge(label: str, score: float, max_s: float) -> str:
             f"{score}/{max_s} &nbsp; {label.upper()}</div>")
 
 
-def _verification_summary_signoff() -> str:
+def _verification_summary_signoff(prepared_by: str = "", status: str = "", notes: str = "", timestamp: str = "") -> str:
+    bg, fg = _REPORT_STATUS_COLORS.get(status, ("#F5F5F5", "#212121"))
+    status_html = (
+        f"<div style='background:{bg};color:{fg};padding:6px 12px;border-radius:8px;"
+        f"font-weight:700;font-size:0.85rem;display:inline-block;margin-bottom:10px;"
+        f"-webkit-print-color-adjust:exact;print-color-adjust:exact;'>STATUS: {status.upper()}</div>"
+    ) if status else ""
+    notes_html = (
+        f"<div style='background:#FFF9C4;border-radius:8px;padding:10px 14px;margin:10px 0;font-size:0.85rem;'>"
+        f"<strong>Notes for reviewer:</strong> {notes}</div>"
+    ) if notes else ""
+    prepared_line = prepared_by or "&nbsp;"
     return (
+        f"{status_html}{notes_html}"
         "<div class='signoff'>"
-        "Reviewed by: <span class='line'>&nbsp;</span> &nbsp;&nbsp; "
-        "Date: <span class='line'>&nbsp;</span>"
+        f"<p><strong>Prepared by:</strong> {prepared_line} &nbsp;&nbsp; <strong>Date:</strong> {timestamp}</p>"
+        "<p><strong>Reviewed by:</strong> <span class='line'>&nbsp;</span> &nbsp;&nbsp; "
+        "<strong>Date:</strong> <span class='line'>&nbsp;</span></p>"
+        "<p><strong>Comments:</strong> <span class='line' style='min-width:400px;'>&nbsp;</span></p>"
+        "<p><strong>Approved by:</strong> <span class='line'>&nbsp;</span> &nbsp;&nbsp; "
+        "<strong>Date:</strong> <span class='line'>&nbsp;</span></p>"
         "</div>"
     )
 
 
 def _build_verification_summary_html(submissions: list, evaluations: list, timestamp: str) -> str:
     """Build a short, printable per-result gap report for attaching to a submission."""
+    _prepared_by = st.session_state.get("report_prepared_by", "")
+    _status      = st.session_state.get("report_status", "")
+    _notes       = st.session_state.get("report_notes", "")
     sections = []
     for i, (submission, evaluation) in enumerate(zip(submissions, evaluations)):
         conf_score = evaluation.get("confidence_score", 0)
@@ -5957,7 +6003,7 @@ def _build_verification_summary_html(submissions: list, evaluations: list, times
 <h2>Donor Framework Crosswalk</h2>
 {_DONOR_CROSSWALK_HTML}
 <p style="color:#616161;font-size:0.8rem;">{_LIMITS_DISCLAIMER}</p>
-{_verification_summary_signoff()}
+{_verification_summary_signoff(_prepared_by, _status, _notes, timestamp)}
 <div class="footer">
   Evaluated using {METHODOLOGY_STACK}.<br/>
   Contact: <a href="mailto:info@impact-receipts.com">info@impact-receipts.com</a>
@@ -5982,6 +6028,9 @@ def _build_verification_summary_html(submissions: list, evaluations: list, times
 
 def _build_portfolio_verification_summary_html(results_df, warnings: list, timestamp: str) -> str:
     """Build a short, printable portfolio-level gap report for a reporting cycle."""
+    _prepared_by = st.session_state.get("report_prepared_by", "")
+    _status      = st.session_state.get("report_status", "")
+    _notes       = st.session_state.get("report_notes", "")
     dims = [d for d, _ in _PORTFOLIO_SUBSCORE_DIMENSIONS]
     n = len(results_df)
     avg_conf = results_df["confidence_score"].mean() if n else 0
@@ -6032,7 +6081,7 @@ def _build_portfolio_verification_summary_html(results_df, warnings: list, times
 <h2>Donor Framework Crosswalk</h2>
 {_DONOR_CROSSWALK_HTML}
 <p style="color:#616161;font-size:0.8rem;">{_LIMITS_DISCLAIMER}</p>
-{_verification_summary_signoff()}
+{_verification_summary_signoff(_prepared_by, _status, _notes, timestamp)}
 <div class="footer">
   Evaluated using {METHODOLOGY_STACK}.<br/>
   Contact: <a href="mailto:info@impact-receipts.com">info@impact-receipts.com</a>
