@@ -5285,6 +5285,7 @@ def save_all_files(submission: dict, evaluation: dict) -> dict:
         "indicator_label": _indicator_label,
         "project_name":    submission.get("project_name", ""),
         "submission_date": datetime.now().strftime("%Y-%m-%d"),
+        "import_source":   submission.get("import_source", "manual"),
         "sub_scores": {
             "Directness":   _conf_comp.get("direct_score"),
             "Verification": _conf_comp.get("verify_score"),
@@ -5979,6 +5980,356 @@ def _portfolio_heatmap_chart(results_df):
 
 
 # ---------------------------------------------------------------------------
+# CSV Import — bulk submissions from external M&E exports
+# ---------------------------------------------------------------------------
+
+_CSV_IMPORT_COPY = {
+    "header": "📥 Import Submissions from CSV",
+    "intro": (
+        "Upload a CSV export from your M&E system (KoboToolbox, DHIS2, Excel, "
+        "etc.), map its columns to diagnostic fields, then preview and confirm "
+        "before importing. Imported submissions are scored by the same checks "
+        "as manual entries and flagged \"Imported — unverified\" until reviewed."
+    ),
+    "not_mapped": "— Not mapped —",
+    "new_mapping": "— New mapping —",
+    "profile_label": "Mapping profile",
+    "save_profile_label": "Save this mapping as a profile",
+    "save_profile_button": "💾 Save profile",
+    "profile_saved": "Mapping profile saved.",
+    "preview_header": "Preview",
+    "summary_template": "{n} row(s) • {m} with missing required fields • {d} duplicate(s)",
+    "skip_incomplete": "Skip rows with missing required fields",
+    "confirm_checkbox": "I've reviewed this preview and want to import these rows",
+    "import_button": "Import & Score",
+    "import_done": (
+        "Imported {k} submission(s), scored, and flagged \"Imported — unverified\". "
+        "Review the Internal/External Review fields and verify the underlying "
+        "evidence before relying on these results in a donor report."
+    ),
+    "no_rows": "No rows left to import after applying your settings.",
+    "parse_error_prefix": "Could not read this CSV",
+}
+
+# (target_key, label, required, value_type) — value_type in {"text", "bool", "date"}
+_CSV_IMPORT_FIELDS = [
+    ("result_statement",         "Result Statement",        True,  "text"),
+    ("target_group",              "Target Group",            True,  "text"),
+    ("timeframe",                 "Timeframe",               True,  "text"),
+    ("geographic_scope",          "Geographic Scope",        True,  "text"),
+    ("evidence_type",             "Evidence Type",           True,  "text"),
+    ("evidence_description",      "Evidence Description",    True,  "text"),
+    ("evidence_date",             "Evidence Date / Recency", False, "date"),
+    ("verified_by",               "Evidence Verified By",    False, "text"),
+    ("internal_review",           "Internal Review Level",   False, "text"),
+    ("external_review",           "External Review Level",   False, "text"),
+    ("logframe_indicator",        "Logframe Indicator",      False, "text"),
+    ("logframe_target",           "Logframe Target",         False, "text"),
+    ("logframe_achievement",      "Logframe Achievement",    False, "text"),
+    ("learning_notes",            "Learning Notes",          False, "text"),
+    ("limitations_notes",         "Limitations Notes",       False, "text"),
+    ("beneficiary_voice",         "Beneficiary Voice",       False, "text"),
+    ("project_name",              "Project Name",            False, "text"),
+    ("donor",                     "Donor",                    False, "text"),
+    ("sector",                    "Sector",                   False, "text"),
+    ("qual_sourcing_documented",  "Qual: Sourcing Documented (true/false)", False, "bool"),
+    ("qual_triangulated",         "Qual: Triangulated (true/false)",       False, "bool"),
+    ("qual_bias_considered",      "Qual: Bias Considered (true/false)",    False, "bool"),
+]
+
+_CSV_IMPORT_PROFILES_PATH = "csv_import_profiles.json"
+
+
+def _load_import_profiles() -> dict:
+    """Load saved CSV column-mapping profiles. Returns {} if none exist yet."""
+    if not os.path.exists(_CSV_IMPORT_PROFILES_PATH):
+        return {}
+    try:
+        with open(_CSV_IMPORT_PROFILES_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_import_profiles(profiles: dict) -> None:
+    """Persist CSV column-mapping profiles to disk."""
+    with open(_CSV_IMPORT_PROFILES_PATH, "w", encoding="utf-8") as f:
+        json.dump(profiles, f, indent=2, ensure_ascii=False)
+
+
+def _parse_import_csv(uploaded_file):
+    """Read an uploaded CSV robustly: tries utf-8-sig/latin-1, sniffs the
+    delimiter, detects an extra title row before the real header, strips
+    whitespace, and drops fully-blank rows.
+
+    Returns (df, None) on success or (None, error_message) on failure.
+    """
+    import csv
+    import io
+    import pandas as pd
+
+    raw = uploaded_file.getvalue()
+    text = None
+    for enc in ("utf-8-sig", "latin-1"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        return None, f"{_CSV_IMPORT_COPY['parse_error_prefix']}: unrecognised text encoding."
+
+    lines = [ln for ln in text.splitlines() if ln.strip() != ""]
+    if not lines:
+        return None, f"{_CSV_IMPORT_COPY['parse_error_prefix']}: the file appears to be empty."
+
+    sample = "\n".join(lines[:10])
+    try:
+        delimiter = csv.Sniffer().sniff(sample, delimiters=",;\t").delimiter
+    except csv.Error:
+        delimiter = ","
+
+    # Header-row detection: find the first line whose field count (>= 2)
+    # matches the next line's field count — handles an extra title row.
+    header_idx = 0
+    for i in range(min(len(lines) - 1, 5)):
+        this_count = len(lines[i].split(delimiter))
+        next_count = len(lines[i + 1].split(delimiter))
+        if this_count >= 2 and this_count == next_count:
+            header_idx = i
+            break
+
+    try:
+        df = pd.read_csv(
+            io.StringIO("\n".join(lines)),
+            sep=delimiter,
+            skiprows=header_idx,
+            skip_blank_lines=True,
+            dtype=str,
+        )
+    except Exception as exc:
+        return None, f"{_CSV_IMPORT_COPY['parse_error_prefix']}: {exc}"
+
+    df.columns = [str(c).strip() for c in df.columns]
+    for col in df.columns:
+        df[col] = df[col].apply(lambda v: v.strip() if isinstance(v, str) else v)
+    df = df.dropna(how="all")
+
+    if df.empty:
+        return None, f"{_CSV_IMPORT_COPY['parse_error_prefix']}: no data rows found."
+
+    return df.reset_index(drop=True), None
+
+
+def _csv_row_to_submission(row: dict, column_map: dict, profile_name: str) -> dict:
+    """Build a full submission dict from one CSV row using column_map
+    (target_key -> CSV column name). Unmapped fields stay empty/False —
+    never inferred or fabricated. Marks the result as an unverified import."""
+
+    def _val(target_key, default=""):
+        col = column_map.get(target_key)
+        if not col:
+            return default
+        v = row.get(col)
+        if v is None:
+            return default
+        v = str(v).strip()
+        if not v or v.lower() == "nan":
+            return default
+        return v
+
+    def _bool(target_key):
+        return _val(target_key).strip().lower() in ("true", "yes", "1", "x")
+
+    return {
+        "result_statement":   _val("result_statement"),
+        "target_group":       _val("target_group"),
+        "timeframe":          _val("timeframe"),
+        "geographic_scope":   _val("geographic_scope"),
+        "additional_context": "",
+        "learning_notes":     _val("learning_notes"),
+        "limitations_notes":  _val("limitations_notes"),
+        "internal_review":    _val("internal_review", "Not reviewed") or "Not reviewed",
+        "external_review":    _val("external_review", "No external review") or "No external review",
+        "attached_filenames": [],
+        "beneficiary_voice":  _val("beneficiary_voice"),
+        "logframe_indicator":   _val("logframe_indicator"),
+        "logframe_target":      _val("logframe_target"),
+        "logframe_achievement": _val("logframe_achievement"),
+        "reporting_start": "",
+        "reporting_end":   "",
+        "provenance_checklist": {
+            "sampling_documented":     False,
+            "double_counting_checked": False,
+            "recall_bias_considered":  False,
+            "auditor_traceable":       "",
+        },
+        "qualitative_rigor_checklist": {
+            "sourcing_documented": _bool("qual_sourcing_documented"),
+            "triangulated":        _bool("qual_triangulated"),
+            "bias_considered":     _bool("qual_bias_considered"),
+        },
+        "attribution_contribution": "",
+        "disaggregation_status": "",
+        "donor":          _val("donor"),
+        "sector":         _val("sector"),
+        "project_name":   _val("project_name"),
+        "submission_type": "",
+        "evidence": [{
+            "type":        _val("evidence_type"),
+            "description": _val("evidence_description"),
+            "recency":     _val("evidence_date"),
+            "verified_by": _val("verified_by"),
+        }],
+        "verification_status": "Imported — unverified",
+        "import_source":    "csv",
+        "import_profile":   profile_name,
+        "import_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+def _validate_import_rows(submissions: list) -> list:
+    """Return one issue-record per submission: missing required fields,
+    type mismatches, and within-import duplicates. Annotation only — never
+    blocks or alters the mapped values."""
+    import pandas as pd
+
+    required_targets = [(t, label) for t, label, req, _ in _CSV_IMPORT_FIELDS if req]
+    bool_targets = [t for t, _, _, vt in _CSV_IMPORT_FIELDS if vt == "bool"]
+    date_targets = [t for t, _, _, vt in _CSV_IMPORT_FIELDS if vt == "date"]
+
+    issues = []
+    seen = set()
+    for i, sub in enumerate(submissions):
+        row_issues = {"row": i + 1, "missing_required": [], "type_issues": [], "duplicate": False}
+
+        ev0 = (sub.get("evidence") or [{}])[0]
+        field_values = {
+            "result_statement":    sub.get("result_statement", ""),
+            "target_group":        sub.get("target_group", ""),
+            "timeframe":           sub.get("timeframe", ""),
+            "geographic_scope":    sub.get("geographic_scope", ""),
+            "evidence_type":       ev0.get("type", ""),
+            "evidence_description": ev0.get("description", ""),
+            "evidence_date":       ev0.get("recency", ""),
+        }
+        for target_key, label in required_targets:
+            if not str(field_values.get(target_key, "")).strip():
+                row_issues["missing_required"].append(label)
+
+        for target_key in bool_targets:
+            qual = sub.get("qualitative_rigor_checklist", {})
+            raw = ""  # already coerced to bool in _csv_row_to_submission; nothing to flag here
+        for target_key in date_targets:
+            raw = ev0.get("recency", "")
+            if raw and pd.to_datetime(raw, errors="coerce") is pd.NaT:
+                row_issues["type_issues"].append(f"{target_key}: '{raw}' is not a recognisable date")
+
+        dup_key = (
+            sub.get("result_statement", "").strip().lower(),
+            sub.get("logframe_indicator", "").strip().lower(),
+        )
+        if dup_key in seen:
+            row_issues["duplicate"] = True
+        seen.add(dup_key)
+
+        issues.append(row_issues)
+
+    return issues
+
+
+def render_csv_import_view():
+    """Bulk CSV import: upload -> map columns -> preview/validate -> commit.
+    Each confirmed row is scored via _evaluator.evaluate_submission() and
+    persisted via save_all_files(), exactly like a manual submission."""
+    import pandas as pd
+
+    st.caption(_CSV_IMPORT_COPY["intro"])
+
+    uploaded = st.file_uploader("Upload CSV", type=["csv"], key="csv_import_upload")
+    if uploaded is None:
+        return
+
+    df, err = _parse_import_csv(uploaded)
+    if err:
+        st.error(err)
+        return
+
+    profiles = _load_import_profiles()
+    profile_options = [_CSV_IMPORT_COPY["new_mapping"]] + list(profiles.keys())
+    selected_profile = st.selectbox(_CSV_IMPORT_COPY["profile_label"], profile_options, key="csv_import_profile_select")
+    saved_map = profiles.get(selected_profile, {}) if selected_profile != _CSV_IMPORT_COPY["new_mapping"] else {}
+
+    column_options = [_CSV_IMPORT_COPY["not_mapped"]] + list(df.columns)
+    column_map = {}
+    for target_key, label, required, _ in _CSV_IMPORT_FIELDS:
+        display_label = f"{label} *" if required else label
+        default_col = saved_map.get(target_key, "")
+        default_idx = column_options.index(default_col) if default_col in column_options else 0
+        choice = st.selectbox(display_label, column_options, index=default_idx, key=f"csv_import_map_{target_key}")
+        if choice != _CSV_IMPORT_COPY["not_mapped"]:
+            column_map[target_key] = choice
+
+    profile_name_input = st.text_input(
+        _CSV_IMPORT_COPY["save_profile_label"],
+        value=selected_profile if selected_profile != _CSV_IMPORT_COPY["new_mapping"] else "",
+        key="csv_import_profile_name",
+    )
+    if st.button(_CSV_IMPORT_COPY["save_profile_button"], key="csv_import_save_profile_btn"):
+        if profile_name_input.strip():
+            profiles[profile_name_input.strip()] = column_map
+            _save_import_profiles(profiles)
+            st.success(_CSV_IMPORT_COPY["profile_saved"])
+
+    submissions = [
+        _csv_row_to_submission(row, column_map, profile_name_input.strip() or "unnamed")
+        for row in df.to_dict(orient="records")
+    ]
+    issues = _validate_import_rows(submissions)
+
+    n_rows = len(submissions)
+    n_missing = sum(1 for iss in issues if iss["missing_required"])
+    n_dupes = sum(1 for iss in issues if iss["duplicate"])
+
+    st.markdown(f"##### {_CSV_IMPORT_COPY['preview_header']}")
+    preview_df = df.copy()
+    preview_df["Issues"] = [
+        "; ".join(
+            (["Missing: " + ", ".join(iss["missing_required"])] if iss["missing_required"] else [])
+            + iss["type_issues"]
+            + (["Duplicate"] if iss["duplicate"] else [])
+        ) or "—"
+        for iss in issues
+    ]
+    st.dataframe(preview_df, use_container_width=True)
+    st.caption(_CSV_IMPORT_COPY["summary_template"].format(n=n_rows, m=n_missing, d=n_dupes))
+
+    skip_incomplete = st.checkbox(_CSV_IMPORT_COPY["skip_incomplete"], value=False, key="csv_import_skip_incomplete")
+    confirmed = st.checkbox(_CSV_IMPORT_COPY["confirm_checkbox"], value=False, key="csv_import_confirm")
+
+    if st.button(_CSV_IMPORT_COPY["import_button"], disabled=not confirmed, key="csv_import_commit_btn"):
+        to_import = [
+            (sub, iss) for sub, iss in zip(submissions, issues)
+            if not (skip_incomplete and iss["missing_required"])
+        ]
+        if not to_import:
+            st.warning(_CSV_IMPORT_COPY["no_rows"])
+        else:
+            results = []
+            for sub, _iss in to_import:
+                ev = _evaluator.evaluate_submission(sub)
+                save_all_files(sub, ev)
+                results.append({
+                    "indicator": sub.get("logframe_indicator") or sub.get("result_statement", "")[:60],
+                    "confidence_score": ev.get("confidence_score", 0),
+                    "clarity_score":    ev.get("clarity_score", 0),
+                    "verdict":          ev.get("verdict", ""),
+                })
+            st.success(_CSV_IMPORT_COPY["import_done"].format(k=len(results)))
+            st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+
+
+# ---------------------------------------------------------------------------
 # Screen 3 — Portfolio / Framework Dashboard
 # ---------------------------------------------------------------------------
 
@@ -6097,6 +6448,10 @@ def render_screen_3():
             st.caption("PDF: install xhtml2pdf to enable one-click PDF download.")
 
     # place this here: end of render_screen_3(), after the existing portfolio block
+    st.divider()
+    with st.expander(_CSV_IMPORT_COPY["header"]):
+        render_csv_import_view()
+
     st.divider()
     st.markdown(f"### {_TREND_COPY['header']}")
     st.caption(_TREND_COPY["intro"])
