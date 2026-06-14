@@ -3,10 +3,11 @@ app.py — Impact-Receipts: Pre-submission confidence check for MEL teams.
 
 Run with:  streamlit run app.py
 
-Three-screen flow driven by st.session_state["screen"] (0-2):
+Screen flow driven by st.session_state["screen"] (0-3):
   0  Landing & Onboarding
   1  Reported Result Submission
   2  Confidence Snapshot & Next Steps
+  3  Portfolio / Framework Dashboard (multi-indicator logframe upload)
 
 Evaluation logic is fully local — see evaluator.py.
 No API calls. All data stays on device.
@@ -778,6 +779,39 @@ TRACEABILITY_OPTIONS = [
     "Partially — some records would take effort to locate",
     "No / not sure",
 ]
+
+# ---------------------------------------------------------------------------
+# Portfolio / Framework Dashboard — CSV/Excel column schema
+# ---------------------------------------------------------------------------
+
+# (column_name, required, example value for the downloadable template)
+_PORTFOLIO_COLUMNS = [
+    ("indicator_name",       True,  "Indicator 2.1: Households with access to safe water"),
+    ("result_statement",     True,  "Installed 12 community boreholes serving 3,400 people across 4 districts in Northern Region between Jan-Jun 2025."),
+    ("target_group",         True,  "Rural households"),
+    ("timeframe",            True,  "January–June 2025"),
+    ("geographic_scope",     True,  "4 districts, Northern Region"),
+    ("evidence_type",        True,  "Attendance sheets / participant registers"),
+    ("evidence_description", True,  "Borehole completion certificates and community handover registers, signed by District Water Officer."),
+    ("evidence_date",        False, "June 2025"),
+    ("internal_review",      False, "Reviewed by MEL Officer"),
+    ("external_review",      False, "No external review"),
+    ("verifier",             False, "District Water Officer"),
+    ("logframe_indicator",   False, "Indicator 2.1: Number of households with access to safely managed drinking water"),
+    ("logframe_target",      False, "3,000 households"),
+    ("logframe_achievement", False, "3,400 households"),
+    ("learning_notes",       False, ""),
+    ("limitations_notes",    False, ""),
+]
+
+# Accepted values for internal_review / external_review (unrecognized values
+# default to 0, same as evaluate_submission()'s own fallback).
+_PORTFOLIO_REVIEW_HINT = (
+    "internal_review accepts: 'Reviewed by MEL Officer', 'Collected only (no review)', "
+    "'Not reviewed'. external_review accepts: 'Verified by independent third party', "
+    "'External partner review', 'No external review'. Leave blank to default to "
+    "'Not reviewed' / 'No external review'."
+)
 
 SUBMISSION_CHECKLIST = {
     "Project proposal": [
@@ -2941,6 +2975,9 @@ def render_screen_0():
             st.session_state["tutorial_step"] = 1
         _go_to_screen(1, reset=True)
 
+    if st.button("📊 Portfolio Dashboard (Beta) — score your whole logframe", use_container_width=True, key="cta_portfolio"):
+        _go_to_screen(3)
+
     # --- Email gate: must enter email before first check ---
     if not st.session_state.get("user_email"):
         st.markdown("---")
@@ -4863,6 +4900,244 @@ _DONOR_CROSSWALK_HTML = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Portfolio / Framework Dashboard — helpers
+# ---------------------------------------------------------------------------
+
+_PORTFOLIO_SUBSCORE_DIMENSIONS = [
+    ("Directness",   2.0),
+    ("Verification", 2.0),
+    ("Recency",      1.0),
+    ("Definition",   1.25),
+    ("Measurement",  1.25),
+    ("Integrity",    1.0),
+    ("Scope",        0.75),
+    ("Governance",   0.75),
+]
+
+
+def _portfolio_template_csv() -> bytes:
+    """Build a one-row example CSV for the Portfolio Dashboard upload."""
+    import pandas as pd
+
+    headers = [c[0] for c in _PORTFOLIO_COLUMNS]
+    example = {c[0]: c[2] for c in _PORTFOLIO_COLUMNS}
+    df = pd.DataFrame([example], columns=headers)
+    return df.to_csv(index=False).encode("utf-8")
+
+
+def _portfolio_row_to_submission(row: dict) -> dict:
+    """Map one CSV/Excel row to an evaluator-compatible submission dict."""
+    def _get(key, default=""):
+        val = row.get(key, default)
+        if val is None:
+            return default
+        val = str(val).strip()
+        if val.lower() == "nan":
+            return default
+        return val or default
+
+    internal_review = _get("internal_review", "Not reviewed") or "Not reviewed"
+    external_review = _get("external_review", "No external review") or "No external review"
+
+    return {
+        "result_statement":   _get("result_statement"),
+        "target_group":       _get("target_group"),
+        "timeframe":          _get("timeframe"),
+        "geographic_scope":   _get("geographic_scope"),
+        "additional_context": "",
+        "learning_notes":     _get("learning_notes"),
+        "limitations_notes":  _get("limitations_notes"),
+        "internal_review":    internal_review,
+        "external_review":    external_review,
+        "logframe_indicator":   _get("logframe_indicator"),
+        "logframe_target":      _get("logframe_target"),
+        "logframe_achievement": _get("logframe_achievement"),
+        "evidence": [{
+            "type":        _get("evidence_type"),
+            "description": _get("evidence_description"),
+            "recency":     _get("evidence_date"),
+            "verified_by": _get("verifier"),
+        }],
+    }
+
+
+def _evaluate_portfolio(df):
+    """Evaluate each row of a portfolio DataFrame.
+
+    Returns (results_df, warnings) where results_df is sorted by
+    confidence_score ascending (weakest indicators first).
+    """
+    import pandas as pd
+
+    required = [c[0] for c in _PORTFOLIO_COLUMNS if c[1]]
+    missing_cols = [c for c in required if c not in df.columns]
+    if missing_cols:
+        return None, [f"Missing required column(s): {', '.join(missing_cols)}"]
+
+    rows = []
+    warnings = []
+    for i, row in df.iterrows():
+        row_dict = row.to_dict()
+        label = str(row_dict.get("indicator_name", "")).strip() or f"Row {i + 2}"
+        try:
+            sub = _portfolio_row_to_submission(row_dict)
+            ev = _evaluator.evaluate_submission(sub)
+            conf_comp = ev.get("confidence_components", {})
+            clar_comp = ev.get("clarity_components", {})
+            sub_scores = {
+                "Directness":   conf_comp.get("direct_score", 0),
+                "Verification": conf_comp.get("verify_score", 0),
+                "Recency":      conf_comp.get("recency_score", 0),
+                "Definition":   clar_comp.get("definition_score", 0),
+                "Measurement":  clar_comp.get("measurement_score", 0),
+                "Integrity":    clar_comp.get("integrity_score", 0),
+                "Scope":        clar_comp.get("scope_score", 0),
+                "Governance":   clar_comp.get("governance_score", 0),
+            }
+            result_row = {
+                "indicator_name":   label,
+                "logframe_indicator": sub.get("logframe_indicator", ""),
+                "confidence_score": ev.get("confidence_score", 0),
+                "clarity_score":    ev.get("clarity_score", 0),
+                "verdict":          ev.get("verdict", ""),
+                "top_fix":          (ev.get("fixes") or [{}])[0].get("message", "") if ev.get("fixes") else "",
+            }
+            for dim, max_val in _PORTFOLIO_SUBSCORE_DIMENSIONS:
+                pct = round(min(sub_scores[dim] / max_val, 1.0) * 100, 1) if max_val else 0.0
+                result_row[dim] = pct
+            rows.append(result_row)
+        except Exception as exc:
+            warnings.append(f"{label}: could not be evaluated ({exc})")
+
+    if not rows:
+        return None, warnings or ["No rows could be evaluated."]
+
+    results_df = pd.DataFrame(rows).sort_values("confidence_score", ascending=True).reset_index(drop=True)
+    return results_df, warnings
+
+
+def _portfolio_heatmap_chart(results_df):
+    """Build an Altair heatmap: rows = indicators, columns = sub-score dimensions."""
+    import pandas as pd
+    import altair as alt
+
+    dims = [d for d, _ in _PORTFOLIO_SUBSCORE_DIMENSIONS]
+    long_df = results_df.melt(
+        id_vars=["indicator_name"], value_vars=dims,
+        var_name="Dimension", value_name="% of target",
+    )
+    order = list(results_df["indicator_name"])
+
+    return (
+        alt.Chart(long_df)
+        .mark_rect()
+        .encode(
+            x=alt.X("Dimension:N", sort=dims, title=None),
+            y=alt.Y("indicator_name:N", sort=order, title=None),
+            color=alt.Color(
+                "% of target:Q",
+                scale=alt.Scale(domain=[0, 100], scheme="redyellowgreen"),
+                legend=alt.Legend(title="% of target"),
+            ),
+            tooltip=[
+                alt.Tooltip("indicator_name:N", title="Indicator"),
+                alt.Tooltip("Dimension:N", title="Dimension"),
+                alt.Tooltip("% of target:Q", title="% of target"),
+            ],
+        )
+        .properties(width="container", height=alt.Step(28))
+    )
+
+
+# ---------------------------------------------------------------------------
+# Screen 3 — Portfolio / Framework Dashboard
+# ---------------------------------------------------------------------------
+
+def render_screen_3():
+    import pandas as pd
+
+    if st.button("← Back to Home", key="portfolio_back"):
+        _go_to_screen(0)
+
+    st.markdown("## 📊 Portfolio Dashboard")
+    st.caption(
+        "Upload your whole logframe (one row per indicator/result) to see which "
+        "indicators and sub-scores are weakest across your portfolio."
+    )
+
+    st.download_button(
+        "Download CSV template",
+        data=_portfolio_template_csv(),
+        file_name="impact_receipts_portfolio_template.csv",
+        mime="text/csv",
+        key="portfolio_template_dl",
+    )
+    st.caption(_PORTFOLIO_REVIEW_HINT)
+
+    uploaded = st.file_uploader(
+        "Upload your completed logframe (CSV or Excel)",
+        type=["csv", "xlsx", "xls"],
+        key="portfolio_upload",
+    )
+
+    if uploaded is not None:
+        try:
+            if uploaded.name.lower().endswith((".xlsx", ".xls")):
+                df = pd.read_excel(uploaded)
+            else:
+                df = pd.read_csv(uploaded)
+        except Exception as exc:
+            st.error(f"Could not read the file: {exc}")
+            df = None
+
+        if df is not None:
+            results_df, warnings = _evaluate_portfolio(df)
+            st.session_state["portfolio_results"] = results_df
+            st.session_state["portfolio_warnings"] = warnings
+
+    results_df = st.session_state.get("portfolio_results")
+    warnings = st.session_state.get("portfolio_warnings") or []
+
+    for w in warnings:
+        st.warning(w)
+
+    if results_df is not None and not results_df.empty:
+        dims = [d for d, _ in _PORTFOLIO_SUBSCORE_DIMENSIONS]
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Indicators evaluated", len(results_df))
+        with col2:
+            st.metric("Avg Confidence", f"{results_df['confidence_score'].mean():.1f}/5.0")
+        with col3:
+            st.metric("Avg Clarity", f"{results_df['clarity_score'].mean():.1f}/5.0")
+
+        weakest_dim = results_df[dims].mean().idxmin()
+        weakest_dim_pct = results_df[dims].mean().min()
+        st.markdown(
+            f"**Systemic gap:** *{weakest_dim}* is your portfolio's weakest sub-score "
+            f"on average ({weakest_dim_pct:.0f}% of target) — start here for the biggest "
+            f"improvement across multiple indicators."
+        )
+
+        st.markdown("#### Heatmap — weakest indicators & sub-scores")
+        st.altair_chart(_portfolio_heatmap_chart(results_df), use_container_width=True, key="portfolio_heatmap")
+
+        st.markdown("#### Results table")
+        st.dataframe(
+            results_df[["indicator_name", "confidence_score", "clarity_score", "verdict", "top_fix"]],
+            use_container_width=True,
+        )
+
+        st.download_button(
+            "Download results (CSV)",
+            data=results_df.to_csv(index=False).encode("utf-8"),
+            file_name="impact_receipts_portfolio_results.csv",
+            mime="text/csv",
+            key="portfolio_results_dl",
+        )
+
+
 def _overview_score_values(ev):
     """Return (confidence, clarity, ethics_pct, compliance_pct) each 0–100.
 
@@ -5427,7 +5702,7 @@ def main():
     elif screen == 2:
         st.progress(1.0, text="Confidence Check Complete")
 
-    {0: render_screen_0, 1: render_screen_1, 2: render_screen_2}.get(
+    {0: render_screen_0, 1: render_screen_1, 2: render_screen_2, 3: render_screen_3}.get(
         screen, render_screen_0
     )()
 
