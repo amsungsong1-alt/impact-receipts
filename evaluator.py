@@ -1108,10 +1108,10 @@ def evaluate_submission(submission: dict) -> dict:
     conf_high = confidence_score >= 3.5
     clar_high = clarity_score   >= 3.5
     _verdicts = {
-        (True,  True):  "Strong KPI — ready to submit",
+        (True,  True):  "Strong KPI — well-positioned for submission",
         (True,  False): "Misleading KPI — sharpen the definition before submission",
         (False, True):  "Well-defined but weak evidence — strengthen the verification chain",
-        (False, False): "High risk — do not submit until both axes are addressed",
+        (False, False): "High risk — strengthen both axes before relying on this result",
     }
     verdict = _verdicts[(conf_high, clar_high)]
 

@@ -685,7 +685,7 @@ SECTOR_PLACEHOLDERS = {
 }
 
 _DIAGNOSTIC_BADGE = {
-    "STRONG":             {"bg": "#1B5E20", "text": "#FFFFFF", "subtitle": "Ready for submission"},
+    "STRONG":             {"bg": "#1B5E20", "text": "#FFFFFF", "subtitle": "Strong on both axes"},
     "MISLEADING":         {"bg": "#8A6500", "text": "#FFFFFF", "subtitle": "Sharpen the definition"},
     "UNDEREVIDENCED":     {"bg": "#8A6500", "text": "#FFFFFF", "subtitle": "Strengthen the evidence"},
     "NEEDS REFINEMENT":   {"bg": "#FFF9C4", "text": "#F57F17", "subtitle": "Specific gaps to address"},
@@ -721,6 +721,14 @@ _READINESS_STYLE = {
     },
 }
 
+# Shown under every readiness banner — keeps the headline from reading as a
+# guarantee of donor approval.
+_LIMITS_DISCLAIMER = (
+    "This is improvement guidance based on what you described here — not a "
+    "guarantee of donor approval. Funders apply their own review and may "
+    "raise points this tool doesn't check."
+)
+
 
 def _render_readiness_banner(diag_state: str):
     band = _READINESS_BAND.get(diag_state, "Needs Work")
@@ -732,6 +740,7 @@ def _render_readiness_banner(diag_state: str):
         f"</div>",
         unsafe_allow_html=True,
     )
+    st.caption(_LIMITS_DISCLAIMER)
 
 
 def _readiness_banner_html(diag_state: str) -> str:
@@ -743,6 +752,8 @@ def _readiness_banner_html(diag_state: str) -> str:
         f"-webkit-print-color-adjust:exact;print-color-adjust:exact;'>"
         f"{style['icon']} {band} &mdash; {style['caption']}"
         f"</div>"
+        f"<p style='color:#9E9E9E;font-size:0.75rem;text-align:center;margin:-8px 0 16px;'>"
+        f"{_LIMITS_DISCLAIMER}</p>"
     )
 
 INTERNAL_REVIEW_OPTIONS = [
@@ -1445,7 +1456,7 @@ _TUTORIAL_COPY = {
         "body": (
             "• **Confidence:** How much we should trust the evidence\n"
             "• **Clarity:** How clearly the result is defined\n\n"
-            "Both must be **Strong (≥4.0)** to be ready for submission.\n\n"
+            "Both must be **Strong (≥4.0)** to reach this tool's top band.\n\n"
             "The **What to Fix** section tells you exactly how to improve."
         ),
     },
@@ -4007,10 +4018,10 @@ _BRAND_BADGE = {
 }
 
 _VERDICT_CSS = {
-    "Strong KPI — ready to submit":                                        "",
+    "Strong KPI — well-positioned for submission":                         "",
     "Misleading KPI — sharpen the definition before submission":           "misleading",
     "Well-defined but weak evidence — strengthen the verification chain":  "weak-conf",
-    "High risk — do not submit until both axes are addressed":             "high-risk",
+    "High risk — strengthen both axes before relying on this result":      "high-risk",
 }
 
 
@@ -4344,7 +4355,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             )
 
     if diag_state == "STRONG":
-        st.success("No fixes needed — your result is ready to submit.")
+        st.success("No further fixes flagged by this tool's checks.")
         if fixes:
             smallest = fixes[0]
             st.caption(f"Optional refinement: {smallest['message']} ({smallest['score_impact']})")
@@ -4502,6 +4513,8 @@ def render_screen_2():
 
 *Impact-Receipts is a pre-submission verification tool, not an audit. It does not replace formal evaluation but identifies gaps that would weaken external review.*
 """)
+        st.markdown("**Donor framework crosswalk** — how each sub-score maps to the standards your donor audits against:")
+        st.markdown(_DONOR_CROSSWALK_HTML, unsafe_allow_html=True)
 
     st.markdown(
         """
@@ -4775,7 +4788,7 @@ def _build_markdown_report(submission: dict, evaluation: dict, timestamp: str) -
         lines.append("")
 
     if not fixes:
-        lines += ["No fixes needed — your result is ready to submit.", ""]
+        lines += ["No further fixes flagged by this tool's checks.", ""]
 
     lines += [
         "---",
@@ -4785,6 +4798,24 @@ def _build_markdown_report(submission: dict, evaluation: dict, timestamp: str) -
 
     return "\n".join(lines)
 
+
+
+# Static crosswalk from each Impact-Receipts sub-score to the donor audit
+# frameworks MEL leads are evaluated against — USAID's Data Quality
+# Assessment (DQA) standards and the Bond Evidence Principles (2024 refresh).
+_DONOR_CROSSWALK_HTML = (
+    "<table style='width:100%;font-size:0.8rem;'>"
+    "<tr><th>Impact-Receipts sub-score</th><th>USAID DQA standard(s)</th><th>Bond Evidence Principle</th></tr>"
+    "<tr><td>Confidence &rarr; Directness</td><td>Validity</td><td>Appropriateness</td></tr>"
+    "<tr><td>Confidence &rarr; Verification</td><td>Reliability, Integrity</td><td>Triangulation</td></tr>"
+    "<tr><td>Confidence &rarr; Recency</td><td>Timeliness</td><td>&mdash;</td></tr>"
+    "<tr><td>Clarity &rarr; Definition</td><td>Validity, Precision</td><td>&mdash;</td></tr>"
+    "<tr><td>Clarity &rarr; Measurement</td><td>Precision</td><td>&mdash;</td></tr>"
+    "<tr><td>Clarity &rarr; Integrity (\"Ethics\")</td><td>Integrity</td><td>Transparency</td></tr>"
+    "<tr><td>Clarity &rarr; Governance (\"Compliance\")</td><td>Integrity</td><td>Transparency / Accountability</td></tr>"
+    "<tr><td>Beneficiary Voice (Confidence bonus)</td><td>Validity</td><td>Voice &amp; Inclusion</td></tr>"
+    "</table>"
+)
 
 
 def _overview_score_values(ev):
@@ -4917,10 +4948,10 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
         )
 
     verdict_colors = {
-        "Strong KPI — ready to submit": "#1B5E20",
+        "Strong KPI — well-positioned for submission": "#1B5E20",
         "Misleading KPI — sharpen the definition before submission": "#E65100",
         "Well-defined but weak evidence — strengthen the verification chain": "#F57F17",
-        "High risk — do not submit until both axes are addressed": "#B71C1C",
+        "High risk — strengthen both axes before relying on this result": "#B71C1C",
     }
     verdict_bg = verdict_colors.get(verdict, "#1B5E20")
 
@@ -5026,6 +5057,9 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
         "Confidence and Clarity are your two top-line scores. Ethics and Compliance are the "
         "Integrity and Governance sub-scores within Clarity, shown separately above so you can "
         "see what's driving your Clarity score — see definitions above.</p>"
+        "<p style='font-size:0.85rem;font-weight:700;color:#1B5E20;margin:16px 0 6px;'>"
+        "Donor framework crosswalk &mdash; how each sub-score maps to the standards your donor audits against:</p>"
+        f"{_DONOR_CROSSWALK_HTML}"
         "</div>"
     )
     _meta_donor  = submission.get("donor") or st.session_state.get("donor_selected", "Not specified")
@@ -5056,7 +5090,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
         fixes_html += ("<h3 style='color:#1B5E20;'>Sharpen your definition (Clarity)</h3>"
                        f"<ul>{fix_items(clar_fixes)}</ul>")
     if not fixes:
-        fixes_html = "<p style='color:#1B5E20;font-weight:700;'>No fixes needed — your result is ready to submit.</p>"
+        fixes_html = "<p style='color:#1B5E20;font-weight:700;'>No further fixes flagged by this tool's checks.</p>"
 
     # --- What Funders Want to Know (four-question summary) ---
     ladder   = evaluation.get("evidence_ladder", {})
