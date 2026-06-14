@@ -31,9 +31,9 @@ def _base_url() -> str:
         configured = st.secrets.get("APP_BASE_URL") or os.environ.get("APP_BASE_URL", "")
         if configured:
             return configured.rstrip("/")
-        return "https://impact-receipts-fnxkamdve55429dk3bxmb9.streamlit.app"
+        return "https://impact-integrity-diagnostic.streamlit.app"
     except Exception:
-        return os.environ.get("APP_BASE_URL", "https://impact-receipts-fnxkamdve55429dk3bxmb9.streamlit.app")
+        return os.environ.get("APP_BASE_URL", "https://impact-integrity-diagnostic.streamlit.app")
 
 
 _last_payment_error: str = ""

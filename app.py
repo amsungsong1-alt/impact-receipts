@@ -5065,7 +5065,7 @@ def render_screen_2():
     )
 
     # LinkedIn — modern share-offsite endpoint opens the share dialog correctly
-    app_url = "https://impact-receipts-fnxkamdve55429dk3bxmb9.streamlit.app"
+    app_url = "https://impact-integrity-diagnostic.streamlit.app"
     li_url  = f"https://www.linkedin.com/sharing/share-offsite/?url={urllib.parse.quote(app_url, safe='')}"
     st.markdown(
         f"Found this useful? "
