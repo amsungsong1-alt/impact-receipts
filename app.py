@@ -153,6 +153,30 @@ QUALITATIVE_EVIDENCE_TYPES = (
     "Beneficiary narrative or testimony",
 )
 
+# Per-type wording for the three Qualitative Rigor checkboxes (qual_sourcing,
+# qual_triangulated, qual_bias). Same keys/scoring across types — only the
+# label is tailored so it matches what the officer is actually looking at.
+QUAL_RIGOR_CHECKLIST = {
+    "Case study": (
+        "Case/respondent selection method documented "
+        "(not just convenience — explain how and why these cases were chosen)",
+        "Cross-checked against another source or method (triangulation)",
+        "Recall, social-desirability, or selection bias considered and addressed",
+    ),
+    "Outcome harvesting": (
+        "Outcome description and contribution claim documented "
+        "(what changed, and how the program plausibly contributed)",
+        "Outcome substantiated with the people/organizations who experienced or observed it (triangulation)",
+        "Confirmation bias or post-hoc rationalization considered and addressed",
+    ),
+    "Beneficiary narrative or testimony": (
+        "Selection of who was interviewed/recorded is documented "
+        "(not just the most positive or available story)",
+        "Account cross-checked against another source or method (triangulation)",
+        "Social-desirability or success-story bias considered and addressed",
+    ),
+}
+
 # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 PII_EVIDENCE_TYPES = [
     "Attendance sheets / participant registers",
@@ -576,6 +600,12 @@ EVIDENCE_TYPE_HELP = (
     "Example: 'Mobile money transfer receipts to 250 farmer cash transfer recipients'\n\n"
     "• Third-party audits — Independent audits or verification reports from external organizations. "
     "Example: 'External audit by SGS Ghana of distribution logistics and beneficiary lists'\n\n"
+    "• Case study — An in-depth account of one participant, site, or community, used to illustrate how change happened. "
+    "Example: 'Case study of a women's savings group in Tamale showing how loan access changed household decision-making'\n\n"
+    "• Outcome harvesting — Outcomes identified after the fact, then worked backwards to assess the program's contribution. "
+    "Example: 'Outcome harvesting exercise with district officials identifying 8 policy changes influenced by the program'\n\n"
+    "• Beneficiary narrative or testimony — First-person accounts from participants describing the change they experienced. "
+    "Example: 'Recorded interviews with 12 farmers describing changes in income and food security after training'\n\n"
     "• Other (specify) — Evidence that doesn't fit any category above. Use sparingly; most evidence fits one of the above."
 )
 
@@ -2711,17 +2741,19 @@ def _render_tab3_slot(slot: int):
                 st.caption(
                     "These checks replace the Measurement sub-score for qualitative evidence."
                 )
+                _sourcing_lbl, _triangulated_lbl, _bias_lbl = QUAL_RIGOR_CHECKLIST.get(
+                    ev_type, QUAL_RIGOR_CHECKLIST["Case study"]
+                )
                 _irc_widget(
-                    st.checkbox, "Case/respondent selection method documented "
-                    "(not just convenience — explain how and why these cases were chosen)",
+                    st.checkbox, _sourcing_lbl,
                     f"qual_sourcing{s}", default=False,
                 )
                 _irc_widget(
-                    st.checkbox, "Cross-checked against another source or method (triangulation)",
+                    st.checkbox, _triangulated_lbl,
                     f"qual_triangulated{s}", default=False,
                 )
                 _irc_widget(
-                    st.checkbox, "Recall, social-desirability, or selection bias considered and addressed",
+                    st.checkbox, _bias_lbl,
                     f"qual_bias{s}", default=False,
                 )
                 _qual_count = sum([
