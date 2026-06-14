@@ -4699,22 +4699,28 @@ def render_screen_2():
             mime="text/html",
             use_container_width=True,
         )
-        try:
-            from xhtml2pdf import pisa as _pisa
-            import io as _io2
-            _pdf_buf = _io2.BytesIO()
-            _pisa.CreatePDF(src=html_report, dest=_pdf_buf)
-            if _pdf_buf.tell() > 0:
-                _pdf_buf.seek(0)
+        _pdf_bytes = _html_to_pdf_bytes(html_report)
+        if _pdf_bytes:
+            st.download_button(
+                label="📄 Download PDF Report",
+                data=_pdf_bytes,
+                file_name=f"impact_receipts_{timestamp}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key="pdf_download_btn",
+            )
+            _summary_html = _build_verification_summary_html(subs, evs, timestamp)
+            _summary_pdf  = _html_to_pdf_bytes(_summary_html)
+            if _summary_pdf:
                 st.download_button(
-                    label="📄 Download PDF Report",
-                    data=_pdf_buf.getvalue(),
-                    file_name=f"impact_receipts_{timestamp}.pdf",
+                    label="📋 Download Verification Summary (PDF)",
+                    data=_summary_pdf,
+                    file_name=f"verification_summary_{timestamp}.pdf",
                     mime="application/pdf",
                     use_container_width=True,
-                    key="pdf_download_btn",
+                    key="verification_summary_pdf_btn",
                 )
-        except ImportError:
+        else:
             st.caption("PDF: install xhtml2pdf to enable one-click PDF download.")
     with col_json:
         st.download_button(
@@ -4791,6 +4797,21 @@ def _make_slug(text: str, max_len: int = 45) -> str:
     slug = re.sub(r"[^\w\s-]", "", text.lower())
     slug = re.sub(r"[\s_-]+", "-", slug).strip("-")
     return slug[:max_len]
+
+
+def _html_to_pdf_bytes(html: str) -> bytes | None:
+    """Convert an HTML report string to PDF bytes via xhtml2pdf, or None if unavailable."""
+    try:
+        from xhtml2pdf import pisa as _pisa
+        import io as _io2
+        buf = _io2.BytesIO()
+        _pisa.CreatePDF(src=html, dest=buf)
+        if buf.tell() > 0:
+            buf.seek(0)
+            return buf.getvalue()
+    except ImportError:
+        pass
+    return None
 
 
 def _build_markdown_report(submission: dict, evaluation: dict, timestamp: str) -> str:
@@ -5136,6 +5157,20 @@ def render_screen_3():
             mime="text/csv",
             key="portfolio_results_dl",
         )
+
+        _timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        _portfolio_summary_html = _build_portfolio_verification_summary_html(results_df, warnings, _timestamp)
+        _portfolio_summary_pdf  = _html_to_pdf_bytes(_portfolio_summary_html)
+        if _portfolio_summary_pdf:
+            st.download_button(
+                "📋 Download Verification Summary (PDF)",
+                data=_portfolio_summary_pdf,
+                file_name=f"portfolio_verification_summary_{_timestamp}.pdf",
+                mime="application/pdf",
+                key="portfolio_verification_summary_pdf_btn",
+            )
+        else:
+            st.caption("PDF: install xhtml2pdf to enable one-click PDF download.")
 
 
 def _overview_score_values(ev):
@@ -5631,6 +5666,216 @@ def _build_combined_html_report(submissions: list, evaluations: list, timestamp:
             divider = f"<hr style='margin:40px 0;border:2px solid #8A6500;'/><h2 style='color:#1B5E20;'>Result {i+1}</h2>"
             parts[0] = parts[0][:insert_at] + divider + section[start:end] + parts[0][insert_at:]
     return parts[0]
+
+
+_VERIFICATION_SUMMARY_CSS = """
+  body{font-family:'Inter',sans-serif;color:#212121;max-width:760px;margin:40px auto;padding:0 24px;}
+  h1,h2,h3{color:#1B5E20;} h1{font-size:1.5rem;} h2{font-size:1.05rem;border-bottom:1px solid #8A6500;padding-bottom:4px;margin-top:22px;}
+  table{width:100%;border-collapse:collapse;margin-bottom:14px;}
+  td,th{border:1px solid #E0E0E0;text-align:left;padding:5px 8px;font-size:0.85rem;}
+  th{background:#F5F5F5;}
+  .signoff{margin-top:28px;border-top:1px solid #E0E0E0;padding-top:18px;font-size:0.9rem;}
+  .signoff .line{display:inline-block;min-width:220px;border-bottom:1px solid #212121;margin:0 6px;}
+  .footer{color:#616161;font-style:italic;font-size:0.8rem;border-top:1px solid #E0E0E0;margin-top:28px;padding-top:12px;}
+  @media print{ body{margin:20px;} *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;} }
+"""
+
+_VERIFICATION_SUMMARY_BADGE_COLORS = {
+    "Strong":     ("#C8E6C9", "#1B5E20"),
+    "Acceptable": ("#FFF9C4", "#F57F17"),
+    "Weak":       ("#FFE0B2", "#E65100"),
+    "High Risk":  ("#FFCDD2", "#B71C1C"),
+}
+
+_VERIFICATION_SUMMARY_VERDICT_COLORS = {
+    "Strong KPI — well-positioned for submission": "#1B5E20",
+    "Misleading KPI — sharpen the definition before submission": "#E65100",
+    "Well-defined but weak evidence — strengthen the verification chain": "#F57F17",
+    "High risk — strengthen both axes before relying on this result": "#B71C1C",
+}
+
+
+def _verification_summary_badge(label: str, score: float, max_s: float) -> str:
+    bg, fg = _VERIFICATION_SUMMARY_BADGE_COLORS.get(label, ("#F5F5F5", "#212121"))
+    _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
+    return (f"<div style='background:{bg};color:{fg};padding:8px 12px;"
+            f"border-radius:8px;font-weight:700;font-size:0.85rem;display:inline-block;{_pca}'>"
+            f"{score}/{max_s} &nbsp; {label.upper()}</div>")
+
+
+def _verification_summary_signoff() -> str:
+    return (
+        "<div class='signoff'>"
+        "Reviewed by: <span class='line'>&nbsp;</span> &nbsp;&nbsp; "
+        "Date: <span class='line'>&nbsp;</span>"
+        "</div>"
+    )
+
+
+def _build_verification_summary_html(submissions: list, evaluations: list, timestamp: str) -> str:
+    """Build a short, printable per-result gap report for attaching to a submission."""
+    sections = []
+    for i, (submission, evaluation) in enumerate(zip(submissions, evaluations)):
+        conf_score = evaluation.get("confidence_score", 0)
+        clar_score = evaluation.get("clarity_score", 0)
+        conf_label = evaluation.get("confidence_label", "")
+        clar_label = evaluation.get("clarity_label", "")
+        verdict    = evaluation.get("verdict", "")
+        fixes      = evaluation.get("fixes", [])
+        conf_comp  = evaluation.get("confidence_components", {})
+        clar_comp  = evaluation.get("clarity_components", {})
+        verdict_bg = _VERIFICATION_SUMMARY_VERDICT_COLORS.get(verdict, "#1B5E20")
+
+        sub_rows = "".join(
+            f"<tr><td>{dim}</td><td style='font-family:monospace;'>{score}/{max_v}</td></tr>"
+            for dim, score, max_v in [
+                ("Directness",   conf_comp.get("direct_score", 0), 2.0),
+                ("Verification", conf_comp.get("verify_score", 0), 2.0),
+                ("Recency",      conf_comp.get("recency_score", 0), 1.0),
+                ("Definition",   clar_comp.get("definition_score", 0), 1.25),
+                ("Measurement",  clar_comp.get("measurement_score", 0), 1.25),
+                ("Integrity",    clar_comp.get("integrity_score", 0), 1.0),
+                ("Scope",        clar_comp.get("scope_score", 0), 0.75),
+                ("Governance",   clar_comp.get("governance_score", 0), 0.75),
+            ]
+        )
+
+        if fixes:
+            fixes_html = "<ul>" + "".join(
+                f"<li>{f['message']} <em style='color:#616161;'>({f['score_impact']})</em></li>"
+                for f in fixes
+            ) + "</ul>"
+        else:
+            fixes_html = "<p style='color:#1B5E20;font-weight:700;'>No further gaps flagged by this tool's checks.</p>"
+
+        heading = "<h1>Verification Summary</h1>" if i == 0 else \
+                  f"<hr style='margin:36px 0;border:2px solid #8A6500;'/><h1>Result {i + 1}</h1>"
+
+        sections.append(f"""
+{heading}
+<p style="color:#616161;font-size:0.85rem;">Generated: {timestamp}</p>
+<h2>Result Statement</h2>
+<p>{submission.get('result_statement', '-')}</p>
+<p><strong>Logframe Indicator:</strong> {submission.get('logframe_indicator', '-') or '-'}<br/>
+   <strong>Target Group:</strong> {submission.get('target_group', '-')}<br/>
+   <strong>Timeframe:</strong> {submission.get('timeframe', '-')}<br/>
+   <strong>Geographic Scope:</strong> {submission.get('geographic_scope', '-')}</p>
+
+<div style="background:{verdict_bg};color:white;border-radius:10px;padding:12px 18px;
+     font-weight:700;text-align:center;margin:16px 0;font-size:0.95rem;
+     -webkit-print-color-adjust:exact;print-color-adjust:exact;">
+  {verdict}
+</div>
+
+<h2>Scores</h2>
+<p>
+  {_verification_summary_badge(conf_label, conf_score, 5.0)}
+  &nbsp; {_verification_summary_badge(clar_label, clar_score, 5.0)}
+</p>
+<table><tr><th>Sub-score</th><th>Score</th></tr>{sub_rows}</table>
+
+<h2>Gaps to Address</h2>
+{fixes_html}
+""")
+
+    sections.append(f"""
+<h2>Donor Framework Crosswalk</h2>
+{_DONOR_CROSSWALK_HTML}
+<p style="color:#616161;font-size:0.8rem;">{_LIMITS_DISCLAIMER}</p>
+{_verification_summary_signoff()}
+<div class="footer">
+  Evaluated using {METHODOLOGY_STACK}.<br/>
+  Contact: <a href="mailto:info@impact-receipts.com">info@impact-receipts.com</a>
+</div>
+""")
+
+    body = "".join(sections)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Verification Summary</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet"/>
+<style>{_VERIFICATION_SUMMARY_CSS}</style>
+</head>
+<body>
+{body}
+</body>
+</html>"""
+
+
+def _build_portfolio_verification_summary_html(results_df, warnings: list, timestamp: str) -> str:
+    """Build a short, printable portfolio-level gap report for a reporting cycle."""
+    dims = [d for d, _ in _PORTFOLIO_SUBSCORE_DIMENSIONS]
+    n = len(results_df)
+    avg_conf = results_df["confidence_score"].mean() if n else 0
+    avg_clar = results_df["clarity_score"].mean() if n else 0
+
+    if n and dims:
+        weakest_dim = results_df[dims].mean().idxmin()
+        weakest_pct = results_df[dims].mean().min()
+        systemic_gap_html = (
+            f"<p><strong>Systemic gap:</strong> <em>{weakest_dim}</em> is this portfolio's "
+            f"weakest sub-score on average ({weakest_pct:.0f}% of target) — start here for "
+            f"the biggest improvement across multiple indicators.</p>"
+        )
+    else:
+        systemic_gap_html = ""
+
+    table_rows = "".join(
+        f"<tr><td>{r['indicator_name']}</td><td>{r['logframe_indicator'] or '-'}</td>"
+        f"<td style='font-family:monospace;'>{r['confidence_score']}/5.0</td>"
+        f"<td style='font-family:monospace;'>{r['clarity_score']}/5.0</td>"
+        f"<td>{r['verdict']}</td><td>{r['top_fix'] or '-'}</td></tr>"
+        for _, r in results_df.iterrows()
+    )
+
+    warnings_html = ""
+    if warnings:
+        warnings_html = (
+            "<h2>Rows Skipped</h2><ul>"
+            + "".join(f"<li>{w}</li>" for w in warnings)
+            + "</ul>"
+        )
+
+    body = f"""
+<h1>Portfolio Verification Summary</h1>
+<p style="color:#616161;font-size:0.85rem;">Generated: {timestamp}</p>
+<p><strong>Indicators evaluated:</strong> {n}<br/>
+   <strong>Average Confidence:</strong> {avg_conf:.1f}/5.0<br/>
+   <strong>Average Clarity:</strong> {avg_clar:.1f}/5.0</p>
+{systemic_gap_html}
+
+<h2>Results by Indicator</h2>
+<table>
+  <tr><th>Indicator</th><th>Logframe Reference</th><th>Confidence</th><th>Clarity</th><th>Verdict</th><th>Top Fix</th></tr>
+  {table_rows}
+</table>
+{warnings_html}
+
+<h2>Donor Framework Crosswalk</h2>
+{_DONOR_CROSSWALK_HTML}
+<p style="color:#616161;font-size:0.8rem;">{_LIMITS_DISCLAIMER}</p>
+{_verification_summary_signoff()}
+<div class="footer">
+  Evaluated using {METHODOLOGY_STACK}.<br/>
+  Contact: <a href="mailto:info@impact-receipts.com">info@impact-receipts.com</a>
+</div>
+"""
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Portfolio Verification Summary</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet"/>
+<style>{_VERIFICATION_SUMMARY_CSS}</style>
+</head>
+<body>
+{body}
+</body>
+</html>"""
 
 
 # ---------------------------------------------------------------------------
