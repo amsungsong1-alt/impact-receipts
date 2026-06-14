@@ -767,24 +767,31 @@ _READINESS_BAND = {
 _READINESS_STYLE = {
     "Submission-Ready": {
         "bg": "#1B5E20", "icon": "✅",
-        "caption": "Both axes are strong enough to include in a donor report as written.",
+        "caption": "Both evidence confidence and claim clarity clear the bar a donor "
+                   "reviewer would apply. Read the gaps below, then submit.",
     },
     "Needs Work": {
-        "bg": "#8A6500", "icon": "✏️",
-        "caption": "Specific gaps remain — address the items below before submitting.",
+        "bg": "#8A6500", "icon": "⚠️",
+        "caption": "Defensible in places, but at least one dimension would draw a "
+                   "reviewer's question. Close the flagged gaps first.",
     },
     "Not Defensible": {
-        "bg": "#B71C1C", "icon": "🛑",
-        "caption": "Major gaps on one or both axes — likely to be challenged or rejected as written.",
+        "bg": "#B71C1C", "icon": "⛔",
+        "caption": "As written, this result would not survive a data quality "
+                   "assessment. The gaps below are why — fix them before it goes "
+                   "near a donor report.",
     },
 }
 
 # Shown under every readiness banner — keeps the headline from reading as a
 # guarantee of donor approval.
 _LIMITS_DISCLAIMER = (
-    "This is improvement guidance based on what you described here — not a "
-    "guarantee of donor approval. Funders apply their own review and may "
-    "raise points this tool doesn't check."
+    "This is improvement guidance, not a guarantee of approval. Impact-Receipts "
+    "checks the evidence you entered against what donor reviewers typically look "
+    "for — completeness, verifiability, clarity, and data-protection flags. It "
+    "does not see your underlying data collection, judge your programme, or "
+    "replace your donor's own assessment. A \"Submission-Ready\" result means the "
+    "gaps it can detect are closed — not that approval is assured."
 )
 
 
