@@ -772,6 +772,13 @@ EXTERNAL_REVIEW_OPTIONS = [
     "Other",
 ]
 
+TRACEABILITY_OPTIONS = [
+    "Choose an option...",
+    "Yes — an auditor could retrieve the original records",
+    "Partially — some records would take effort to locate",
+    "No / not sure",
+]
+
 SUBMISSION_CHECKLIST = {
     "Project proposal": [
         ("cl_proposal",       "Narrative / technical proposal"),
@@ -2061,6 +2068,12 @@ def _build_submission_from_session(slot: int = 1) -> dict:
         "logframe_achievement": st.session_state.get(f"logframe_achievement{s}", ""),
         "reporting_start":      _format_date(st.session_state.get(f"reporting_start{s}")),
         "reporting_end":        _format_date(st.session_state.get(f"reporting_end{s}")),
+        "provenance_checklist": {
+            "sampling_documented":     st.session_state.get(f"provenance_sampling{s}", False),
+            "double_counting_checked": st.session_state.get(f"provenance_dedup{s}", False),
+            "recall_bias_considered":  st.session_state.get(f"provenance_recall{s}", False),
+            "auditor_traceable":       st.session_state.get(f"provenance_traceability{s}", "Choose an option..."),
+        },
         "attribution_contribution": st.session_state.get(f"attribution_contribution{s}", "Not specified"),
         "disaggregation_status":     st.session_state.get(f"disaggregation_status{s}", "Not specified"),
         "donor":                     donor,
@@ -2622,6 +2635,38 @@ def _render_tab3_slot(slot: int):
             placeholder=_ph.get("verifier", "e.g., District Agriculture Officer, partner org M&E lead, external evaluator"),
             help="The person or organization that confirmed the data is accurate.",
         )
+
+        st.markdown("#### Data Collection & Traceability")
+        st.caption("These checks add to your Verification score (USAID DQA Reliability/Precision).")
+        _irc_widget(
+            st.checkbox, "Sampling or selection method documented (who was included, and how)",
+            f"provenance_sampling{s}", default=False,
+        )
+        _irc_widget(
+            st.checkbox, "Checked for double-counting (no beneficiary or result counted twice "
+            "across activities or periods)", f"provenance_dedup{s}", default=False,
+        )
+        _irc_widget(
+            st.checkbox, "Recall or enumerator bias considered (data collected close to the "
+            "event, or cross-checked)", f"provenance_recall{s}", default=False,
+        )
+        _irc_widget(
+            st.selectbox, "Could an external auditor retrieve the original records referenced "
+            "above?", f"provenance_traceability{s}", default=TRACEABILITY_OPTIONS[0],
+            options=TRACEABILITY_OPTIONS,
+            help="E.g. raw survey exports, signed registers, payment records.",
+        )
+        _prov_checklist = {
+            "sampling_documented":     st.session_state.get(f"provenance_sampling{s}", False),
+            "double_counting_checked": st.session_state.get(f"provenance_dedup{s}", False),
+            "recall_bias_considered":  st.session_state.get(f"provenance_recall{s}", False),
+            "auditor_traceable":       st.session_state.get(f"provenance_traceability{s}", TRACEABILITY_OPTIONS[0]),
+        }
+        _prov_bonus = _evaluator.get_provenance_bonus(_prov_checklist)
+        if _prov_bonus > 0:
+            st.caption(f"Data-collection checklist adds **+{_prov_bonus}** to Verification score (capped at 2.0/2.0 total)")
+        else:
+            st.caption("⚠ Completing this checklist can add up to **+0.6** to your Verification score.")
 
         st.markdown("#### Reporting Period")
         st.caption("The period this submission covers. Evidence dates outside this range will be flagged.")

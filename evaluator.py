@@ -69,6 +69,13 @@ EXTERNAL_REVIEW_LEVEL = {
     "Other":                                     4,
 }
 
+# Data-collection & traceability checklist bonus (Section 4.2)
+_TRACEABILITY_BONUS = {
+    "Yes — an auditor could retrieve the original records":      0.20,
+    "Partially — some records would take effort to locate":      0.10,
+    "No / not sure":                                              0.0,
+}
+
 # ---------------------------------------------------------------------------
 # Month parser helpers
 # ---------------------------------------------------------------------------
@@ -574,6 +581,24 @@ def get_verification_level(
     return level
 
 
+def get_provenance_bonus(checklist: dict) -> float:
+    """
+    Data-collection & traceability checklist bonus (0.0-0.6), added to the
+    Verification score (capped at 2.0 overall).
+    Anchored in USAID ADS 201.3.5.7 — Reliability + Precision.
+    """
+    checklist = checklist or {}
+    bonus = 0.0
+    if checklist.get("sampling_documented"):
+        bonus += 0.15
+    if checklist.get("double_counting_checked"):
+        bonus += 0.15
+    if checklist.get("recall_bias_considered"):
+        bonus += 0.10
+    bonus += _TRACEABILITY_BONUS.get(checklist.get("auditor_traceable", ""), 0.0)
+    return round(bonus, 2)
+
+
 def get_recency_level(evidence_date: str, report_end_date) -> int:
     """
     Compute recency level from evidence_date string and report_end_date.
@@ -815,6 +840,22 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict) -> li
             "score_impact_value": gain,
         })
 
+    provenance_bonus = confidence_components.get("provenance_bonus", 0.0)
+    if provenance_bonus < 0.6 and verify_score < 2.0:
+        _gain = round(min(0.6 - provenance_bonus, 2.0 - verify_score), 2)
+        if _gain > 0:
+            fixes.append({
+                "dimension": "confidence",
+                "message": (
+                    "Strengthen your data chain — document your sampling method, "
+                    "confirm there's no double-counting across activities, note how "
+                    "recall or enumerator bias was addressed, and confirm an auditor "
+                    "could retrieve the original records."
+                ),
+                "score_impact": f"+up to {_gain} on Confidence",
+                "score_impact_value": _gain,
+            })
+
     if recency_score < (3 / 5) * 1.0:
         _gain = round(1.0 - recency_score, 2)
         fixes.append({
@@ -928,7 +969,7 @@ def get_score_rationale(dimension: str, level: int, current_score: float, max_sc
             },
         },
         "verification": {
-            "standard": "USAID ADS 201.3.5.7 — Integrity + Audit Independence Principle",
+            "standard": "USAID ADS 201.3.5.7 — Integrity + Audit Independence Principle; Reliability + Precision (data provenance)",
             "interpretations": {
                 5: "Independent third-party verification documented (gold standard).",
                 4: "External partner review with limited audit depth.",
@@ -1048,10 +1089,12 @@ def evaluate_submission(submission: dict) -> dict:
     )
 
     direct_score  = round((direct_level  / 5) * 2.0, 2)
-    verify_score  = round((verify_level  / 5) * 2.0, 2)
     recency_score = round((recency_level / 5) * 1.0, 2)
 
-    confidence_score = compute_confidence(direct_level, verify_level, recency_level)
+    provenance_bonus = get_provenance_bonus(submission.get("provenance_checklist", {}))
+    verify_score = round(min(2.0, (verify_level / 5) * 2.0 + provenance_bonus), 2)
+
+    confidence_score = round(direct_score + verify_score + recency_score, 1)
 
     result_stmt = submission.get("result_statement", "") or ""
     quality_multiplier, content_issues = validate_content_quality(result_stmt, ev_desc, verified_by)
@@ -1078,6 +1121,7 @@ def evaluate_submission(submission: dict) -> dict:
         "recency_level": recency_level,
         "recency_score": recency_score,
         "bv_bonus":      bv_bonus,
+        "provenance_bonus": provenance_bonus,
     }
 
     # Clarity axis
