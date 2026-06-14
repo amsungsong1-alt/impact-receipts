@@ -139,8 +139,19 @@ EVIDENCE_TYPES = [
     "Tracer survey results",
     "Financial records",
     "Third-party audits",
+    "Case study",
+    "Outcome harvesting",
+    "Beneficiary narrative or testimony",
     "Other",
 ]
+
+# Evidence types scored on sourcing rigor, triangulation, and bias
+# mitigation (Qualitative Evidence Track) instead of measurement precision.
+QUALITATIVE_EVIDENCE_TYPES = (
+    "Case study",
+    "Outcome harvesting",
+    "Beneficiary narrative or testimony",
+)
 
 # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 PII_EVIDENCE_TYPES = [
@@ -802,6 +813,9 @@ _PORTFOLIO_COLUMNS = [
     ("logframe_achievement", False, "3,400 households"),
     ("learning_notes",       False, ""),
     ("limitations_notes",    False, ""),
+    ("qual_sourcing_documented", False, "FALSE"),
+    ("qual_triangulated",        False, "FALSE"),
+    ("qual_bias_considered",     False, "FALSE"),
 ]
 
 # Accepted values for internal_review / external_review (unrecognized values
@@ -1842,9 +1856,12 @@ def _render_live_score_preview(slot: int = 1):
         integ  = clar_comp.get("integrity_score", 0)
         scope  = clar_comp.get("scope_score", 0)
         gov    = clar_comp.get("governance_score", 0)
+        is_qual    = clar_comp.get("is_qualitative", False)
+        meas_label = "Sourcing & Triangulation" if is_qual else "Measurement"
+        meas_tip   = _CLARITY_TIPS["measurement_qualitative"] if is_qual else _CLARITY_TIPS["measurement"]
         _render_subscore_chart([
             ("Definition", def_s, 1.25, _CLARITY_TIPS["definition"]),
-            ("Measurement", meas_s, 1.25, _CLARITY_TIPS["measurement"]),
+            (meas_label, meas_s, 1.25, meas_tip),
             ("Integrity", integ, 1.0, _CLARITY_TIPS["integrity"]),
             ("Scope", scope, 0.75, _CLARITY_TIPS["scope"]),
             ("Governance", gov, 0.75, _CLARITY_TIPS["governance"]),
@@ -2107,6 +2124,11 @@ def _build_submission_from_session(slot: int = 1) -> dict:
             "double_counting_checked": st.session_state.get(f"provenance_dedup{s}", False),
             "recall_bias_considered":  st.session_state.get(f"provenance_recall{s}", False),
             "auditor_traceable":       st.session_state.get(f"provenance_traceability{s}", "Choose an option..."),
+        },
+        "qualitative_rigor_checklist": {
+            "sourcing_documented": st.session_state.get(f"qual_sourcing{s}", False),
+            "triangulated":        st.session_state.get(f"qual_triangulated{s}", False),
+            "bias_considered":     st.session_state.get(f"qual_bias{s}", False),
         },
         "attribution_contribution": st.session_state.get(f"attribution_contribution{s}", "Not specified"),
         "disaggregation_status":     st.session_state.get(f"disaggregation_status{s}", "Not specified"),
@@ -2623,6 +2645,34 @@ def _render_tab3_slot(slot: int):
                 st.checkbox("Auditor independent from implementer", key=f"independent_ev{s}")
                 st.checkbox("Audit report signed and dated", key=f"signed_audit{s}")
                 st.checkbox("Audit recommendations addressed/disclosed", key=f"recommendations_ev{s}")
+        elif ev_type in QUALITATIVE_EVIDENCE_TYPES:
+            with st.expander(
+                "📝 Qualitative Rigor — sourcing, triangulation & bias (replaces Measurement, max 1.25)",
+                expanded=True,
+            ):
+                st.caption(
+                    "These checks replace the Measurement sub-score for qualitative evidence."
+                )
+                _irc_widget(
+                    st.checkbox, "Case/respondent selection method documented "
+                    "(not just convenience — explain how and why these cases were chosen)",
+                    f"qual_sourcing{s}", default=False,
+                )
+                _irc_widget(
+                    st.checkbox, "Cross-checked against another source or method (triangulation)",
+                    f"qual_triangulated{s}", default=False,
+                )
+                _irc_widget(
+                    st.checkbox, "Recall, social-desirability, or selection bias considered and addressed",
+                    f"qual_bias{s}", default=False,
+                )
+                _qual_count = sum([
+                    st.session_state.get(f"qual_sourcing{s}", False),
+                    st.session_state.get(f"qual_triangulated{s}", False),
+                    st.session_state.get(f"qual_bias{s}", False),
+                ])
+                _qual_score = round((_qual_count / 3) * 1.25, 2)
+                st.caption(f"Sourcing & Triangulation contribution: **{_qual_score}/1.25**")
 
         if ev_type == "Other":
             st.text_input("Specify evidence type", key=f"evidence_type_other{s}")
@@ -4135,6 +4185,8 @@ _RECENCY_TIPS = {
 _CLARITY_TIPS = {
     "definition":  "Definition (max 1.25) — how precisely the result states who, what, where, and by when.",
     "measurement": "Measurement (max 1.25) — whether a clear indicator, baseline, and target are stated.",
+    "measurement_qualitative": "Sourcing & Triangulation (max 1.25) — whether case/respondent "
+        "selection, triangulation, and bias mitigation are documented.",
     "integrity":   "Integrity (max 1.0) — data completeness, audit trail, and absence of unexplained gaps.",
     "scope":       "Scope (max 0.75) — whether geographic and demographic coverage matches the claim.",
     "governance":  "Governance (max 0.75) — whether a named owner and a decision use for the result are stated.",
@@ -4323,10 +4375,13 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         integ  = clar_comp.get("integrity_score",   0)
         scope  = clar_comp.get("scope_score",       0)
         gov    = clar_comp.get("governance_score",  0)
+        is_qual    = clar_comp.get("is_qualitative", False)
+        meas_label = "Sourcing & Triangulation" if is_qual else "Measurement"
+        meas_tip   = _CLARITY_TIPS["measurement_qualitative"] if is_qual else _CLARITY_TIPS["measurement"]
         st.metric("Definition", f"{def_s}/1.25",
                   help=f"{_CLARITY_TIPS['definition']}\n\n{TOOLTIP_DEFINITION}")
-        st.metric("Measurement", f"{meas_s}/1.25",
-                  help=f"{_CLARITY_TIPS['measurement']}\n\n{TOOLTIP_MEASUREMENT}")
+        st.metric(meas_label, f"{meas_s}/1.25",
+                  help=f"{meas_tip}\n\n{TOOLTIP_MEASUREMENT}")
         st.metric("Integrity", f"{integ}/1.0",
                   help=f"{_CLARITY_TIPS['integrity']}\n\n{TOOLTIP_INTEGRITY}")
         st.metric("Scope", f"{scope}/0.75",
@@ -4335,7 +4390,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
                   help=f"{_CLARITY_TIPS['governance']}\n\n{TOOLTIP_GOVERNANCE}")
         _render_subscore_chart([
             ("Definition", def_s, 1.25, _CLARITY_TIPS["definition"]),
-            ("Measurement", meas_s, 1.25, _CLARITY_TIPS["measurement"]),
+            (meas_label, meas_s, 1.25, meas_tip),
             ("Integrity", integ, 1.0, _CLARITY_TIPS["integrity"]),
             ("Scope", scope, 0.75, _CLARITY_TIPS["scope"]),
             ("Governance", gov, 0.75, _CLARITY_TIPS["governance"]),
@@ -4961,6 +5016,9 @@ def _portfolio_row_to_submission(row: dict) -> dict:
     internal_review = _get("internal_review", "Not reviewed") or "Not reviewed"
     external_review = _get("external_review", "No external review") or "No external review"
 
+    def _get_bool(key):
+        return _get(key, "FALSE").strip().lower() in ("true", "yes", "1", "x")
+
     return {
         "result_statement":   _get("result_statement"),
         "target_group":       _get("target_group"),
@@ -4980,6 +5038,11 @@ def _portfolio_row_to_submission(row: dict) -> dict:
             "recency":     _get("evidence_date"),
             "verified_by": _get("verifier"),
         }],
+        "qualitative_rigor_checklist": {
+            "sourcing_documented": _get_bool("qual_sourcing_documented"),
+            "triangulated":        _get_bool("qual_triangulated"),
+            "bias_considered":     _get_bool("qual_bias_considered"),
+        },
     }
 
 
@@ -5142,6 +5205,12 @@ def render_screen_3():
         )
 
         st.markdown("#### Heatmap — weakest indicators & sub-scores")
+        st.caption(
+            "For rows using a qualitative evidence type (case study, outcome harvesting, "
+            "beneficiary narrative or testimony), the \"Measurement\" column reflects "
+            "Sourcing & Triangulation (case/respondent selection, triangulation, and bias "
+            "mitigation) instead of measurement precision."
+        )
         st.altair_chart(_portfolio_heatmap_chart(results_df), use_container_width=True, key="portfolio_heatmap")
 
         st.markdown("#### Results table")
@@ -5332,6 +5401,9 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
     integ  = clar_comp.get("integrity_score", 0)
     scope  = clar_comp.get("scope_score", 0)
     gov    = clar_comp.get("governance_score", 0)
+    is_qual    = clar_comp.get("is_qualitative", False)
+    meas_label = "Sourcing & Triangulation" if is_qual else "Measurement"
+    meas_tip   = _CLARITY_TIPS["measurement_qualitative"] if is_qual else _CLARITY_TIPS["measurement"]
 
     # --- Overview chart for report ---
     _r_conf, _r_clar, _r_eth, _r_comp = _overview_score_values(evaluation)
@@ -5368,7 +5440,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
     ]).to_json()
     _clar_spec_json = _subscore_chart([
         ("Definition", def_s, 1.25, _CLARITY_TIPS["definition"]),
-        ("Measurement", meas_s, 1.25, _CLARITY_TIPS["measurement"]),
+        (meas_label, meas_s, 1.25, meas_tip),
         ("Integrity", integ, 1.0, _CLARITY_TIPS["integrity"]),
         ("Scope", scope, 0.75, _CLARITY_TIPS["scope"]),
         ("Governance", gov, 0.75, _CLARITY_TIPS["governance"]),
@@ -5624,7 +5696,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
     <table>
       <tr><th>Component</th><th>Score</th><th>Bar</th></tr>
       {row("Definition", def_s, 1.25, _CLARITY_TIPS['definition'])}
-      {row("Measurement", meas_s, 1.25, _CLARITY_TIPS['measurement'])}
+      {row(meas_label, meas_s, 1.25, meas_tip)}
       {row("Integrity", integ, 1.0, _CLARITY_TIPS['integrity'])}
       {row("Scope", scope, 0.75, _CLARITY_TIPS['scope'])}
       {row("Governance", gov, 0.75, _CLARITY_TIPS['governance'])}
@@ -5725,6 +5797,8 @@ def _build_verification_summary_html(submissions: list, evaluations: list, times
         conf_comp  = evaluation.get("confidence_components", {})
         clar_comp  = evaluation.get("clarity_components", {})
         verdict_bg = _VERIFICATION_SUMMARY_VERDICT_COLORS.get(verdict, "#1B5E20")
+        is_qual    = clar_comp.get("is_qualitative", False)
+        meas_label = "Sourcing & Triangulation" if is_qual else "Measurement"
 
         sub_rows = "".join(
             f"<tr><td>{dim}</td><td style='font-family:monospace;'>{score}/{max_v}</td></tr>"
@@ -5733,7 +5807,7 @@ def _build_verification_summary_html(submissions: list, evaluations: list, times
                 ("Verification", conf_comp.get("verify_score", 0), 2.0),
                 ("Recency",      conf_comp.get("recency_score", 0), 1.0),
                 ("Definition",   clar_comp.get("definition_score", 0), 1.25),
-                ("Measurement",  clar_comp.get("measurement_score", 0), 1.25),
+                (meas_label,     clar_comp.get("measurement_score", 0), 1.25),
                 ("Integrity",    clar_comp.get("integrity_score", 0), 1.0),
                 ("Scope",        clar_comp.get("scope_score", 0), 0.75),
                 ("Governance",   clar_comp.get("governance_score", 0), 0.75),

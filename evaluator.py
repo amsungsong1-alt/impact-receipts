@@ -191,12 +191,14 @@ def score_directness(evidence_description: str, evidence_type: str) -> float:
         "alternative explanation", "ruled out", "counterfactual",
         "contribution analysis", "process trace", "triangulat",
         "multiple independent sources", "cross-checked", "corroborat",
+        "outcome harvest",
     ]):
         return 5.0
 
     if any(kw in text for kw in [
         "theory of change", "toc", "outcome data", "baseline",
         "endline", "comparison group", "control", "independent evaluation",
+        "case stud",
     ]):
         return 4.0
 
@@ -700,6 +702,14 @@ _STRUCTURED_EV_TYPES = {
     "Payroll records",
 }
 
+# Evidence types scored on sourcing rigor, triangulation, and bias
+# mitigation (Qualitative Evidence Track) instead of measurement precision.
+_QUALITATIVE_EV_TYPES = {
+    "Case study",
+    "Outcome harvesting",
+    "Beneficiary narrative or testimony",
+}
+
 _METHOD_KEYWORDS = (
     "session", "district", "kobo", "survey", "interview",
     "observation", "register", "signed", "collected", "verified",
@@ -735,10 +745,19 @@ def _derive_clarity_params(submission: dict) -> dict:
 
     # --- Measurement quality (3 yes/no) ---
     desc_lower = ev_desc.lower()
-    has_method_desc    = len(ev_desc) > 50
-    has_method_keyword = any(k in desc_lower for k in _METHOD_KEYWORDS)
-    has_structured     = ev_type in _STRUCTURED_EV_TYPES
-    measurement_yes    = sum([has_method_desc, has_method_keyword, has_structured])
+    is_qualitative = ev_type in _QUALITATIVE_EV_TYPES
+    if is_qualitative:
+        qual_checklist = submission.get("qualitative_rigor_checklist", {}) or {}
+        measurement_yes = sum([
+            bool(qual_checklist.get("sourcing_documented")),
+            bool(qual_checklist.get("triangulated")),
+            bool(qual_checklist.get("bias_considered")),
+        ])
+    else:
+        has_method_desc    = len(ev_desc) > 50
+        has_method_keyword = any(k in desc_lower for k in _METHOD_KEYWORDS)
+        has_structured     = ev_type in _STRUCTURED_EV_TYPES
+        measurement_yes    = sum([has_method_desc, has_method_keyword, has_structured])
 
     # --- Missing data ---
     if any(k in desc_lower for k in ("significant", "majority missing", "most data missing")):
@@ -782,6 +801,7 @@ def _derive_clarity_params(submission: dict) -> dict:
         "coverage":              coverage,
         "sample_ok":             sample_ok,
         "governance_yes_count":  governance_yes,
+        "is_qualitative":        is_qualitative,
     }
 
 
@@ -901,12 +921,20 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict) -> li
 
     if meas_score < 1.0:
         _gain = round(1.25 - meas_score, 2)
-        fixes.append({
-            "dimension": "clarity",
-            "message": (
+        if clarity_components.get("is_qualitative"):
+            _meas_message = (
+                "Document how cases or respondents were selected (not just convenience), "
+                "note what this evidence was cross-checked against, and describe how "
+                "recall, social-desirability, or selection bias was addressed."
+            )
+        else:
+            _meas_message = (
                 "Describe your collection method and sampling approach in the evidence description "
                 "— specify the instrument used and how participants were selected."
-            ),
+            )
+        fixes.append({
+            "dimension": "clarity",
+            "message": _meas_message,
             "score_impact": f"+up to {_gain} on Clarity",
             "score_impact_value": _gain,
         })
@@ -1141,7 +1169,7 @@ def evaluate_submission(submission: dict) -> dict:
         + (0.35 if sok else 0)), 2)
     gov_score_c  = round((clarity_params["governance_yes_count"] / 3) * 0.75, 2)
 
-    clarity_score = compute_clarity(**clarity_params)
+    clarity_score = compute_clarity(**{k: v for k, v in clarity_params.items() if k != "is_qualitative"})
 
     # Indicator Maturity: small clamped bonus/penalty on Measurement + Clarity
     indicator_maturity = get_indicator_maturity(submission.get("logframe_indicator", "") or "")
