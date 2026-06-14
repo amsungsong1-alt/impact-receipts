@@ -4312,6 +4312,150 @@ _CLARITY_TIPS = {
     "governance":  "Governance (max 0.75) — whether a named owner and a decision use for the result are stated.",
 }
 
+# ---------------------------------------------------------------------------
+# Scoring Transparency Layer
+#
+# One constant holding plain-language copy for each of the eight scoring
+# criteria: what it measures, why a donor reviewer cares, what weak vs.
+# strong evidence looks like, and concrete actions to improve it. Used by
+# render_how_scoring_works_panel() and render_personalized_weakness_panel().
+# Editing this dict changes explanatory text only — no scoring math.
+# ---------------------------------------------------------------------------
+_SCORING_GUIDE = {
+    "directness": {
+        "label": "Directness", "axis": "confidence", "max_score": 2.0,
+        "definition": "How directly the evidence shows the programme contributed to this result, "
+                      "not just that an activity took place.",
+        "why_it_matters": "Donor reviewers ask 'how do you know this happened because of you?' — "
+                          "weak directness is one of the most common reasons results get challenged "
+                          "in a data quality assessment.",
+        "weak_example": "\"We trained 200 farmers\" — describes an activity, with no link to any "
+                        "change in their practices or outcomes.",
+        "strong_example": "A before/after comparison (and, where possible, a comparison group) "
+                          "showing the change occurred specifically among those reached by the programme.",
+        "improve_actions": [
+            "Add a baseline and endline measurement for the same group.",
+            "Where possible, compare against a group that did not receive the intervention.",
+            "Name plausible alternative explanations for the change and explain why they don't account for it.",
+        ],
+    },
+    "verification": {
+        "label": "Verification", "axis": "confidence", "max_score": 2.0,
+        "definition": "Whether the evidence has been reviewed or checked by someone other than "
+                      "the person who collected it.",
+        "why_it_matters": "Unreviewed self-reported data is the easiest thing for a donor or "
+                          "auditor to flag — independent review is the cheapest credibility boost available.",
+        "weak_example": "Data collected by the field officer and reported as-is, with no review step.",
+        "strong_example": "Data reviewed internally by a MEL Officer, and spot-checked or "
+                          "validated by an external partner or evaluator.",
+        "improve_actions": [
+            "Have a MEL Officer or supervisor review the evidence before it's reported (internal review).",
+            "Ask a partner organisation, government counterpart, or evaluator to validate a sample (external review).",
+            "Record who reviewed it and when, so the review is itself documented.",
+        ],
+    },
+    "recency": {
+        "label": "Recency", "axis": "confidence", "max_score": 1.0,
+        "definition": "How recently the evidence was collected relative to the reporting period.",
+        "why_it_matters": "Stale evidence reads as 'this might no longer be true' — donors expect "
+                          "results to reflect the current reporting period, not last year's data.",
+        "weak_example": "The evidence cited is more than 12 months old relative to this report.",
+        "strong_example": "The evidence was collected within the same reporting month, or at "
+                          "most within the last 3 months.",
+        "improve_actions": [
+            "Refresh data collection so the cited evidence falls within the current reporting period.",
+            "If older evidence is the best available, say so explicitly and explain why.",
+            "Build recurring (e.g. quarterly) data collection into the workplan so evidence doesn't age out.",
+        ],
+    },
+    "definition": {
+        "label": "Definition", "axis": "clarity", "max_score": 1.25,
+        "definition": "How precisely the result states who changed, what changed, where, and by when.",
+        "why_it_matters": "OECD-DAC Relevance (2019) asks whether what was measured is what was "
+                          "intended — a vague claim can't be checked against an indicator at all.",
+        "weak_example": "\"Farmers' livelihoods improved\" — no who, no measurable what, no timeframe.",
+        "strong_example": "\"650 smallholder farmers in the Upper East Region increased maize "
+                          "yields by 30% between the 2025 and 2026 harvests.\"",
+        "improve_actions": [
+            "State who was affected (group, number, location).",
+            "State what specifically changed, in measurable terms.",
+            "State the timeframe the claim covers.",
+        ],
+    },
+    "measurement": {
+        "label": "Measurement", "axis": "clarity", "max_score": 1.25,
+        "definition": "Whether the result is tied to a clear indicator with a stated baseline and target.",
+        "why_it_matters": "USAID ADS 201.3.5.7 (Precision) — without a baseline and target, a "
+                          "reviewer has no way to judge whether the reported change is meaningful.",
+        "weak_example": "A percentage or count is reported with no baseline to compare it against.",
+        "strong_example": "\"Baseline: 40% adoption (2024). Target: 65% by 2026. Achieved: 62% (2026).\"",
+        "improve_actions": [
+            "State the indicator being used and link it to the logframe.",
+            "Record the baseline value and the target value alongside the achieved value.",
+            "Use the same definition and unit of measure as the baseline, so the comparison is valid.",
+        ],
+        # --- Qualitative evidence variant (Case study / Outcome harvesting / Beneficiary narrative) ---
+        "qualitative_label": "Sourcing & Triangulation",
+        "qualitative_definition": "Whether case/respondent selection, triangulation, and bias "
+                                  "mitigation are documented for qualitative evidence.",
+        "qualitative_weak_example": "A single success story is reported with no explanation of "
+                                    "how that case was chosen or whether it's representative.",
+        "qualitative_strong_example": "The case/respondent selection method is documented, the "
+                                      "account is corroborated by another source, and "
+                                      "selection or social-desirability bias is explicitly addressed.",
+        "qualitative_improve_actions": [
+            "Document how cases or respondents were selected — not just convenience or 'the most positive story'.",
+            "Cross-check the account against another source or method (triangulation/substantiation).",
+            "Note and address possible recall, social-desirability, or success-story bias.",
+        ],
+    },
+    "integrity": {
+        "label": "Integrity", "axis": "clarity", "max_score": 1.0,
+        "definition": "Whether the underlying data is complete, has an audit trail, and is free "
+                      "from unexplained gaps.",
+        "why_it_matters": "USAID ADS 201.3.5.7 (Integrity) and Bond Evidence Principles 2024 "
+                          "(Transparency) — gaps or unexplained data quality issues are a common "
+                          "trigger for a deeper donor audit.",
+        "weak_example": "Significant missing data with no audit trail showing how figures were derived.",
+        "strong_example": "Minimal-to-no missing data, with a clear audit trail from raw records "
+                          "to the reported figure, and an adequate sample.",
+        "improve_actions": [
+            "Document and explain any missing or excluded data points.",
+            "Keep a record of how raw data became the reported figure (audit trail).",
+            "Check that the sample size is adequate for the claim being made.",
+        ],
+    },
+    "scope": {
+        "label": "Scope", "axis": "clarity", "max_score": 0.75,
+        "definition": "Whether the geographic and demographic coverage described matches the claim.",
+        "why_it_matters": "OECD-DAC Coherence (2019) — a claim that overstates its coverage "
+                          "(e.g. implying national reach from a pilot district) is a classic "
+                          "'misleading KPI' flag.",
+        "weak_example": "A result from one pilot district is reported without naming that limited scope.",
+        "strong_example": "The result explicitly states the geographic area and population group "
+                          "it applies to, matching what the evidence actually covers.",
+        "improve_actions": [
+            "Name the specific geographic area(s) the result covers.",
+            "Name the specific population/demographic group covered.",
+            "Make sure the claim's wording doesn't imply broader coverage than the evidence supports.",
+        ],
+    },
+    "governance": {
+        "label": "Governance", "axis": "clarity", "max_score": 0.75,
+        "definition": "Whether there is a named, accountable owner for this result and its evidence.",
+        "why_it_matters": "Classical audit Traceability and FCDO Evaluation Policy (Jan 2025) — "
+                          "reviewers want to know who to ask if they have questions about this result.",
+        "weak_example": "No named owner for the result or its supporting evidence.",
+        "strong_example": "A named role/person owns the result, and a stated decision "
+                          "(e.g. report to donor, inform programme adjustment) depends on it.",
+        "improve_actions": [
+            "Name the role or person accountable for this result and its evidence.",
+            "State what decision this result feeds into (e.g. donor report, programme adjustment).",
+            "Make sure that owner is the one who reviewed/signs off on the evidence (links to Verification).",
+        ],
+    },
+}
+
 
 def _axis_badge_html(label: str, score: float, max_score: float) -> str:
     b = _BRAND_BADGE.get(label, {"bg": "#F5F5F5", "text": "#212121"})
@@ -4320,6 +4464,90 @@ def _axis_badge_html(label: str, score: float, max_score: float) -> str:
         f"{score}/{max_score} &nbsp; <strong>{label.upper()}</strong>"
         f"</div>"
     )
+
+
+def render_how_scoring_works_panel() -> None:
+    """Render a reference panel explaining all eight scoring criteria."""
+    with st.expander("ℹ️ How scoring works", expanded=False):
+        st.caption(
+            "Confidence and Clarity are each built from rule-based sub-criteria. "
+            "No AI scoring is used — every score below follows a fixed rubric."
+        )
+        for axis, axis_title in (("confidence", "Confidence"), ("clarity", "Clarity")):
+            st.markdown(f"**{axis_title} criteria**")
+            for key, guide in _SCORING_GUIDE.items():
+                if guide["axis"] != axis:
+                    continue
+                label = guide["label"]
+                definition = guide["definition"]
+                weak = guide["weak_example"]
+                strong = guide["strong_example"]
+                improve = guide["improve_actions"]
+                if key == "measurement":
+                    st.markdown(f"**{label} / {guide['qualitative_label']}** (max {guide['max_score']})")
+                    st.markdown(f"{definition}")
+                    st.caption(guide["qualitative_definition"])
+                else:
+                    st.markdown(f"**{label}** (max {guide['max_score']})")
+                    st.markdown(definition)
+                st.caption(f"Why it matters: {guide['why_it_matters']}")
+                col_weak, col_strong = st.columns(2)
+                with col_weak:
+                    st.markdown("*Weak example*")
+                    st.caption(weak)
+                with col_strong:
+                    st.markdown("*Strong example*")
+                    st.caption(strong)
+                st.markdown("How to improve:")
+                for action in improve:
+                    st.markdown(f"- {action}")
+                if key == "measurement":
+                    st.markdown(f"How to improve ({guide['qualitative_label']} — for case studies, "
+                                 f"outcome harvesting, beneficiary narratives):")
+                    for action in guide["qualitative_improve_actions"]:
+                        st.markdown(f"- {action}")
+                st.markdown("---")
+
+
+def render_personalized_weakness_panel(
+    direct_score: float, verify_score: float, recency_score: float,
+    definition_score: float, measurement_score: float,
+    integrity_score: float, scope_score: float, governance_score: float,
+    is_qualitative: bool = False,
+    n: int = 3,
+) -> None:
+    """Show the n weakest scoring criteria for this submission with improvement actions."""
+    scores = {
+        "directness": direct_score,
+        "verification": verify_score,
+        "recency": recency_score,
+        "definition": definition_score,
+        "measurement": measurement_score,
+        "integrity": integrity_score,
+        "scope": scope_score,
+        "governance": governance_score,
+    }
+    axis_order = {"confidence": 0, "clarity": 1}
+    ranked = sorted(
+        scores.items(),
+        key=lambda item: (
+            item[1] / _SCORING_GUIDE[item[0]]["max_score"],
+            axis_order[_SCORING_GUIDE[item[0]]["axis"]],
+        ),
+    )
+    st.markdown("#### Where to focus first")
+    for key, score in ranked[:n]:
+        guide = _SCORING_GUIDE[key]
+        max_score = guide["max_score"]
+        if key == "measurement" and is_qualitative:
+            label = guide["qualitative_label"]
+            improve = guide["qualitative_improve_actions"]
+        else:
+            label = guide["label"]
+            improve = guide["improve_actions"]
+        st.warning(f"**{label}** is one of your weakest areas ({score}/{max_score})")
+        for action in improve:
+            st.markdown(f"- {action}")
 
 
 def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: str = ""):
@@ -4515,6 +4743,15 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             ("Scope", scope, 0.75, _CLARITY_TIPS["scope"]),
             ("Governance", gov, 0.75, _CLARITY_TIPS["governance"]),
         ], key=f"snapshot_clar_chart_{card_idx}")
+
+    # place this here: scoring transparency layer (explanation + personalized weakness panel)
+    render_how_scoring_works_panel()
+    render_personalized_weakness_panel(
+        direct_score=ds, verify_score=vs, recency_score=rs,
+        definition_score=def_s, measurement_score=meas_s,
+        integrity_score=integ, scope_score=scope, governance_score=gov,
+        is_qualitative=is_qual,
+    )
 
     # Evidence Ladder (rule-based, no score impact)
     ladder = ev.get("evidence_ladder", {})
