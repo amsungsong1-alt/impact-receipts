@@ -815,6 +815,13 @@ TRACEABILITY_OPTIONS = [
     "No / not sure",
 ]
 
+PROVENANCE_YES_NO_NA_OPTIONS = [
+    "Choose an option...",
+    "Yes",
+    "No",
+    "Not applicable",
+]
+
 # ---------------------------------------------------------------------------
 # Portfolio / Framework Dashboard — CSV/Excel column schema
 # ---------------------------------------------------------------------------
@@ -2151,9 +2158,11 @@ def _build_submission_from_session(slot: int = 1) -> dict:
         "reporting_start":      _format_date(st.session_state.get(f"reporting_start{s}")),
         "reporting_end":        _format_date(st.session_state.get(f"reporting_end{s}")),
         "provenance_checklist": {
-            "sampling_documented":     st.session_state.get(f"provenance_sampling{s}", False),
-            "double_counting_checked": st.session_state.get(f"provenance_dedup{s}", False),
-            "recall_bias_considered":  st.session_state.get(f"provenance_recall{s}", False),
+            "sampling_documented":     st.session_state.get(f"provenance_sampling{s}", "Choose an option..."),
+            "double_counting_checked": st.session_state.get(f"provenance_dedup{s}", "Choose an option..."),
+            "collection_tool_named":   st.session_state.get(f"provenance_tool{s}", "Choose an option..."),
+            "collector_independent":   st.session_state.get(f"provenance_independence{s}", "Choose an option..."),
+            "recall_period_ok":        st.session_state.get(f"provenance_recall{s}", "Choose an option..."),
             "auditor_traceable":       st.session_state.get(f"provenance_traceability{s}", "Choose an option..."),
         },
         "qualitative_rigor_checklist": {
@@ -2756,19 +2765,37 @@ def _render_tab3_slot(slot: int):
             help="The person or organization that confirmed the data is accurate.",
         )
 
-        st.markdown("#### Data Collection & Traceability")
-        st.caption("These checks add to your Verification score (USAID DQA Reliability/Precision).")
-        _irc_widget(
-            st.checkbox, "Sampling or selection method documented (who was included, and how)",
-            f"provenance_sampling{s}", default=False,
+        st.markdown("#### Data Collection & Provenance")
+        st.caption(
+            "These answer whether the data was collected soundly — they adjust your "
+            "Verification score (USAID DQA Reliability/Precision). Answer 'Not applicable' "
+            "where it honestly doesn't apply — that's neutral. Leaving an item unanswered "
+            "is treated the same as 'No' and lowers the score."
         )
         _irc_widget(
-            st.checkbox, "Checked for double-counting (no beneficiary or result counted twice "
-            "across activities or periods)", f"provenance_dedup{s}", default=False,
+            st.selectbox, "Sampling or selection method documented (who was included, and how)",
+            f"provenance_sampling{s}", default=PROVENANCE_YES_NO_NA_OPTIONS[0],
+            options=PROVENANCE_YES_NO_NA_OPTIONS,
         )
         _irc_widget(
-            st.checkbox, "Recall or enumerator bias considered (data collected close to the "
-            "event, or cross-checked)", f"provenance_recall{s}", default=False,
+            st.selectbox, "Checked for double-counting (no beneficiary or result counted twice "
+            "across activities or periods)", f"provenance_dedup{s}", default=PROVENANCE_YES_NO_NA_OPTIONS[0],
+            options=PROVENANCE_YES_NO_NA_OPTIONS,
+        )
+        _irc_widget(
+            st.selectbox, "Data-collection tool/method identified (e.g. KoboToolbox, paper form, "
+            "admin records)", f"provenance_tool{s}", default=PROVENANCE_YES_NO_NA_OPTIONS[0],
+            options=PROVENANCE_YES_NO_NA_OPTIONS,
+        )
+        _irc_widget(
+            st.selectbox, "Data collected by someone independent of those reporting the result "
+            "(enumerator-bias risk)", f"provenance_independence{s}", default=PROVENANCE_YES_NO_NA_OPTIONS[0],
+            options=PROVENANCE_YES_NO_NA_OPTIONS,
+        )
+        _irc_widget(
+            st.selectbox, "Recall-period risk assessed (data collected close to the event, or "
+            "recall bias mitigated)", f"provenance_recall{s}", default=PROVENANCE_YES_NO_NA_OPTIONS[0],
+            options=PROVENANCE_YES_NO_NA_OPTIONS,
         )
         _irc_widget(
             st.selectbox, "Could an external auditor retrieve the original records referenced "
@@ -2777,16 +2804,20 @@ def _render_tab3_slot(slot: int):
             help="E.g. raw survey exports, signed registers, payment records.",
         )
         _prov_checklist = {
-            "sampling_documented":     st.session_state.get(f"provenance_sampling{s}", False),
-            "double_counting_checked": st.session_state.get(f"provenance_dedup{s}", False),
-            "recall_bias_considered":  st.session_state.get(f"provenance_recall{s}", False),
+            "sampling_documented":     st.session_state.get(f"provenance_sampling{s}", PROVENANCE_YES_NO_NA_OPTIONS[0]),
+            "double_counting_checked": st.session_state.get(f"provenance_dedup{s}", PROVENANCE_YES_NO_NA_OPTIONS[0]),
+            "collection_tool_named":   st.session_state.get(f"provenance_tool{s}", PROVENANCE_YES_NO_NA_OPTIONS[0]),
+            "collector_independent":   st.session_state.get(f"provenance_independence{s}", PROVENANCE_YES_NO_NA_OPTIONS[0]),
+            "recall_period_ok":        st.session_state.get(f"provenance_recall{s}", PROVENANCE_YES_NO_NA_OPTIONS[0]),
             "auditor_traceable":       st.session_state.get(f"provenance_traceability{s}", TRACEABILITY_OPTIONS[0]),
         }
-        _prov_bonus = _evaluator.get_provenance_bonus(_prov_checklist)
-        if _prov_bonus > 0:
-            st.caption(f"Data-collection checklist adds **+{_prov_bonus}** to Verification score (capped at 2.0/2.0 total)")
+        _prov_adj = _evaluator.get_provenance_adjustment(_prov_checklist)
+        if _prov_adj > 0:
+            st.caption(f"Provenance answers add **+{_prov_adj}** to Verification score (capped at 2.0/2.0 total)")
+        elif _prov_adj < 0:
+            st.caption(f"⚠ Unanswered provenance items currently subtract **{_prov_adj}** from your Verification score.")
         else:
-            st.caption("⚠ Completing this checklist can add up to **+0.6** to your Verification score.")
+            st.caption("Completing this checklist can add up to **+0.6** to your Verification score.")
 
         st.markdown("#### Reporting Period")
         st.caption("The period this submission covers. Evidence dates outside this range will be flagged.")
@@ -4452,9 +4483,9 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         vs = conf_comp.get("verify_score", 0)
         rs = conf_comp.get("recency_score", 0)
         _dir_rationale = conf_comp.get("direct_rationale") or _evaluator.get_score_rationale("directness", dl, ds, 2.0)
+        _verify_rationale = conf_comp.get("verify_rationale") or _evaluator.get_score_rationale("verification", vl, vs, 2.0)
         st.metric("Directness", f"{ds}/2.0", help=_dir_rationale)
-        st.metric("Verification", f"{vs}/2.0",
-                  help=_evaluator.get_score_rationale("verification", vl, vs, 2.0))
+        st.metric("Verification", f"{vs}/2.0", help=_verify_rationale)
         st.metric("Recency", f"{rs}/1.0",
                   help=_evaluator.get_score_rationale("recency", rl, rs, 1.0))
         bv_bonus = conf_comp.get("bv_bonus", 0.0)
@@ -4462,7 +4493,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
                   help=BENEFICIARY_VOICE_TOOLTIP)
         _render_subscore_chart([
             ("Directness", ds, 2.0, _dir_rationale),
-            ("Verification", vs, 2.0, _evaluator.get_score_rationale("verification", vl, vs, 2.0)),
+            ("Verification", vs, 2.0, _verify_rationale),
             ("Recency", rs, 1.0, _evaluator.get_score_rationale("recency", rl, rs, 1.0)),
         ], key=f"snapshot_conf_chart_{card_idx}")
 
@@ -5858,10 +5889,12 @@ def _csv_row_to_submission(row: dict, column_map: dict, profile_name: str) -> di
         "reporting_start": "",
         "reporting_end":   "",
         "provenance_checklist": {
-            "sampling_documented":     False,
-            "double_counting_checked": False,
-            "recall_bias_considered":  False,
-            "auditor_traceable":       "",
+            "sampling_documented":     "Choose an option...",
+            "double_counting_checked": "Choose an option...",
+            "collection_tool_named":   "Choose an option...",
+            "collector_independent":   "Choose an option...",
+            "recall_period_ok":        "Choose an option...",
+            "auditor_traceable":       "Choose an option...",
         },
         "qualitative_rigor_checklist": {
             "sourcing_documented": _bool("qual_sourcing_documented"),

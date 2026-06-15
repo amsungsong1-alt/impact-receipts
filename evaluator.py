@@ -73,7 +73,35 @@ EXTERNAL_REVIEW_LEVEL = {
 _TRACEABILITY_BONUS = {
     "Yes — an auditor could retrieve the original records":      0.20,
     "Partially — some records would take effort to locate":      0.10,
-    "No / not sure":                                              0.0,
+    "No / not sure":                                             -0.03,
+    "Choose an option...":                                       -0.03,
+}
+
+# Provenance/collection-method checklist items (Section 4.2): each answered
+# Yes / No / Not applicable, defaulting to "Choose an option..." (treated the
+# same as "No" — unanswered items are never assumed sound).
+_PROVENANCE_ITEM_DELTA = {
+    "Yes": 0.08,
+    "No": -0.03,
+    "Not applicable": 0.0,
+    "Choose an option...": -0.03,
+}
+
+_PROVENANCE_ITEMS = [
+    "sampling_documented",
+    "double_counting_checked",
+    "collection_tool_named",
+    "collector_independent",
+    "recall_period_ok",
+]
+
+PROVENANCE_ITEM_LABELS = {
+    "sampling_documented": "Sampling/selection approach documented",
+    "double_counting_checked": "Checked for double-counting across activities or periods",
+    "collection_tool_named": "Data-collection tool/method identified (e.g. KoboToolbox, paper form, admin records)",
+    "collector_independent": "Data collected by someone independent of those reporting the result (enumerator-bias risk)",
+    "recall_period_ok": "Recall-period risk assessed (collected close to the event, or recall bias mitigated)",
+    "auditor_traceable": "Could an external auditor retrieve the original records?",
 }
 
 # ---------------------------------------------------------------------------
@@ -679,22 +707,80 @@ def get_verification_level(
     return level
 
 
-def get_provenance_bonus(checklist: dict) -> float:
+def get_provenance_adjustment(checklist: dict) -> float:
     """
-    Data-collection & traceability checklist bonus (0.0-0.6), added to the
-    Verification score (capped at 2.0 overall).
-    Anchored in USAID ADS 201.3.5.7 — Reliability + Precision.
+    Data-collection & provenance checklist adjustment (-0.18 to +0.60), added
+    to the Verification score (result still capped to 0.0-2.0 overall).
+
+    Each item is answered Yes / No / Not applicable. "Not applicable" is
+    neutral (0.0) — it never penalises an honest "doesn't apply". An
+    unanswered item ("Choose an option...") is scored the same as "No": it
+    is never assumed sound. Anchored in USAID ADS 201.3.5.7 — Reliability +
+    Precision (data provenance).
     """
     checklist = checklist or {}
-    bonus = 0.0
-    if checklist.get("sampling_documented"):
-        bonus += 0.15
-    if checklist.get("double_counting_checked"):
-        bonus += 0.15
-    if checklist.get("recall_bias_considered"):
-        bonus += 0.10
-    bonus += _TRACEABILITY_BONUS.get(checklist.get("auditor_traceable", ""), 0.0)
-    return round(bonus, 2)
+    adjustment = 0.0
+    for key in _PROVENANCE_ITEMS:
+        answer = checklist.get(key, "Choose an option...")
+        adjustment += _PROVENANCE_ITEM_DELTA.get(answer, -0.03)
+    adjustment += _TRACEABILITY_BONUS.get(checklist.get("auditor_traceable", "Choose an option..."), -0.03)
+    return round(adjustment, 2)
+
+
+def get_verification_rationale(verify_level: int, checklist: dict, provenance_adjustment: float) -> str:
+    """Plain-English explanation of why Verification scored as it did,
+    naming the review level and which provenance items still need attention."""
+    checklist = checklist or {}
+
+    _level_text = {
+        5: "Independent third-party verification is documented (gold standard)",
+        4: "An external partner review is documented",
+        3: "An internal cross-check by someone other than the data collector is documented",
+        2: "Data was collected but not formally reviewed",
+        1: "This result is self-reported, with no review documented",
+        0: "No review of any kind was detected",
+    }
+    base = _level_text.get(verify_level, _level_text[0])
+
+    answered, not_applicable, unanswered = [], [], []
+    for key in _PROVENANCE_ITEMS:
+        answer = checklist.get(key, "Choose an option...")
+        label = PROVENANCE_ITEM_LABELS[key]
+        if answer == "Yes":
+            answered.append(label)
+        elif answer == "Not applicable":
+            not_applicable.append(label)
+        elif answer == "No":
+            unanswered.append(label)
+        else:
+            unanswered.append(label)
+
+    trace_answer = checklist.get("auditor_traceable", "Choose an option...")
+    if trace_answer == "Yes — an auditor could retrieve the original records":
+        answered.append(PROVENANCE_ITEM_LABELS["auditor_traceable"] + " (yes)")
+    elif trace_answer == "Partially — some records would take effort to locate":
+        answered.append(PROVENANCE_ITEM_LABELS["auditor_traceable"] + " (partially)")
+    elif trace_answer == "Not applicable":
+        not_applicable.append(PROVENANCE_ITEM_LABELS["auditor_traceable"])
+    else:
+        unanswered.append(PROVENANCE_ITEM_LABELS["auditor_traceable"])
+
+    parts = [base + "."]
+    if answered:
+        parts.append("Provenance confirmed: " + "; ".join(answered) + ".")
+    if not_applicable:
+        parts.append("Marked not applicable: " + "; ".join(not_applicable) + ".")
+    if unanswered:
+        parts.append(
+            "Not yet reviewed (currently lowering this score): " + "; ".join(unanswered) + "."
+        )
+
+    if provenance_adjustment < 0:
+        parts.append(f"Provenance adjustment: {provenance_adjustment} (unanswered items reduce the score honestly).")
+    elif provenance_adjustment > 0:
+        parts.append(f"Provenance adjustment: +{provenance_adjustment}.")
+
+    return " ".join(parts)
 
 
 def get_recency_level(evidence_date: str, report_end_date) -> int:
@@ -956,9 +1042,9 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict) -> li
             "score_impact_value": gain,
         })
 
-    provenance_bonus = confidence_components.get("provenance_bonus", 0.0)
-    if provenance_bonus < 0.6 and verify_score < 2.0:
-        _gain = round(min(0.6 - provenance_bonus, 2.0 - verify_score), 2)
+    provenance_adjustment = confidence_components.get("provenance_adjustment", 0.0)
+    if provenance_adjustment < 0.6 and verify_score < 2.0:
+        _gain = round(min(0.6 - provenance_adjustment, 2.0 - verify_score), 2)
         if _gain > 0:
             fixes.append({
                 "dimension": "confidence",
@@ -1216,8 +1302,9 @@ def evaluate_submission(submission: dict) -> dict:
     direct_score  = round((direct_level  / 5) * 2.0, 2)
     recency_score = round((recency_level / 5) * 1.0, 2)
 
-    provenance_bonus = get_provenance_bonus(submission.get("provenance_checklist", {}))
-    verify_score = round(min(2.0, (verify_level / 5) * 2.0 + provenance_bonus), 2)
+    provenance_checklist = submission.get("provenance_checklist", {}) or {}
+    provenance_adjustment = get_provenance_adjustment(provenance_checklist)
+    verify_score = round(min(2.0, max(0.0, (verify_level / 5) * 2.0 + provenance_adjustment)), 2)
 
     confidence_score = round(direct_score + verify_score + recency_score, 1)
 
@@ -1239,6 +1326,7 @@ def evaluate_submission(submission: dict) -> dict:
 
     direct_rationale = get_directness_rationale(ev_desc, ev_type, result_stmt, direct_level)
     direct_signals = _directness_signals(ev_desc, ev_type, result_stmt)
+    verify_rationale = get_verification_rationale(verify_level, provenance_checklist, provenance_adjustment)
 
     confidence_components = {
         "direct_level":  direct_level,
@@ -1248,8 +1336,9 @@ def evaluate_submission(submission: dict) -> dict:
         "recency_level": recency_level,
         "recency_score": recency_score,
         "bv_bonus":      bv_bonus,
-        "provenance_bonus": provenance_bonus,
+        "provenance_adjustment": provenance_adjustment,
         "direct_rationale": direct_rationale,
+        "verify_rationale": verify_rationale,
         "direct_overattribution_flag": (
             direct_signals["strong_causal_claim"]
             and not (direct_signals["triangulated"] or direct_signals["comparison_evidence"] or direct_signals["causal_link"])

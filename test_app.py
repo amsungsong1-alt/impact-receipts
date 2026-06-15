@@ -38,9 +38,11 @@ CASES = {
             "verified_by": "District Agriculture Officer",
         }],
         "provenance_checklist": {
-            "sampling_documented": True,
-            "double_counting_checked": True,
-            "recall_bias_considered": True,
+            "sampling_documented": "Yes",
+            "double_counting_checked": "Yes",
+            "collection_tool_named": "Yes",
+            "collector_independent": "Yes",
+            "recall_period_ok": "Yes",
             "auditor_traceable": "Yes — an auditor could retrieve the original records",
         },
     },
@@ -168,6 +170,39 @@ CASES = {
         "provenance_checklist": {},
     },
 
+    "provenance_marked_na": {
+        "result_statement": "Number of community health workers trained reached 320 in 2025.",
+        "target_group": "Community health workers",
+        "timeframe": "2025",
+        "geographic_scope": "Eastern Region",
+        "additional_context": "",
+        "internal_review": "Reviewed by MEL Officer",
+        "external_review": "External partner review",
+        "logframe_indicator": "Number of community health workers trained",
+        "logframe_target": "300",
+        "logframe_achievement": "320",
+        "beneficiary_voice": "",
+        "evidence": [{
+            "type": "Attendance sheets / participant registers",
+            "description": (
+                "Attendance register signed by 320 community health workers "
+                "across 8 training sessions, collected by program officers."
+            ),
+            "recency": "December 2025",
+            "verified_by": "Program Officer",
+        }],
+        # Same submission as "count_only_indicator", but every new provenance
+        # item is honestly marked "Not applicable" rather than left unanswered.
+        "provenance_checklist": {
+            "sampling_documented": "Not applicable",
+            "double_counting_checked": "Not applicable",
+            "collection_tool_named": "Not applicable",
+            "collector_independent": "Not applicable",
+            "recall_period_ok": "Not applicable",
+            "auditor_traceable": "Choose an option...",
+        },
+    },
+
     "over_attributed": {
         "result_statement": (
             "Our program caused a 30% reduction in child malnutrition across "
@@ -271,33 +306,38 @@ GOLDEN = {
         "verdict": "High risk — strengthen both axes before relying on this result",
     },
     "qualitative": {
-        "confidence_score": 4.0,
+        "confidence_score": 3.8,
         "clarity_score": 5.0,
         "verdict": "Strong KPI — well-positioned for submission",
     },
     "missing_recency": {
-        "confidence_score": 1.0,
+        "confidence_score": 0.9,
         "clarity_score": 3.95,
         "verdict": "Well-defined but weak evidence — strengthen the verification chain",
     },
     "count_only_indicator": {
-        "confidence_score": 3.4,
+        "confidence_score": 3.2,
         "clarity_score": 4.6,
         "verdict": "Well-defined but weak evidence — strengthen the verification chain",
     },
     "over_attributed": {
-        "confidence_score": 0.4,
+        "confidence_score": 0.3,
         "clarity_score": 3.23,
         "verdict": "High risk — strengthen both axes before relying on this result",
     },
     "triangulated_contribution": {
-        "confidence_score": 4.2,
+        "confidence_score": 4.0,
         "clarity_score": 4.25,
         "verdict": "Strong KPI — well-positioned for submission",
     },
     "partial_logframe_mismatch": {
-        "confidence_score": 2.4,
+        "confidence_score": 2.2,
         "clarity_score": 3.92,
+        "verdict": "Well-defined but weak evidence — strengthen the verification chain",
+    },
+    "provenance_marked_na": {
+        "confidence_score": 3.4,
+        "clarity_score": 4.6,
         "verdict": "Well-defined but weak evidence — strengthen the verification chain",
     },
 }
@@ -318,6 +358,25 @@ DIRECTNESS_GOLDEN = {
         "direct_level": 5,
         "direct_score": 2.0,
         "direct_overattribution_flag": False,
+    },
+}
+
+
+# Provenance/collection-method check feeding Verification: locks
+# verify_score/provenance_adjustment for a case with no provenance answers
+# (every item treated as unanswered -> "No") versus the same submission with
+# every new item honestly marked "Not applicable" -> neutral. Unanswered
+# items must lower Verification; "Not applicable" must not.
+VERIFICATION_GOLDEN = {
+    "count_only_indicator": {
+        "verify_level": 4,
+        "provenance_adjustment": -0.18,
+        "verify_score": 1.42,
+    },
+    "provenance_marked_na": {
+        "verify_level": 4,
+        "provenance_adjustment": -0.03,
+        "verify_score": 1.57,
     },
 }
 
@@ -345,9 +404,25 @@ def run():
             if not conf_comp.get("direct_rationale"):
                 failures.append(f"[{name}] confidence_components.direct_rationale: missing/empty")
 
+        if name in VERIFICATION_GOLDEN:
+            conf_comp = result["confidence_components"]
+            for key, expected_value in VERIFICATION_GOLDEN[name].items():
+                actual_value = conf_comp.get(key)
+                if actual_value != expected_value:
+                    failures.append(
+                        f"[{name}] confidence_components.{key}: expected {expected_value!r}, got {actual_value!r}"
+                    )
+            if not conf_comp.get("verify_rationale"):
+                failures.append(f"[{name}] confidence_components.verify_rationale: missing/empty")
+
     assert DIRECTNESS_GOLDEN["over_attributed"]["direct_score"] < DIRECTNESS_GOLDEN["triangulated_contribution"]["direct_score"], (
         "Acceptance check: an over-attributed thin-evidence claim must score "
         "LOWER on Directness than a triangulated contribution claim."
+    )
+
+    assert VERIFICATION_GOLDEN["count_only_indicator"]["verify_score"] < VERIFICATION_GOLDEN["provenance_marked_na"]["verify_score"], (
+        "Acceptance check: unanswered provenance items must lower Verification "
+        "more than the same items honestly marked 'Not applicable'."
     )
 
     if failures:
