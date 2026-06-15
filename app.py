@@ -1389,7 +1389,22 @@ _BASE_FORM_KEYS = [
     "attribution_contribution", "disaggregation_status",
     # v3.5 learning / limitations / decision-ownership notes
     "learning_notes", "limitations_notes", "additional_context",
+    # v3.6 review-handoff layer (per-submission, no auth)
+    "review_status", "reviewer_name", "reviewer_role", "reviewer_date",
+    "reviewer_decision", "reviewer_notes",
 ]
+
+# v3.6 — Review-handoff layer: per-submission status and reviewer decision.
+# No user accounts / authentication — reviewer identity is free text within
+# the current session, consistent with the rest of the app's single-session model.
+_SUBMISSION_STATUS_OPTIONS = ["Draft", "In review", "Approved", "Returned"]
+_REVIEW_DECISION_OPTIONS = ["", "Approve", "Return for revision"]
+_SUBMISSION_STATUS_COLORS = {
+    "Draft":      ("#F5F5F5", "#616161"),
+    "In review":  ("#FFF9C4", "#F57F17"),
+    "Approved":   ("#C8E6C9", "#1B5E20"),
+    "Returned":   ("#FFE0B2", "#E65100"),
+}
 
 _BV_OPTIONS = [
     "Choose an option...",
@@ -2263,6 +2278,12 @@ def _build_submission_from_session(slot: int = 1) -> dict:
         },
         "attribution_contribution": st.session_state.get(f"attribution_contribution{s}", "Not specified"),
         "disaggregation_status":     st.session_state.get(f"disaggregation_status{s}", "Not specified"),
+        "review_status":     st.session_state.get(f"review_status{s}", _SUBMISSION_STATUS_OPTIONS[0]),
+        "reviewer_name":     st.session_state.get(f"reviewer_name{s}", ""),
+        "reviewer_role":     st.session_state.get(f"reviewer_role{s}", ""),
+        "reviewer_date":     st.session_state.get(f"reviewer_date{s}", ""),
+        "reviewer_decision": st.session_state.get(f"reviewer_decision{s}", ""),
+        "reviewer_notes":    st.session_state.get(f"reviewer_notes{s}", ""),
         "donor":                     donor,
         "sector":                    sector,
         "project_name":              st.session_state.get("project_name", ""),
@@ -2292,6 +2313,10 @@ def _render_slot_fields(slot: int):
         (f"gov_child_safeguarding_status{s}", "Select child safeguarding status..."),
         (f"gov_secure_handling_status{s}", "Select secure handling status..."),
         # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+        # --- REVIEW-HANDOFF LAYER (v3.6) ---
+        (f"review_status{s}", _SUBMISSION_STATUS_OPTIONS[0]),
+        (f"reviewer_decision{s}", _REVIEW_DECISION_OPTIONS[0]),
+        # --- END REVIEW-HANDOFF LAYER (v3.6) ---
     ]:
         if key not in st.session_state:
             st.session_state[key] = default
@@ -2527,6 +2552,10 @@ def _tab_slot_setup(slot: int):
         (f"gov_child_safeguarding_status{s}", "Select child safeguarding status..."),
         (f"gov_secure_handling_status{s}", "Select secure handling status..."),
         # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+        # --- REVIEW-HANDOFF LAYER (v3.6) ---
+        (f"review_status{s}", _SUBMISSION_STATUS_OPTIONS[0]),
+        (f"reviewer_decision{s}", _REVIEW_DECISION_OPTIONS[0]),
+        # --- END REVIEW-HANDOFF LAYER (v3.6) ---
     ]:
         if key not in st.session_state:
             st.session_state[key] = default
@@ -4493,6 +4522,98 @@ def render_personalized_weakness_panel(
             st.markdown(f"- {action}")
 
 
+def _build_reviewer_info(slot: int) -> dict:
+    """Read the current review-handoff fields for one submission slot from
+    session state. Read live (not from the evaluation snapshot) so exports
+    reflect reviewer input entered after the snapshot was taken."""
+    s = _slot_suffix(slot)
+    return {
+        "review_status":     st.session_state.get(f"review_status{s}", _SUBMISSION_STATUS_OPTIONS[0]),
+        "reviewer_name":     st.session_state.get(f"reviewer_name{s}", ""),
+        "reviewer_role":     st.session_state.get(f"reviewer_role{s}", ""),
+        "reviewer_date":     st.session_state.get(f"reviewer_date{s}", ""),
+        "reviewer_decision": st.session_state.get(f"reviewer_decision{s}", ""),
+        "reviewer_notes":    st.session_state.get(f"reviewer_notes{s}", ""),
+    }
+
+
+def _render_review_handoff(submission: dict, ev: dict, card_idx: int):
+    """Lightweight review-handoff layer (v3.6): per-submission status,
+    reviewer name/role/date/decision/notes, and an exportable review summary
+    that reuses the existing HTML/PDF/DOCX report builders.
+
+    Known limitation: no user accounts, authentication, or real-time
+    multi-user support — reviewer identity is free text within this session,
+    consistent with the rest of the app."""
+    slot = card_idx + 1
+    s = _slot_suffix(slot)
+
+    with st.expander("📝 Review & sign-off", expanded=False):
+        st.caption(
+            "Optional — record a reviewer's decision before handing this result back "
+            "to the field officer or passing it up the chain. No accounts or logins: "
+            "these fields live only in this browser session unless you click "
+            "**Save Draft** below, which writes them (with the rest of this submission) "
+            "to inputs/draft.json so they survive a reload."
+        )
+        rc1, rc2 = st.columns(2)
+        with rc1:
+            st.selectbox("Status", _SUBMISSION_STATUS_OPTIONS, key=f"review_status{s}")
+            st.text_input("Reviewer name", key=f"reviewer_name{s}")
+            st.text_input("Reviewer role", key=f"reviewer_role{s}")
+        with rc2:
+            st.selectbox(
+                "Decision", _REVIEW_DECISION_OPTIONS, key=f"reviewer_decision{s}",
+                format_func=lambda d: d or "Select decision...",
+            )
+            st.text_input("Review date", key=f"reviewer_date{s}", placeholder="YYYY-MM-DD")
+        st.text_area(
+            "Reviewer notes (overall or per criterion)",
+            key=f"reviewer_notes{s}", height=100,
+        )
+
+        if st.button("💾 Save Draft (incl. review notes)", key=f"review_save_draft_{card_idx}"):
+            _save_draft()
+            st.toast("Draft saved, including review notes!", icon="💾")
+
+        review_info = _build_reviewer_info(slot)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        summary_html = _build_review_summary_html(submission, ev, review_info, timestamp, chart_id=str(card_idx))
+
+        dl1, dl2, dl3 = st.columns(3)
+        with dl1:
+            st.download_button(
+                "⬇️ Review Summary (HTML)",
+                data=summary_html,
+                file_name=f"review_summary_{slot}_{timestamp}.html",
+                mime="text/html",
+                key=f"review_summary_html_btn_{card_idx}",
+            )
+        with dl2:
+            summary_pdf = _html_to_pdf_bytes(summary_html)
+            if summary_pdf:
+                st.download_button(
+                    "📄 Review Summary (PDF)",
+                    data=summary_pdf,
+                    file_name=f"review_summary_{slot}_{timestamp}.pdf",
+                    mime="application/pdf",
+                    key=f"review_summary_pdf_btn_{card_idx}",
+                )
+            else:
+                st.caption("PDF: install xhtml2pdf to enable PDF export.")
+        with dl3:
+            if _HAS_DOCX:
+                st.download_button(
+                    "📄 Review Summary (DOCX)",
+                    data=_build_review_summary_docx(submission, ev, review_info, timestamp),
+                    file_name=f"review_summary_{slot}_{timestamp}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key=f"review_summary_docx_btn_{card_idx}",
+                )
+            else:
+                st.caption("DOCX: install python-docx to enable DOCX export.")
+
+
 def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: str = ""):
     conf_score   = ev.get("confidence_score", 0)
     clar_score   = ev.get("clarity_score", 0)
@@ -4869,6 +4990,8 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
                 continue
             level = "low" if (raw_score / max_val) < 0.6 else "high"
             st.markdown(f"**{dim}:** {donor_map[dim][level]}")
+
+    _render_review_handoff(submission, ev, card_idx)
 
     st.divider()
 
@@ -6072,6 +6195,12 @@ def _csv_row_to_submission(row: dict, column_map: dict, profile_name: str) -> di
         },
         "attribution_contribution": "",
         "disaggregation_status": "",
+        "review_status":     _SUBMISSION_STATUS_OPTIONS[0],
+        "reviewer_name":     "",
+        "reviewer_role":     "",
+        "reviewer_date":     "",
+        "reviewer_decision": "",
+        "reviewer_notes":    "",
         "donor":          _val("donor"),
         "sector":         _val("sector"),
         "project_name":   _val("project_name"),
@@ -6774,6 +6903,144 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
 </div>
 </body>
 </html>"""
+
+
+def _build_reviewer_signoff_section_html(review_info: dict) -> str:
+    """Render the review-handoff fields (v3.6) as an HTML section to be
+    appended to an existing report. Nothing is auto-filled — blanks are
+    shown literally as 'Not provided'."""
+    _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
+    status   = review_info.get("review_status", "") or _SUBMISSION_STATUS_OPTIONS[0]
+    decision = review_info.get("reviewer_decision", "") or "Not yet decided"
+    name     = review_info.get("reviewer_name", "") or "Not provided"
+    role     = review_info.get("reviewer_role", "") or "Not provided"
+    rdate    = review_info.get("reviewer_date", "") or "Not provided"
+    notes    = review_info.get("reviewer_notes", "")
+
+    bg, fg = _SUBMISSION_STATUS_COLORS.get(status, ("#F5F5F5", "#616161"))
+    notes_html = (
+        f"<div style='background:#FFF9C4;border-radius:8px;padding:10px 14px;margin:10px 0;font-size:0.85rem;'>"
+        f"<strong>Reviewer notes:</strong> {notes}</div>"
+    ) if notes else ""
+
+    return f"""
+<h2>Review &amp; Sign-off</h2>
+<div style="background:{bg};color:{fg};padding:6px 12px;border-radius:8px;font-weight:700;
+     font-size:0.85rem;display:inline-block;margin-bottom:10px;{_pca}">
+  STATUS: {status.upper()}
+</div>
+<p><strong>Decision:</strong> {decision}</p>
+{notes_html}
+<p style="margin-top:14px;">
+  <strong>Reviewer:</strong> {name} &nbsp;&nbsp;
+  <strong>Role:</strong> {role} &nbsp;&nbsp;
+  <strong>Date:</strong> {rdate}
+</p>
+<p style="color:#9E9E9E;font-size:0.75rem;">
+  No accounts or authentication are used — this reflects the reviewer information
+  entered for this submission in the current session.
+</p>
+"""
+
+
+def _build_review_summary_html(submission: dict, evaluation: dict, review_info: dict,
+                                timestamp: str, chart_id: str = "0") -> str:
+    """Review summary export (v3.6): reuses _build_html_report unchanged and
+    appends a Review & Sign-off section capturing the submission, scores,
+    gaps (via the existing report), and the reviewer's notes/decision."""
+    base = _build_html_report(submission, evaluation, timestamp, chart_id=chart_id)
+    section = _build_reviewer_signoff_section_html(review_info)
+    return base.replace("</body>", section + "</body>")
+
+
+def _build_review_summary_docx(submission: dict, evaluation: dict, review_info: dict, timestamp: str) -> bytes:
+    """DOCX review summary (v3.6): reuses the existing donor-template DOCX
+    table style for the submission/score/gaps content, then appends a
+    Review & Sign-off table. Blanks are written literally as 'Not provided'."""
+    import io
+
+    conf_score = evaluation.get("confidence_score", 0)
+    clar_score = evaluation.get("clarity_score", 0)
+    conf_comp  = evaluation.get("confidence_components", {})
+    clar_comp  = evaluation.get("clarity_components", {})
+    fixes      = evaluation.get("fixes", [])
+
+    doc = _docx.Document()
+    doc.add_heading("Impact-Receipts Review Summary", level=0)
+    doc.add_paragraph(f"Generated: {timestamp}")
+
+    doc.add_heading("Result Statement", level=1)
+    doc.add_paragraph(submission.get("result_statement", "") or "Not provided")
+    table = doc.add_table(rows=0, cols=2)
+    table.style = "Light Grid Accent 1"
+    for label, value in [
+        ("Target Group",     submission.get("target_group", "")),
+        ("Timeframe",        submission.get("timeframe", "")),
+        ("Geographic Scope", submission.get("geographic_scope", "")),
+        ("Verdict",          evaluation.get("verdict", "")),
+    ]:
+        cells = table.add_row().cells
+        cells[0].text = label
+        cells[1].text = str(value) if value else "Not provided"
+
+    doc.add_heading("Score Summary", level=1)
+    score_table = doc.add_table(rows=0, cols=3)
+    score_table.style = "Light Grid Accent 1"
+    header = score_table.add_row().cells
+    header[0].text, header[1].text, header[2].text = "Component", "Score", "Max"
+    for label, value, max_val in [
+        ("Confidence (overall)", conf_score, 5.0),
+        ("Directness",   conf_comp.get("direct_score", "-"), 2.0),
+        ("Verification", conf_comp.get("verify_score", "-"), 2.0),
+        ("Recency",       conf_comp.get("recency_score", "-"), 1.0),
+        ("Clarity (overall)", clar_score, 5.0),
+        ("Definition",   clar_comp.get("definition_score", "-"), 1.25),
+        ("Measurement",  clar_comp.get("measurement_score", "-"), 1.25),
+        ("Integrity",    clar_comp.get("integrity_score", "-"), 1.0),
+        ("Scope",        clar_comp.get("scope_score", "-"), 0.75),
+        ("Governance",   clar_comp.get("governance_score", "-"), 0.75),
+    ]:
+        cells = score_table.add_row().cells
+        cells[0].text = label
+        cells[1].text = str(value)
+        cells[2].text = str(max_val)
+
+    doc.add_heading("Gaps / What To Fix", level=1)
+    if fixes:
+        for fix in fixes:
+            doc.add_paragraph(f"{fix.get('message', '')} ({fix.get('score_impact', '')})", style="List Bullet")
+    else:
+        doc.add_paragraph("No further fixes flagged by this tool's checks.")
+
+    doc.add_heading("Review & Sign-off", level=1)
+    review_table = doc.add_table(rows=0, cols=2)
+    review_table.style = "Light Grid Accent 1"
+    for label, value in [
+        ("Status",        review_info.get("review_status", "") or _SUBMISSION_STATUS_OPTIONS[0]),
+        ("Decision",      review_info.get("reviewer_decision", "") or "Not yet decided"),
+        ("Reviewer name", review_info.get("reviewer_name", "")),
+        ("Reviewer role", review_info.get("reviewer_role", "")),
+        ("Review date",   review_info.get("reviewer_date", "")),
+    ]:
+        cells = review_table.add_row().cells
+        cells[0].text = label
+        cells[1].text = str(value) if value else "Not provided"
+
+    notes = review_info.get("reviewer_notes", "")
+    if notes:
+        doc.add_paragraph("Reviewer notes:")
+        doc.add_paragraph(notes)
+
+    doc.add_heading("About this export", level=1)
+    doc.add_paragraph(
+        f"Evaluated using {METHODOLOGY_STACK}. {_LIMITS_DISCLAIMER} "
+        "This review summary has no user accounts or authentication — reviewer "
+        "identity is free text entered for the current session."
+    )
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
 
 
 def _build_combined_html_report(submissions: list, evaluations: list, timestamp: str) -> str:
