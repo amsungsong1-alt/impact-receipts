@@ -237,6 +237,36 @@ SAFEGUARDING_CHECKLIST_MAP = {
     "Not applicable (no beneficiary stories/photos)": ("✓", "Not applicable", 3),
     "No — not yet reviewed":                          ("✗", "Do-no-harm review not completed", 0),
 }
+
+# Keywords suggesting the result statement/target group may involve minors —
+# used only to decide whether to prompt the child-safeguarding question and
+# show a warning. Never used to auto-answer the checklist.
+CHILD_SAFEGUARDING_KEYWORDS = (
+    "child", "children", "minor", "minors", "student", "students", "pupil", "pupils",
+    "adolescent", "adolescents", "youth", "girl", "girls", "boy", "boys", "orphan", "orphans",
+)
+
+CHILD_SAFEGUARDING_CHECKLIST_MAP = {
+    "Yes — child safeguarding policy applied, guardian consent obtained where applicable":
+        ("✓", "Child safeguarding policy applied", 3),
+    "Partial — some steps taken but not complete":
+        ("⚠", "Partial child safeguarding review", 1),
+    "Not applicable (no minors involved)":
+        ("✓", "Not applicable", 3),
+    "No — not yet reviewed":
+        ("✗", "Child safeguarding review not completed", 0),
+}
+
+SECURE_HANDLING_CHECKLIST_MAP = {
+    "Yes — stored securely, access restricted to authorised staff":
+        ("✓", "Securely stored, access-restricted", 3),
+    "Partial — some identifiable material not yet secured":
+        ("⚠", "Partial secure handling", 1),
+    "Not applicable (no identifiable testimony/photos)":
+        ("✓", "Not applicable", 3),
+    "No — not yet secured":
+        ("✗", "Secure handling not yet confirmed", 0),
+}
 # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
 # --- UX: INSTANT REPORT CHECK (v3.2) ---
@@ -1345,7 +1375,7 @@ _BASE_FORM_KEYS = [
     "independent_ev", "signed_audit", "recommendations_ev",
     # governance & compliance (v3.2)
     "gov_consent_status", "gov_anonymization_status", "gov_compliance_law_status",
-    "gov_safeguarding_status",
+    "gov_safeguarding_status", "gov_child_safeguarding_status", "gov_secure_handling_status",
     # v3.3
     "donor_other", "report_level",
     # v3.3 checklist keys
@@ -1569,17 +1599,33 @@ def _render_tutorial(step: int):
 # ---------------------------------------------------------------------------
 
 # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
+def _minors_possibly_involved(slot: int) -> bool:
+    """True if the result statement or target group mentions minors — used only
+    to decide whether to prompt the child-safeguarding question, never to
+    auto-answer it."""
+    s = _slot_suffix(slot)
+    text = " ".join([
+        st.session_state.get(f"result_statement{s}", "") or "",
+        st.session_state.get(f"target_group{s}", "") or "",
+    ]).lower()
+    return any(kw in text for kw in CHILD_SAFEGUARDING_KEYWORDS)
+
+
 def _compute_governance_score(slot: int):
-    """Returns (governance_score 0-18, pii_selected bool, gaps list, safeguarding_triggered bool)."""
+    """Returns (governance_score 0-24, pii_selected bool, gaps list,
+    safeguarding_triggered bool, minors_possibly_involved bool)."""
     s = _slot_suffix(slot)
     ev_type = st.session_state.get(f"evidence_type{s}", "")
     pii_selected = ev_type in PII_EVIDENCE_TYPES
     safeguarding_triggered = ev_type in SAFEGUARDING_EVIDENCE_TYPES
+    minors_involved = _minors_possibly_involved(slot)
 
     consent    = st.session_state.get(f"gov_consent_status{s}", "")
     anon       = st.session_state.get(f"gov_anonymization_status{s}", "")
     law        = st.session_state.get(f"gov_compliance_law_status{s}", "")
     safeguard  = st.session_state.get(f"gov_safeguarding_status{s}", "")
+    child_safe = st.session_state.get(f"gov_child_safeguarding_status{s}", "")
+    secure     = st.session_state.get(f"gov_secure_handling_status{s}", "")
     dpp        = st.session_state.get("gov_dpp_uploaded", False)
 
     score = 0
@@ -1627,12 +1673,34 @@ def _compute_governance_score(slot: int):
     elif safeguard.startswith("Not applicable"):
         score += 3
     elif safeguard.startswith("No"):
-        gaps.append("Do-no-harm review not completed")
+        gaps.append("Do-no-harm review not completed (Core Humanitarian Standard, Commitment 4)")
+
+    if child_safe in ("Choose an option...", "Select child safeguarding status..."):
+        pass  # 0 pts, no gap
+    elif child_safe.startswith("Yes"):
+        score += 3
+    elif child_safe.startswith("Partial"):
+        score += 1
+    elif child_safe.startswith("Not applicable"):
+        score += 3
+    elif child_safe.startswith("No"):
+        gaps.append("Child safeguarding review not completed (Core Humanitarian Standard, Commitment 4 — Keeping Children Safe)")
+
+    if secure in ("Choose an option...", "Select secure handling status..."):
+        pass  # 0 pts, no gap
+    elif secure.startswith("Yes"):
+        score += 3
+    elif secure.startswith("Partial"):
+        score += 1
+    elif secure.startswith("Not applicable"):
+        score += 3
+    elif secure.startswith("No"):
+        gaps.append("Secure handling of identifiable testimony not confirmed (Bond Evidence Principles 2024 — Transparency/Data Protection)")
 
     if dpp:
         score += 5
 
-    return min(18, score), pii_selected, gaps, safeguarding_triggered
+    return min(24, score), pii_selected, gaps, safeguarding_triggered, minors_involved
 # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
 
@@ -1934,10 +2002,10 @@ def _render_live_score_preview(slot: int = 1):
     # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
     # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
-    gov_score, pii_selected, gov_gaps, safeguarding_triggered = _compute_governance_score(slot)
+    gov_score, pii_selected, gov_gaps, safeguarding_triggered, minors_involved = _compute_governance_score(slot)
     conf_100 = round(raw_conf * 20, 1)
     gov_adjustment = round(gov_score * 0.3, 1)
-    if gov_score == 0 and (pii_selected or safeguarding_triggered):
+    if gov_score == 0 and (pii_selected or safeguarding_triggered or minors_involved):
         gov_adjustment -= 8
     adjusted_conf = min(100.0, conf_100 + gov_adjustment)
 
@@ -1947,49 +2015,55 @@ def _render_live_score_preview(slot: int = 1):
     st.session_state["_conf_adj_computed"]  = adjusted_conf
 
     # Read governance field values for display (scoring unchanged — uses _compute_governance_score above)
-    _disp_consent   = st.session_state.get(f"gov_consent_status{s}", "")
-    _disp_anon      = st.session_state.get(f"gov_anonymization_status{s}", "")
-    _disp_law       = st.session_state.get(f"gov_compliance_law_status{s}", "")
-    _disp_safeguard = st.session_state.get(f"gov_safeguarding_status{s}", "")
-    _disp_dpp       = st.session_state.get("gov_dpp_uploaded", False)
+    _disp_consent    = st.session_state.get(f"gov_consent_status{s}", "")
+    _disp_anon       = st.session_state.get(f"gov_anonymization_status{s}", "")
+    _disp_law        = st.session_state.get(f"gov_compliance_law_status{s}", "")
+    _disp_safeguard  = st.session_state.get(f"gov_safeguarding_status{s}", "")
+    _disp_child_safe = st.session_state.get(f"gov_child_safeguarding_status{s}", "")
+    _disp_secure     = st.session_state.get(f"gov_secure_handling_status{s}", "")
+    _disp_dpp        = st.session_state.get("gov_dpp_uploaded", False)
     _answered = sum([
-        _disp_consent   not in ("", "Choose an option...", "Select consent status..."),
-        _disp_anon      not in ("", "Choose an option...", "Select anonymization status..."),
-        _disp_law       not in ("", "Choose an option...", "Select compliance status..."),
-        _disp_safeguard not in ("", "Choose an option...", "Select safeguarding status..."),
+        _disp_consent    not in ("", "Choose an option...", "Select consent status..."),
+        _disp_anon       not in ("", "Choose an option...", "Select anonymization status..."),
+        _disp_law        not in ("", "Choose an option...", "Select compliance status..."),
+        _disp_safeguard  not in ("", "Choose an option...", "Select safeguarding status..."),
+        _disp_child_safe not in ("", "Choose an option...", "Select child safeguarding status..."),
+        _disp_secure     not in ("", "Choose an option...", "Select secure handling status..."),
     ])
 
     st.markdown("---")
     st.markdown("#### 🛡️ Governance & Compliance")
     _gc1, _gc2 = st.columns([1, 2])
     with _gc1:
-        st.metric("Governance Score", f"{gov_score} / 18")
+        st.metric("Governance Score", f"{gov_score} / 24")
     with _gc2:
         st.metric("Governance-Adjusted Confidence", f"{adjusted_conf:.0f} / 100")
 
     # Single bold status line — no alarming styling
-    if gov_score >= 14:
+    if gov_score >= 20:
         st.markdown("**Strong governance — major requirements addressed.**")
-    elif gov_score >= 8:
+    elif gov_score >= 11:
         st.markdown("**Partial compliance — some requirements still recommended before submission.**")
     elif _answered == 0:
-        st.markdown("**Data governance checklist not yet completed — 0 of 4 questions answered.**")
+        st.markdown("**Data governance checklist not yet completed — 0 of 6 questions answered.**")
     else:
-        st.markdown(f"**Governance requirements partially met ({gov_score}/18) — review items below.**")
+        st.markdown(f"**Governance requirements partially met ({gov_score}/24) — review items below.**")
 
     # Remediation action — placed right next to the status line so the fix is one click away
-    if gov_score < 14:
+    if gov_score < 20:
         if st.button("→ Fix: Governance Issues", key="fix_gov_btn", type="primary"):
             st.session_state["current_tab"] = 2
             st.rerun()
 
     # Per-item checklist
-    with st.expander("Governance checklist detail", expanded=(gov_score < 8)):
+    with st.expander("Governance checklist detail", expanded=(gov_score < 11)):
         for _lbl, _val, _max, _cmap in [
-            ("Beneficiary consent",          _disp_consent,   5, CONSENT_CHECKLIST_MAP),
-            ("Data anonymization",           _disp_anon,      4, ANON_CHECKLIST_MAP),
-            ("Data law compliance",          _disp_law,       3, LAW_CHECKLIST_MAP),
-            ("Do-no-harm & safeguarding",    _disp_safeguard, 3, SAFEGUARDING_CHECKLIST_MAP),
+            ("Beneficiary consent",                  _disp_consent,    5, CONSENT_CHECKLIST_MAP),
+            ("Data anonymization",                   _disp_anon,       4, ANON_CHECKLIST_MAP),
+            ("Data law compliance",                  _disp_law,        3, LAW_CHECKLIST_MAP),
+            ("Do-no-harm & safeguarding",            _disp_safeguard,  3, SAFEGUARDING_CHECKLIST_MAP),
+            ("Child safeguarding",                   _disp_child_safe, 3, CHILD_SAFEGUARDING_CHECKLIST_MAP),
+            ("Secure handling of identifiable testimony", _disp_secure, 3, SECURE_HANDLING_CHECKLIST_MAP),
         ]:
             _icon, _desc, _earned = _cmap.get(_val, ("✗", "Not answered", 0))
             st.markdown(f"{_icon} **{_lbl}** — {_desc} ({_earned}/{_max} pts)")
@@ -2021,7 +2095,8 @@ def _build_inputs_json(timestamp: str) -> str:
         raw_files = st.session_state.get(f"uploaded_files_widget{s}") or []
         slot_dict["uploaded_filenames"] = [f.name for f in raw_files if hasattr(f, "name")]
         # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
-        for _gk in ["gov_consent_status", "gov_anonymization_status", "gov_compliance_law_status", "gov_safeguarding_status"]:
+        for _gk in ["gov_consent_status", "gov_anonymization_status", "gov_compliance_law_status",
+                     "gov_safeguarding_status", "gov_child_safeguarding_status", "gov_secure_handling_status"]:
             slot_dict[_gk] = st.session_state.get(f"{_gk}{s}", "")
         slot_dict["gov_dpp_uploaded"] = st.session_state.get("gov_dpp_uploaded", False)
         # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
@@ -2057,7 +2132,8 @@ def _normalize_draft_json(data: dict) -> dict:
                 slot_dict[dk] = data[f"{dk}{s}"]
         if f"uploaded_filenames{s}" in data:
             slot_dict["uploaded_filenames"] = data[f"uploaded_filenames{s}"]
-        for gk in ("gov_consent_status", "gov_anonymization_status", "gov_compliance_law_status", "gov_safeguarding_status"):
+        for gk in ("gov_consent_status", "gov_anonymization_status", "gov_compliance_law_status",
+                    "gov_safeguarding_status", "gov_child_safeguarding_status", "gov_secure_handling_status"):
             if f"{gk}{s}" in data:
                 slot_dict[gk] = data[f"{gk}{s}"]
         slot_dict["gov_dpp_uploaded"] = data.get("gov_dpp_uploaded", False)
@@ -2213,6 +2289,8 @@ def _render_slot_fields(slot: int):
         (f"gov_anonymization_status{s}", "Select anonymization status..."),
         (f"gov_compliance_law_status{s}", "Select compliance status..."),
         (f"gov_safeguarding_status{s}", "Select safeguarding status..."),
+        (f"gov_child_safeguarding_status{s}", "Select child safeguarding status..."),
+        (f"gov_secure_handling_status{s}", "Select secure handling status..."),
         # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
     ]:
         if key not in st.session_state:
@@ -2446,6 +2524,8 @@ def _tab_slot_setup(slot: int):
         (f"gov_anonymization_status{s}", "Select anonymization status..."),
         (f"gov_compliance_law_status{s}", "Select compliance status..."),
         (f"gov_safeguarding_status{s}", "Select safeguarding status..."),
+        (f"gov_child_safeguarding_status{s}", "Select child safeguarding status..."),
+        (f"gov_secure_handling_status{s}", "Select secure handling status..."),
         # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
     ]:
         if key not in st.session_state:
@@ -2955,8 +3035,9 @@ def _render_tab3_slot(slot: int):
     _ev_type_now = st.session_state.get(f"evidence_type{s}", "")
     _pii_triggered = _ev_type_now in PII_EVIDENCE_TYPES
     _safeguarding_triggered = _ev_type_now in SAFEGUARDING_EVIDENCE_TYPES
+    _minors_triggered = _minors_possibly_involved(slot)
     st.markdown("---")
-    with st.expander("🛡️ Compliance & Data Governance", expanded=_pii_triggered or _safeguarding_triggered or st.session_state.get("_irc_used", False)):
+    with st.expander("🛡️ Compliance & Data Governance", expanded=_pii_triggered or _safeguarding_triggered or _minors_triggered or st.session_state.get("_irc_used", False)):
         st.subheader("🛡️ Compliance & Ethics Check")
         st.caption("*Ensure your evidence is not just credible — but legally safe and safe for the people in it.*")
         if _pii_triggered:
@@ -2968,12 +3049,18 @@ def _render_tab3_slot(slot: int):
         if _safeguarding_triggered:
             st.warning(
                 "⚠️ **Safeguarding Alert:** This evidence type may include beneficiary "
-                "stories, photos, or testimony. Please confirm consent and a do-no-harm "
-                "review below before proceeding."
+                "stories, photos, or testimony. Please confirm consent, a do-no-harm "
+                "review, and secure handling below before proceeding."
+            )
+        if _minors_triggered:
+            st.error(
+                "🔴 **Child Safeguarding Alert:** This result statement or target group "
+                "may involve minors. Please complete the child safeguarding check below "
+                "(Core Humanitarian Standard, Commitment 4 — Keeping Children Safe)."
             )
         with st.expander(
             "📋 Data Governance Checklist (expand to complete)",
-            expanded=_pii_triggered or _safeguarding_triggered,
+            expanded=_pii_triggered or _safeguarding_triggered or _minors_triggered,
         ):
             st.selectbox(
                 "Do you have documented consent from beneficiaries for their data "
@@ -3024,6 +3111,32 @@ def _render_tab3_slot(slot: int):
                     "Not applicable (no beneficiary stories/photos)",
                 ],
                 key=f"gov_safeguarding_status{s}",
+            )
+            st.selectbox(
+                "If minors may be involved in this evidence, has a child safeguarding "
+                "review been completed (organisational child safeguarding policy applied, "
+                "and guardian consent obtained where applicable)?",
+                options=[
+                    "Select child safeguarding status...",
+                    "Yes — child safeguarding policy applied, guardian consent obtained where applicable",
+                    "Partial — some steps taken but not complete",
+                    "No — not yet reviewed",
+                    "Not applicable (no minors involved)",
+                ],
+                key=f"gov_child_safeguarding_status{s}",
+            )
+            st.selectbox(
+                "If this evidence includes identifiable testimony, photos, or stories, "
+                "is it stored securely with access limited to authorised staff "
+                "(e.g. password-protected files, restricted folders)?",
+                options=[
+                    "Select secure handling status...",
+                    "Yes — stored securely, access restricted to authorised staff",
+                    "Partial — some identifiable material not yet secured",
+                    "No — not yet secured",
+                    "Not applicable (no identifiable testimony/photos)",
+                ],
+                key=f"gov_secure_handling_status{s}",
             )
         st.markdown(
             "#### 📁 Upload Organisational Data Protection Policy "
