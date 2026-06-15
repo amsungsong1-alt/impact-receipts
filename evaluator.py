@@ -179,47 +179,143 @@ def interpret_score(score: float) -> tuple:
 # Signal functions (public)
 # ---------------------------------------------------------------------------
 
-def score_directness(evidence_description: str, evidence_type: str) -> float:
+# ---------------------------------------------------------------------------
+# Directness — Contribution Evidence Ladder signal keywords
+# ---------------------------------------------------------------------------
+
+_TRIANGULATION_KEYWORDS = [
+    "alternative explanation", "ruled out", "counterfactual",
+    "contribution analysis", "process trace", "triangulat",
+    "multiple independent sources", "cross-checked", "corroborat",
+    "outcome harvest",
+]
+_COMPARISON_EVIDENCE_KEYWORDS = [
+    "baseline", "endline", "comparison group", "control group",
+    "independent evaluation", "case stud", "outcome data",
+]
+_CAUSAL_LINK_KEYWORDS = [
+    "theory of change", "toc", "causal pathway", "causal link", "logic model",
+]
+_PROGRAMME_RECORD_KEYWORDS = [
+    "attendance", "register", "records", "log", "activity report",
+    "minutes", "signed", "programme records", "output data",
+]
+_PERCEPTION_KEYWORDS = [
+    "survey", "interview", "focus group", "fgd", "observation",
+    "beneficiary feedback", "self-report", "perception",
+]
+_NEGATION_WORDS = ["no ", "not ", "without ", "lack of ", "absence of ", "none of"]
+
+# Strong, unhedged causal/attribution claims ("our program caused X").
+_STRONG_CAUSAL_PATTERNS = [
+    r"\bcaused\s+(a|an|the)\b",
+    r"\bdirectly (caused|resulted in|led to)\b",
+    r"\bis (solely\s+)?responsible for\b",
+    r"\bdue (solely|entirely) to (our|us)\b",
+    r"\bbecause of (our|us)\b",
+]
+
+
+def _clause_has_signal(text: str, keywords: list) -> bool:
+    """True if a keyword appears in a clause (split on . , ;) that does NOT
+    also contain a negation word — so "no baseline used" does not count as
+    a baseline being present."""
+    for clause in re.split(r"[.,;]", text):
+        for kw in keywords:
+            if kw in clause and not any(neg in clause for neg in _NEGATION_WORDS):
+                return True
+    return False
+
+
+def _directness_signals(evidence_description: str, evidence_type: str, result_statement: str) -> dict:
+    text  = ((evidence_description or "") + " " + (evidence_type or "")).lower()
+    claim = (result_statement or "").lower()
+    return {
+        "triangulated":        any(kw in text for kw in _TRIANGULATION_KEYWORDS),
+        "comparison_evidence": _clause_has_signal(text, _COMPARISON_EVIDENCE_KEYWORDS),
+        "causal_link":         any(kw in text for kw in _CAUSAL_LINK_KEYWORDS),
+        "programme_records":   any(kw in text for kw in _PROGRAMME_RECORD_KEYWORDS),
+        "perception_evidence": any(kw in text for kw in _PERCEPTION_KEYWORDS),
+        "strong_causal_claim": any(re.search(p, claim) for p in _STRONG_CAUSAL_PATTERNS),
+    }
+
+
+def score_directness(evidence_description: str, evidence_type: str, result_statement: str = "") -> float:
     """
     5-step Contribution Evidence Ladder.
     Anchored in: World Bank IEG Process Tracing (2025), 3ie Contribution Analysis.
+    Rewards contribution claims backed by triangulation or a
+    comparison/counterfactual basis plus an explicit causal-link / theory-of-
+    change statement. Flags over-attribution: an unhedged causal claim
+    ("our program caused X") on evidence with none of the above.
     Returns 1.0–5.0.
     """
-    text = ((evidence_description or "") + " " + (evidence_type or "")).lower()
+    s = _directness_signals(evidence_description, evidence_type, result_statement)
 
-    if any(kw in text for kw in [
-        "alternative explanation", "ruled out", "counterfactual",
-        "contribution analysis", "process trace", "triangulat",
-        "multiple independent sources", "cross-checked", "corroborat",
-        "outcome harvest",
-    ]):
+    if s["strong_causal_claim"] and not (s["triangulated"] or s["comparison_evidence"] or s["causal_link"]):
+        return 1.0
+
+    if s["triangulated"] or (s["comparison_evidence"] and s["causal_link"]):
         return 5.0
 
-    if any(kw in text for kw in [
-        "theory of change", "toc", "outcome data", "baseline",
-        "endline", "comparison group", "control", "independent evaluation",
-        "case stud",
-    ]):
+    if s["comparison_evidence"] or s["causal_link"]:
         return 4.0
 
-    if any(kw in text for kw in [
-        "attendance", "register", "records", "log", "activity report",
-        "minutes", "signed", "programme records", "output data",
-    ]):
+    if s["programme_records"]:
         return 3.0
 
-    if any(kw in text for kw in [
-        "survey", "interview", "focus group", "fgd", "observation",
-        "beneficiary feedback", "self-report", "perception",
-    ]):
+    if s["perception_evidence"]:
         return 2.0
 
     return 1.0
 
 
-def get_directness_level(evidence_type: str, description: str) -> int:
+def get_directness_level(evidence_type: str, description: str, result_statement: str = "") -> int:
     """Thin wrapper around score_directness for backward compatibility."""
-    return int(score_directness(description, evidence_type))
+    return int(score_directness(description, evidence_type, result_statement))
+
+
+def get_directness_rationale(evidence_description: str, evidence_type: str, result_statement: str, direct_level: int) -> str:
+    """Plain-English explanation of why Directness scored as it did,
+    referencing the specific signals detected in this submission."""
+    s = _directness_signals(evidence_description, evidence_type, result_statement)
+
+    if s["strong_causal_claim"] and not (s["triangulated"] or s["comparison_evidence"] or s["causal_link"]):
+        return (
+            f"Level {direct_level}/5 — Flagged for over-attribution: the result statement makes "
+            "an unhedged causal claim (e.g. 'caused'), but the evidence provides no "
+            "triangulation, comparison/baseline basis, or causal-link statement to support it."
+        )
+
+    if s["triangulated"]:
+        return (
+            f"Level {direct_level}/5 — Evidence is triangulated across independent sources or "
+            "considers alternative explanations, the strongest basis for a contribution claim."
+        )
+
+    if s["comparison_evidence"] and s["causal_link"]:
+        return (
+            f"Level {direct_level}/5 — A comparison/baseline basis combined with an explicit "
+            "causal-link or theory-of-change statement supports this contribution claim."
+        )
+
+    if s["comparison_evidence"] or s["causal_link"]:
+        what = "a comparison/baseline basis" if s["comparison_evidence"] else "a causal-link/theory-of-change statement"
+        return f"Level {direct_level}/5 — Strong contribution signal: {what}."
+
+    if s["programme_records"]:
+        return (
+            f"Level {direct_level}/5 — Programme records show the activity occurred, "
+            "but do not yet establish the contribution story."
+        )
+
+    if s["perception_evidence"]:
+        return (
+            f"Level {direct_level}/5 — Perception-based evidence only — useful for "
+            "triangulation, not standalone proof of contribution."
+        )
+
+    return f"Level {direct_level}/5 — No evidence yet links activities to this result."
 
 
 def score_beneficiary_voice(evidence_description: str, evidence_type: str) -> float:
@@ -1099,11 +1195,12 @@ def evaluate_submission(submission: dict) -> dict:
     internal_review = submission.get("internal_review", "Not reviewed") or "Not reviewed"
     external_review = submission.get("external_review", "No external review") or "No external review"
     timeframe       = submission.get("timeframe", "") or ""
+    result_stmt     = submission.get("result_statement", "") or ""
 
     report_end = _parse_report_end_date(timeframe)
 
     # Confidence axis
-    direct_level  = get_directness_level(ev_type, ev_desc)
+    direct_level  = get_directness_level(ev_type, ev_desc, result_stmt)
     verify_level  = get_verification_level(internal_review, external_review, verified_by)
     recency_level = get_recency_level(ev_date, report_end)
     evidence_ladder = get_evidence_ladder(ev_type, ev_desc, verified_by)
@@ -1124,7 +1221,6 @@ def evaluate_submission(submission: dict) -> dict:
 
     confidence_score = round(direct_score + verify_score + recency_score, 1)
 
-    result_stmt = submission.get("result_statement", "") or ""
     quality_multiplier, content_issues = validate_content_quality(result_stmt, ev_desc, verified_by)
 
     linkage_result = evaluate_logframe_linkage(
@@ -1141,6 +1237,9 @@ def evaluate_submission(submission: dict) -> dict:
     bv_bonus = (compute_beneficiary_voice_bonus(bv_field) if bv_field
                 else score_beneficiary_voice(ev_desc, ev_type))
 
+    direct_rationale = get_directness_rationale(ev_desc, ev_type, result_stmt, direct_level)
+    direct_signals = _directness_signals(ev_desc, ev_type, result_stmt)
+
     confidence_components = {
         "direct_level":  direct_level,
         "direct_score":  direct_score,
@@ -1150,6 +1249,11 @@ def evaluate_submission(submission: dict) -> dict:
         "recency_score": recency_score,
         "bv_bonus":      bv_bonus,
         "provenance_bonus": provenance_bonus,
+        "direct_rationale": direct_rationale,
+        "direct_overattribution_flag": (
+            direct_signals["strong_causal_claim"]
+            and not (direct_signals["triangulated"] or direct_signals["comparison_evidence"] or direct_signals["causal_link"])
+        ),
     }
 
     # Clarity axis
