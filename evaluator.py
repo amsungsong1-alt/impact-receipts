@@ -923,19 +923,28 @@ def _derive_clarity_params(submission: dict) -> dict:
     has_number   = bool(re.search(r"\b\d[\d,]*\b", statement))
     has_timeframe = bool(timeframe and timeframe.lower() not in ("not specified",))
     has_target   = bool(target_group and target_group.lower() not in ("not specified",))
-    definition_yes = sum([has_number, has_timeframe, has_target])
 
     # --- Measurement quality (3 yes/no) ---
     desc_lower = ev_desc.lower()
-    is_qualitative = ev_type in _QUALITATIVE_EV_TYPES
+    is_qualitative = ev_type in _QUALITATIVE_EV_TYPES or bool(submission.get("qualitative_evidence"))
     if is_qualitative:
         qual_checklist = submission.get("qualitative_rigor_checklist", {}) or {}
+        # Narrative Definition: a stated timeframe still matters for a
+        # case study/narrative, but "has a number" / "named target group"
+        # don't fit — replaced with beneficiary-voice representation and
+        # consent/ethics, both scored only from explicit user checkboxes.
+        definition_yes = sum([
+            has_timeframe,
+            bool(qual_checklist.get("beneficiary_voice_represented")),
+            bool(qual_checklist.get("consent_ethics_addressed")),
+        ])
         measurement_yes = sum([
             bool(qual_checklist.get("sourcing_documented")),
             bool(qual_checklist.get("triangulated")),
             bool(qual_checklist.get("bias_considered")),
         ])
     else:
+        definition_yes = sum([has_number, has_timeframe, has_target])
         has_method_desc    = len(ev_desc) > 50
         has_method_keyword = any(k in desc_lower for k in _METHOD_KEYWORDS)
         has_structured     = ev_type in _STRUCTURED_EV_TYPES
@@ -1091,12 +1100,20 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict) -> li
     if def_score < 1.0:
         missing_count = 3 - def_count
         impact = round(missing_count * (1.25 / 3), 2)
-        fixes.append({
-            "dimension": "clarity",
-            "message": (
+        if clarity_components.get("is_qualitative"):
+            _def_message = (
+                "State the timeframe this account covers, confirm the voices represented "
+                "reflect a range of beneficiaries (not one outlier story), and confirm "
+                "consent was obtained to share this account."
+            )
+        else:
+            _def_message = (
                 "Add the missing unit, timeframe, or target group to your result statement "
                 "so any reader interprets it the same way you do."
-            ),
+            )
+        fixes.append({
+            "dimension": "clarity",
+            "message": _def_message,
             "score_impact": f"+{impact} on Clarity",
             "score_impact_value": impact,
         })

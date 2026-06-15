@@ -118,7 +118,35 @@ CASES = {
             "sourcing_documented": True,
             "triangulated": True,
             "bias_considered": True,
+            "beneficiary_voice_represented": True,
+            "consent_ethics_addressed": True,
         },
+        "provenance_checklist": {},
+    },
+
+    "qualitative_toggle_only": {
+        "result_statement": (
+            "Most Significant Change stories from 4 districts indicate growing "
+            "confidence among adolescent girls in school clubs during 2025."
+        ),
+        "target_group": "Adolescent girls in school clubs",
+        "timeframe": "2025",
+        "geographic_scope": "4 districts",
+        "additional_context": "",
+        "internal_review": "Not reviewed",
+        "external_review": "No external review",
+        "logframe_indicator": "",
+        "logframe_target": "",
+        "logframe_achievement": "",
+        "beneficiary_voice": "",
+        "qualitative_evidence": True,
+        "evidence": [{
+            "type": "Other",
+            "description": "Most Significant Change stories collected from club facilitators.",
+            "recency": "",
+            "verified_by": "",
+        }],
+        "qualitative_rigor_checklist": {},
         "provenance_checklist": {},
     },
 
@@ -310,6 +338,11 @@ GOLDEN = {
         "clarity_score": 5.0,
         "verdict": "Strong KPI — well-positioned for submission",
     },
+    "qualitative_toggle_only": {
+        "confidence_score": 0.3,
+        "clarity_score": 1.07,
+        "verdict": "High risk — strengthen both axes before relying on this result",
+    },
     "missing_recency": {
         "confidence_score": 0.9,
         "clarity_score": 3.95,
@@ -381,6 +414,28 @@ VERIFICATION_GOLDEN = {
 }
 
 
+# Qualitative evidence track: locks is_qualitative detection (via evidence
+# type AND via the manual toggle on otherwise-quantitative evidence types),
+# and the resulting Definition/Measurement scores when the 5-item rigor
+# checklist is fully answered ("qualitative") vs. left entirely unanswered
+# ("qualitative_toggle_only") — unanswered items must not be assumed sound.
+QUALITATIVE_GOLDEN = {
+    "qualitative": {
+        "is_qualitative": True,
+        "definition_score": 1.25,
+        "measurement_score": 1.25,
+    },
+    "qualitative_toggle_only": {
+        "is_qualitative": True,
+        "definition_score": 0.42,
+        "measurement_score": 0.0,
+    },
+    "strong": {
+        "is_qualitative": False,
+    },
+}
+
+
 def run():
     failures = []
     for name, submission in CASES.items():
@@ -404,6 +459,15 @@ def run():
             if not conf_comp.get("direct_rationale"):
                 failures.append(f"[{name}] confidence_components.direct_rationale: missing/empty")
 
+        if name in QUALITATIVE_GOLDEN:
+            clar_comp = result["clarity_components"]
+            for key, expected_value in QUALITATIVE_GOLDEN[name].items():
+                actual_value = clar_comp.get(key)
+                if actual_value != expected_value:
+                    failures.append(
+                        f"[{name}] clarity_components.{key}: expected {expected_value!r}, got {actual_value!r}"
+                    )
+
         if name in VERIFICATION_GOLDEN:
             conf_comp = result["confidence_components"]
             for key, expected_value in VERIFICATION_GOLDEN[name].items():
@@ -418,6 +482,12 @@ def run():
     assert DIRECTNESS_GOLDEN["over_attributed"]["direct_score"] < DIRECTNESS_GOLDEN["triangulated_contribution"]["direct_score"], (
         "Acceptance check: an over-attributed thin-evidence claim must score "
         "LOWER on Directness than a triangulated contribution claim."
+    )
+
+    assert QUALITATIVE_GOLDEN["qualitative"]["definition_score"] == 1.25, (
+        "Acceptance check: a fully-answered qualitative submission must reach full "
+        "Narrative Definition marks without a stated number or named logframe target "
+        "(neither has_number nor has_target apply to narrative evidence)."
     )
 
     assert VERIFICATION_GOLDEN["count_only_indicator"]["verify_score"] < VERIFICATION_GOLDEN["provenance_marked_na"]["verify_score"], (

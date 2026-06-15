@@ -157,6 +157,8 @@ _RECENCY_TIPS = {
 
 _CLARITY_TIPS = {
     "definition":  "Definition (max 1.25) — how precisely the result states who, what, where, and by when.",
+    "definition_qualitative": "Narrative Definition (max 1.25) — whether a timeframe is stated, "
+        "whose voice/representation is reflected, and consent/ethics are addressed.",
     "measurement": "Measurement (max 1.25) — whether a clear indicator, baseline, and target are stated.",
     "measurement_qualitative": "Sourcing & Triangulation (max 1.25) — whether case/respondent "
         "selection, triangulation, and bias mitigation are documented.",
@@ -233,6 +235,20 @@ _SCORING_GUIDE = {
             "State who was affected (group, number, location).",
             "State what specifically changed, in measurable terms.",
             "State the timeframe the claim covers.",
+        ],
+        # --- Qualitative evidence variant (Case study / Outcome harvesting / Beneficiary narrative) ---
+        "qualitative_label": "Narrative Definition",
+        "qualitative_definition": "Whether a timeframe is stated, whose voice/representation is "
+                                  "reflected in the narrative, and consent/ethics are addressed.",
+        "qualitative_weak_example": "A beneficiary story is reported with no date, no indication "
+                                    "of who is represented, and no mention of consent.",
+        "qualitative_strong_example": "The narrative states when the change happened, makes clear "
+                                      "whose experience it represents (and how representative that "
+                                      "is), and confirms consent/ethics were addressed.",
+        "qualitative_improve_actions": [
+            "State the timeframe the narrative or case relates to.",
+            "Make clear whose voice is represented, and how that relates to the wider beneficiary group.",
+            "Confirm consent was obtained and any identifying details were handled appropriately.",
         ],
     },
     "measurement": {
