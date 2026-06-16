@@ -3641,6 +3641,27 @@ def render_screen_1():
         for k in ("result_statement", "target_group", "timeframe",
                    "geographic_scope", "evidence_description")
     )
+
+    with st.expander("ℹ️ How this works — new here? Start here.", expanded=not _has_prefill):
+        st.markdown(
+            """
+**Fill in 4 short sections about your result → click Run Check → get your scores.**
+
+| Tab | What you'll enter |
+|-----|-------------------|
+| **1. Result Basics** | Your result statement, target group, timeframe, and geography |
+| **2. Logframe Linkage** | Your logframe indicator, target, and what you achieved |
+| **3. Evidence & Verification** | Your evidence type, source, and who verified the data |
+| **4. Review & Submit** | Donor framework, then click **Run My Confidence Check** |
+
+**What you get back:**
+- **Confidence score (0–5)** — how credible and strong your evidence is
+- **Clarity score (0–5)** — how well-defined your result statement is
+- A **plain-English verdict** with the single most important fix to make first
+
+Takes 5–10 minutes. Your draft saves automatically as you go.
+            """
+        )
     if st.session_state.pop("_payment_success", False):
         st.success("✅ Payment confirmed! Upload your document below to run the Instant Report Check — or fill in the form manually.")
 
