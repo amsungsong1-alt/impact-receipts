@@ -3299,6 +3299,100 @@ _DEMO_SELECT_FIELDS = {
 }
 
 
+def _complete_email_login(email: str) -> None:
+    st.session_state["user_email"] = email
+    upsert_user(email)
+    _u = get_user(email)
+    if _u and is_still_paid(_u):
+        st.session_state["is_paid"] = True
+    _pending_ref = st.session_state.pop("pending_paystack_ref", None)
+    if _pending_ref:
+        _pr = verify_payment(_pending_ref)
+        if _pr.get("status") == "success":
+            _pr_days = 30 if _pr.get("plan") == "monthly" else 1
+            mark_paid(email, days=_pr_days)
+            st.session_state["is_paid"] = True
+    for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
+        st.session_state.pop(_k, None)
+    st.rerun()
+
+
+def _render_email_gate_inline(form_key_suffix: str = "") -> None:
+    """Inline email-collection widget (OTP or simple). Stops rendering after display."""
+    if otp_enabled() and st.session_state.get("_otp_email"):
+        _otp_email = st.session_state["_otp_email"]
+        if time.time() - st.session_state.get("_otp_sent_at", 0) > 600:
+            st.warning("Your verification code expired. Please request a new one.")
+            for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
+                st.session_state.pop(_k, None)
+            st.rerun()
+        st.caption(f"We sent a 6-digit code to **{_otp_email}**. Enter it below (expires in 10 minutes).")
+        with st.form(f"otp_verify_form{form_key_suffix}"):
+            _otp_input = st.text_input("Verification code", max_chars=6, placeholder="123456")
+            _verify_clicked = st.form_submit_button("Verify →", use_container_width=True)
+        if _verify_clicked:
+            if _otp_input.strip() == st.session_state.get("_otp_code"):
+                _complete_email_login(_otp_email)
+            else:
+                st.session_state["_otp_attempts"] = st.session_state.get("_otp_attempts", 0) + 1
+                if st.session_state["_otp_attempts"] >= 5:
+                    st.error("Too many incorrect attempts. Please request a new code.")
+                    for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
+                        st.session_state.pop(_k, None)
+                    st.rerun()
+                else:
+                    st.error("Incorrect code. Please try again.")
+        _otp_c1, _otp_c2 = st.columns(2)
+        with _otp_c1:
+            if st.button("Resend code", use_container_width=True, key=f"resend_otp{form_key_suffix}"):
+                _new_code = generate_otp()
+                with st.spinner("Sending verification code…"):
+                    _ok, _err = send_otp_email(_otp_email, _new_code)
+                if _ok:
+                    st.session_state["_otp_code"] = _new_code
+                    st.session_state["_otp_sent_at"] = time.time()
+                    st.session_state["_otp_attempts"] = 0
+                    st.success("A new code has been sent.")
+                else:
+                    st.error(f"Could not send code: {_err}")
+        with _otp_c2:
+            if st.button("Use a different email", use_container_width=True, key=f"diff_email{form_key_suffix}"):
+                for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
+                    st.session_state.pop(_k, None)
+                st.rerun()
+    else:
+        st.caption(
+            "No password needed. We'll email you a 6-digit code to confirm it's yours."
+            if otp_enabled() else
+            "No password needed. We use your email to save your paid access."
+        )
+        with st.form(f"email_gate_form{form_key_suffix}"):
+            _gate_email = st.text_input("Email address", placeholder="you@organisation.org")
+            _submit_label = "Send verification code" if otp_enabled() else "Continue →"
+            if st.form_submit_button(_submit_label, use_container_width=True):
+                if "@" not in _gate_email or "." not in _gate_email.split("@")[-1]:
+                    st.warning("Please enter a valid email address.")
+                elif _is_disposable_email(_gate_email):
+                    st.warning("Please use a permanent work or personal email — temporary addresses aren't accepted.")
+                else:
+                    _e = _gate_email.strip().lower()
+                    if otp_enabled():
+                        _code = generate_otp()
+                        with st.spinner("Sending verification code…"):
+                            _ok, _err = send_otp_email(_e, _code)
+                        if _ok:
+                            st.session_state["_otp_email"] = _e
+                            st.session_state["_otp_code"] = _code
+                            st.session_state["_otp_sent_at"] = time.time()
+                            st.session_state["_otp_attempts"] = 0
+                            st.rerun()
+                        else:
+                            st.error(f"Could not send verification email: {_err}")
+                    else:
+                        _complete_email_login(_e)
+    st.stop()
+
+
 def render_screen_0():
     _logo_path = pathlib.Path(__file__).parent / "logo.png.png"
     try:
@@ -3339,7 +3433,7 @@ def render_screen_0():
             st.session_state["tutorial_step"] = 1
         _go_to_screen(1, reset=True)
 
-    if st.button("📊 Portfolio Dashboard (Beta) — score your whole logframe", use_container_width=True, key="cta_portfolio"):
+    if st.button("📊 Portfolio Dashboard — score your whole logframe", use_container_width=True, key="cta_portfolio"):
         _go_to_screen(3)
 
     st.caption("No data to hand? Try a pre-filled Ghana health example:")
@@ -3353,109 +3447,6 @@ def render_screen_0():
             st.session_state["tutorial_step"] = 1
         _go_to_screen(1)
 
-    # --- Email gate: must enter email before first check ---
-    if not st.session_state.get("user_email"):
-        st.markdown("---")
-        st.markdown("#### 📧 Enter your email to get started")
-
-        def _complete_email_login(_e):
-            st.session_state["user_email"] = _e
-            upsert_user(_e)
-            # restore paid status from DB
-            _u = get_user(_e)
-            if _u and is_still_paid(_u):
-                st.session_state["is_paid"] = True
-            # complete any pending post-payment verification
-            _pending_ref = st.session_state.pop("pending_paystack_ref", None)
-            if _pending_ref:
-                _pr = verify_payment(_pending_ref)
-                if _pr.get("status") == "success":
-                    _pr_days = 30 if _pr.get("plan") == "monthly" else 1
-                    mark_paid(_e, days=_pr_days)
-                    st.session_state["is_paid"] = True
-            # if user came from IRC email gate, return them to Screen 1 with IRC active
-            if st.session_state.pop("_irc_pending_email", False):
-                st.session_state["screen"] = 1
-                st.session_state["entry_mode"] = "⚡ Instant Report Check"
-            for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
-                st.session_state.pop(_k, None)
-            st.rerun()
-
-        if otp_enabled() and st.session_state.get("_otp_email"):
-            # --- Step 2: enter the code we emailed ---
-            _otp_email = st.session_state["_otp_email"]
-            if time.time() - st.session_state.get("_otp_sent_at", 0) > 600:
-                st.warning("Your verification code expired. Please request a new one.")
-                for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
-                    st.session_state.pop(_k, None)
-                st.rerun()
-            st.caption(f"We sent a 6-digit verification code to **{_otp_email}**. Enter it below (expires in 10 minutes).")
-            with st.form("otp_verify_form"):
-                _otp_input = st.text_input("Verification code", max_chars=6, placeholder="123456")
-                _verify_clicked = st.form_submit_button("Verify →", use_container_width=True)
-            if _verify_clicked:
-                if _otp_input.strip() == st.session_state.get("_otp_code"):
-                    _complete_email_login(_otp_email)
-                else:
-                    st.session_state["_otp_attempts"] = st.session_state.get("_otp_attempts", 0) + 1
-                    if st.session_state["_otp_attempts"] >= 5:
-                        st.error("Too many incorrect attempts. Please request a new code.")
-                        for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
-                            st.session_state.pop(_k, None)
-                        st.rerun()
-                    else:
-                        st.error("Incorrect code. Please try again.")
-            _otp_c1, _otp_c2 = st.columns(2)
-            with _otp_c1:
-                if st.button("Resend code", use_container_width=True):
-                    _new_code = generate_otp()
-                    with st.spinner("Sending verification code…"):
-                        _ok, _err = send_otp_email(_otp_email, _new_code)
-                    if _ok:
-                        st.session_state["_otp_code"] = _new_code
-                        st.session_state["_otp_sent_at"] = time.time()
-                        st.session_state["_otp_attempts"] = 0
-                        st.success("A new code has been sent.")
-                    else:
-                        st.error(f"Could not send code: {_err}")
-            with _otp_c2:
-                if st.button("Use a different email", use_container_width=True):
-                    for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
-                        st.session_state.pop(_k, None)
-                    st.rerun()
-        else:
-            # --- Step 1: enter email ---
-            st.caption(
-                "No password needed. We'll email you a 6-digit code to confirm it's yours."
-                if otp_enabled() else
-                "No password needed. We use your email to track your free checks."
-            )
-            with st.form("email_gate_form"):
-                _gate_email = st.text_input("Email address", placeholder="you@organisation.org")
-                _submit_label = "Send verification code" if otp_enabled() else "Continue →"
-                if st.form_submit_button(_submit_label, use_container_width=True):
-                    if "@" not in _gate_email or "." not in _gate_email.split("@")[-1]:
-                        st.warning("Please enter a valid email address.")
-                    elif _is_disposable_email(_gate_email):
-                        st.warning("Please use a permanent work or personal email address — temporary/disposable email addresses aren't accepted.")
-                    else:
-                        _e = _gate_email.strip().lower()
-                        if otp_enabled():
-                            _code = generate_otp()
-                            with st.spinner("Sending verification code…"):
-                                _ok, _err = send_otp_email(_e, _code)
-                            if _ok:
-                                st.session_state["_otp_email"] = _e
-                                st.session_state["_otp_code"] = _code
-                                st.session_state["_otp_sent_at"] = time.time()
-                                st.session_state["_otp_attempts"] = 0
-                                st.rerun()
-                            else:
-                                st.error(f"Could not send verification email: {_err}")
-                        else:
-                            _complete_email_login(_e)
-        st.stop()
-    # --- End email gate ---
 
     st.markdown(
         """
@@ -3900,11 +3891,8 @@ def render_screen_1():
                 st.rerun()
         if _entry_mode == "⚡ Instant Report Check":
             if not st.session_state.get("user_email"):
-                st.info("📧 Please enter your email to use Instant Report Check.")
-                if st.button("Enter your email →", key="irc_email_redirect"):
-                    st.session_state["_irc_pending_email"] = True
-                    _go_to_screen(0, reset=False)
-                st.stop()
+                st.markdown("#### 📧 Enter your email to unlock Instant Report Check")
+                _render_email_gate_inline("_irc")
             with st.expander(
                 "⚡ Instant Report Check — Upload your draft report to auto-fill this form",
                 expanded=True,
