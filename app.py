@@ -3307,8 +3307,8 @@ def render_screen_0():
             f'<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">'
             f'<img src="data:image/png;base64,{_logo_b64}" alt="Impact-Receipts" style="height:56px;">'
             f'<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
-            f'<span style="color:#1B5E20;">Impact Receipts</span><br>'
-            f'<span style="color:#8A6500;">For NGO MEL officers</span>'
+            f'<span style="color:#1B5E20;">Impact Integrity Diagnostic</span><br>'
+            f'<span style="color:#8A6500; font-weight:400;">Pre-submission result checker for NGOs</span>'
             f'</span>'
             f'</div>'
         )
@@ -3316,8 +3316,8 @@ def render_screen_0():
         _logo_tag = (
             '<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">'
             '<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
-            '<span style="color:#1B5E20;">Impact Receipts</span><br>'
-            '<span style="color:#8A6500;">For NGO MEL officers</span>'
+            '<span style="color:#1B5E20;">Impact Integrity Diagnostic</span><br>'
+            '<span style="color:#8A6500; font-weight:400;">Pre-submission result checker for NGOs</span>'
             '</span>'
             '</div>'
         )
@@ -3326,7 +3326,7 @@ def render_screen_0():
         <div class="hero-block">
           {_logo_tag}
           <h1>Know which reported results are strong, weak, or need fixing — before your donor sees them.</h1>
-          <p class="hero-tagline">Answer 10 questions about your result → get an instant Confidence &amp; Clarity score.</p>
+          <p class="hero-tagline">Instant Confidence &amp; Clarity scores for your result statements — free, no login.</p>
         </div>
         """,
         unsafe_allow_html=True,
