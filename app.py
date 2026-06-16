@@ -3342,11 +3342,15 @@ def render_screen_0():
     if st.button("📊 Portfolio Dashboard (Beta) — score your whole logframe", use_container_width=True, key="cta_portfolio"):
         _go_to_screen(3)
 
-    if st.button("🚀 Try with a sample result (health NGO, Ghana) →", use_container_width=True, key="cta_demo"):
+    st.caption("No data to hand? Try a pre-filled Ghana health example:")
+    if st.button("🚀 Try with a sample result →", key="cta_demo",
+                 help="Loads a realistic ANC result from Ashanti Region — runs in seconds"):
         for _k, _v in _DEMO_SUBMISSION.items():
             st.session_state[_k] = _v
         for _k, _v in _DEMO_SELECT_FIELDS.items():
             st.session_state[_k] = _v
+        if not st.session_state.get("has_seen_tutorial"):
+            st.session_state["tutorial_step"] = 1
         _go_to_screen(1)
 
     # --- Email gate: must enter email before first check ---
