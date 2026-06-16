@@ -3307,8 +3307,8 @@ def render_screen_0():
             f'<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">'
             f'<img src="data:image/png;base64,{_logo_b64}" alt="Impact-Receipts" style="height:56px;">'
             f'<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
-            f'<span style="color:#1B5E20;">Impact Integrity</span><br>'
-            f'<span style="color:#8A6500;">Diagnostic</span>'
+            f'<span style="color:#1B5E20;">Impact Receipts</span><br>'
+            f'<span style="color:#8A6500;">For NGO MEL officers</span>'
             f'</span>'
             f'</div>'
         )
@@ -3316,8 +3316,8 @@ def render_screen_0():
         _logo_tag = (
             '<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">'
             '<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
-            '<span style="color:#1B5E20;">Impact Integrity</span><br>'
-            '<span style="color:#8A6500;">Diagnostic</span>'
+            '<span style="color:#1B5E20;">Impact Receipts</span><br>'
+            '<span style="color:#8A6500;">For NGO MEL officers</span>'
             '</span>'
             '</div>'
         )
@@ -3326,7 +3326,7 @@ def render_screen_0():
         <div class="hero-block">
           {_logo_tag}
           <h1>Know which reported results are strong, weak, or need fixing — before your donor sees them.</h1>
-          <p class="hero-tagline">Stress-test a result before you submit it.</p>
+          <p class="hero-tagline">Answer 10 questions about your result → get an instant Confidence &amp; Clarity score.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -3334,7 +3334,7 @@ def render_screen_0():
 
     st.caption("On a slow connection? Open the sidebar («, top-left) and turn on ⚡ Low-bandwidth mode.")
 
-    if st.button("Run My Confidence Check", type="primary", use_container_width=True, key="cta_top"):
+    if st.button("Score My Result Statement →", type="primary", use_container_width=True, key="cta_top"):
         if not st.session_state.get("has_seen_tutorial"):
             st.session_state["tutorial_step"] = 1
         _go_to_screen(1, reset=True)
