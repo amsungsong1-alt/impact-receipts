@@ -3264,6 +3264,41 @@ def _render_tab3_slot(slot: int):
 # Screen 0 — Landing & Onboarding
 # ---------------------------------------------------------------------------
 
+# Pre-filled Ghana health NGO example — used by the "Try with a sample result" button.
+# Values must be valid entries from the relevant option lists (EVIDENCE_TYPES,
+# INTERNAL_REVIEW_OPTIONS, EXTERNAL_REVIEW_OPTIONS, _BV_OPTIONS, SECTOR_OPTIONS).
+_DEMO_SUBMISSION = {
+    # _BASE_FORM_KEYS text fields (slot 1, no suffix)
+    "result_statement":    (
+        "450 women of reproductive age in Ashanti Region received skilled antenatal care across "
+        "3 health facilities, resulting in a 34% reduction in preventable maternal complications "
+        "between January and December 2024 compared to the 2022 baseline."
+    ),
+    "target_group":        "Women of reproductive age (15–49) in peri-urban Kumasi",
+    "timeframe":           "January – December 2024",
+    "geographic_scope":    "Ashanti Region, Ghana (3 health facilities)",
+    "evidence_description":(
+        "Monthly DHIS2 data extracted from 3 facility registers by the district health "
+        "information officer and verified against paper attendance registers by the project "
+        "MEL officer."
+    ),
+    "logframe_indicator":  "% reduction in preventable maternal complications among ANC attendees",
+    "logframe_target":     "30% reduction by December 2024",
+    "logframe_achievement":"34% reduction (450 women served across 3 facilities)",
+    "verifier":            "District Health Information Officer (independent of programme delivery)",
+}
+# Selectbox fields set separately (must match their option lists exactly)
+_DEMO_SELECT_FIELDS = {
+    "evidence_type":    "Raw datasets or survey exports",
+    "internal_review":  "Reviewed by MEL Officer",
+    "external_review":  "External partner review",
+    "beneficiary_voice":"Anecdotal beneficiary quotes only (uncollected, not systematic)",
+    "sector":           "Health",
+    "donor_selected":   "USAID",
+    "donor_framework":  "USAID",
+}
+
+
 def render_screen_0():
     _logo_path = pathlib.Path(__file__).parent / "logo.png.png"
     try:
@@ -3306,6 +3341,13 @@ def render_screen_0():
 
     if st.button("📊 Portfolio Dashboard (Beta) — score your whole logframe", use_container_width=True, key="cta_portfolio"):
         _go_to_screen(3)
+
+    if st.button("🚀 Try with a sample result (health NGO, Ghana) →", use_container_width=True, key="cta_demo"):
+        for _k, _v in _DEMO_SUBMISSION.items():
+            st.session_state[_k] = _v
+        for _k, _v in _DEMO_SELECT_FIELDS.items():
+            st.session_state[_k] = _v
+        _go_to_screen(1)
 
     # --- Email gate: must enter email before first check ---
     if not st.session_state.get("user_email"):
@@ -3586,6 +3628,18 @@ def render_screen_1():
     )
 
     _render_tutorial(1)
+
+    # Persistent save-draft affordance — sidebar Save Draft isn't visible on mobile/narrow screens
+    _sav_c1, _sav_c2 = st.columns([5, 1])
+    with _sav_c1:
+        if st.session_state.get("_last_saved_time"):
+            st.caption(f"💾 Draft saved at {st.session_state['_last_saved_time']} — reload-safe.")
+        else:
+            st.caption("💾 Save your draft so you can resume later, even if your internet cuts out.")
+    with _sav_c2:
+        if st.button("Save", key="top_save_draft_btn", help="Save draft to disk"):
+            _save_draft()
+            st.toast("Draft saved!", icon="💾")
 
     _has_prefill = any(
         _ss_str(k).strip()
@@ -4614,6 +4668,15 @@ def _render_review_handoff(submission: dict, ev: dict, card_idx: int):
                 st.caption("DOCX: install python-docx to enable DOCX export.")
 
 
+_PLAIN_ENGLISH_VERDICT = {
+    "STRONG":             "This result is well-positioned for submission. The fixes below are refinements, not blockers.",
+    "MISLEADING":         "Your evidence is solid, but the result definition needs sharpening before a donor will accept it.",
+    "UNDEREVIDENCED":     "The result is clearly defined, but the evidence won't survive a donor's scrutiny yet.",
+    "NEEDS REFINEMENT":   "This result is on track — address the top fix below and it will be submission-ready.",
+    "FUNDAMENTALLY WEAK": "Both the definition and the evidence need rework. Start with the Confidence fixes below.",
+}
+
+
 def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: str = ""):
     conf_score   = ev.get("confidence_score", 0)
     clar_score   = ev.get("clarity_score", 0)
@@ -4648,6 +4711,23 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         f"</div>",
         unsafe_allow_html=True,
     )
+
+    # Plain-English "what this means" — shown before the score wall
+    _pev = _PLAIN_ENGLISH_VERDICT.get(diag_state, "")
+    if _pev:
+        st.info(_pev)
+
+    # Single biggest-impact fix surfaced up-front (all non-STRONG states)
+    if fixes and diag_state not in ("STRONG", "INVALID INPUT"):
+        _top = fixes[0]
+        _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
+        st.markdown(
+            f"<div style='background:#FFF9C4;border-left:4px solid #F57F17;border-radius:6px;"
+            f"padding:10px 14px;margin:8px 0;font-size:0.9rem;{_pca}'>"
+            f"🎯 <strong>Biggest single fix:</strong> {_top['message']} "
+            f"<em>({_top['score_impact']})</em></div>",
+            unsafe_allow_html=True,
+        )
 
     # INVALID INPUT early exit
     if diag_state == "INVALID INPUT":
@@ -4809,6 +4889,14 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             ("Scope", scope, 0.75, _CLARITY_TIPS["scope"]),
             ("Governance", gov, 0.75, _CLARITY_TIPS["governance"]),
         ], key=f"snapshot_clar_chart_{card_idx}")
+
+    # Governance gap callout — surfaced here so it's visible outside the Clarity column
+    if gov < 0.6:
+        st.warning(
+            "⚠️ **Governance gap flagged.** Your data-compliance sub-score is low. "
+            "Return to the **Governance tab** on the form to complete the checklist — "
+            "this affects your Clarity score and Act 843 / NDPA compliance (Ghana)."
+        )
 
     # place this here: scoring transparency layer (explanation + personalized weakness panel)
     render_how_scoring_works_panel()
@@ -4990,6 +5078,24 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
                 continue
             level = "low" if (raw_score / max_val) < 0.6 else "high"
             st.markdown(f"**{dim}:** {donor_map[dim][level]}")
+
+    with st.expander("📋 Evidence statement for your report"):
+        st.code(_generate_evidence_statement(submission), language=None)
+        st.caption("Edit this to match your exact context before pasting into your narrative report.")
+
+    with st.expander("📱 Share this result (WhatsApp / email)"):
+        def _share_icon(s):
+            return "✅" if s >= 4.0 else "⚠️" if s >= 3.0 else "🔴"
+        _tf = fixes[0]["message"] if fixes else "No major gaps — ready to refine."
+        _wa_text = (
+            f"📊 Impact-Receipts Pre-Submission Check\n"
+            f"Confidence: {conf_score}/5.0 {_share_icon(conf_score)}  ·  "
+            f"Clarity: {clar_score}/5.0 {_share_icon(clar_score)}\n"
+            f"Top fix: {_tf}\n"
+            f"Verdict: {verdict}"
+        )
+        st.code(_wa_text, language=None)
+        st.caption("Tap the copy icon above and paste into WhatsApp or your team chat.")
 
     _render_review_handoff(submission, ev, card_idx)
 
@@ -5745,6 +5851,29 @@ def _html_to_pdf_bytes(html: str) -> bytes | None:
     except ImportError:
         pass
     return None
+
+
+def _generate_evidence_statement(submission: dict) -> str:
+    """Generate a copy-pasteable evidence statement for the narrative report
+    from the submission data already entered. No AI — template only."""
+    ev      = (submission.get("evidence") or [{}])[0]
+    ev_type = ev.get("type", "")
+    recency = ev.get("recency", "")
+    verifier= ev.get("verified_by", "")
+    tg      = submission.get("target_group", "")
+    tf      = submission.get("timeframe", "")
+    bv      = submission.get("beneficiary_voice", "")
+    parts   = [f"Evidence for this result was collected via {ev_type}" if ev_type else "Evidence was collected"]
+    if tg:  parts[0] += f" among {tg}"
+    if tf:  parts[0] += f" during {tf}"
+    parts[0] += "."
+    if verifier:
+        parts.append(f"Data were independently reviewed by {verifier}.")
+    if bv and not any(skip in bv for skip in ("No beneficiary", "Not applicable", "Choose")):
+        parts.append(f"Beneficiary perspective: {bv}.")
+    if recency:
+        parts.append(f"Evidence date: {recency}.")
+    return " ".join(parts)
 
 
 def _build_markdown_report(submission: dict, evaluation: dict, timestamp: str) -> str:
