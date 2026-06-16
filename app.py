@@ -4687,6 +4687,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     verdict      = ev.get("verdict", "")
     conf_comp    = ev.get("confidence_components", {})
     clar_comp    = ev.get("clarity_components", {})
+    fixes        = ev.get("fixes", [])
 
     snippet = submission.get("result_statement", "")
     if len(snippet) > 120:
@@ -4982,7 +4983,6 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     )
 
     # What To Fix — tailored by diagnostic state
-    fixes      = ev.get("fixes", [])
     conf_fixes = [f for f in fixes if f.get("dimension") == "confidence"]
     clar_fixes = [f for f in fixes if f.get("dimension") == "clarity"]
 
