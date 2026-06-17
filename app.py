@@ -3975,7 +3975,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
     st.session_state["remembered_donor"]  = st.session_state.get("donor_selected", "")
     # --- END UX: SMART DEFAULTS (v3.2) ---
 
-    # --- UX: PROGRESS BAR (v3.2) ---
     _cur_tab = st.session_state.get("current_tab", 0)
     render_pitch_strip(["enter", "logframe", "evidence", "review"][_cur_tab])
     _tab_cols = st.columns(4)
@@ -3989,9 +3988,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             ):
                 st.session_state["current_tab"] = _ti
                 st.rerun()
-    st.progress(value=_cur_tab / 3.0)
-    st.caption(f"Step {_cur_tab + 1} of 4 — {_UX_TAB_NAMES[_cur_tab]}")
-    # --- END UX: PROGRESS BAR (v3.2) ---
 
     if _cur_tab == 0:
         render_commentary("enter")
