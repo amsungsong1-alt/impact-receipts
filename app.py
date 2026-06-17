@@ -7716,6 +7716,7 @@ def main():
                 pass
     # --- End Paystack handler ---
 
+    screen = st.session_state["screen"]
     {0: render_screen_0, 1: render_screen_1, 2: render_screen_2, 3: render_screen_3}.get(
         screen, render_screen_0
     )()
