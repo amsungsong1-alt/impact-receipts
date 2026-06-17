@@ -3624,7 +3624,7 @@ def render_screen_0():
             st.session_state["tutorial_step"] = 1
         _go_to_screen(1, reset=True)
 
-    if st.button("📊 Portfolio Dashboard — score your whole logframe", use_container_width=True, key="cta_portfolio"):
+    if st.button("📊 Portfolio Dashboard — score my whole logframe", use_container_width=True, key="cta_portfolio"):
         _go_to_screen(3)
 
     st.caption("No data to hand? Try a pre-filled Ghana health example:")
