@@ -3627,8 +3627,6 @@ def render_screen_0():
         unsafe_allow_html=True,
     )
 
-    st.caption("On a slow connection? Open the sidebar («, top-left) and turn on ⚡ Low-bandwidth mode.")
-
     if st.button("Score My Result Statement →", type="primary", use_container_width=True, key="cta_top"):
         if not st.session_state.get("has_seen_tutorial"):
             st.session_state["tutorial_step"] = 1
@@ -3651,79 +3649,11 @@ def render_screen_0():
 
     st.markdown(
         """
-        <div>
-          <p class="hero-sub">
-            The Impact Integrity Diagnostic is built for Monitoring, Evaluation &amp; Learning Officers and Reporting Leads at NGOs
-            and donor-funded projects in Africa &mdash; those compiling final reports for USAID,
-            FCDO, GIZ, RVO, World Bank, AfDB, EU/EuropeAid, and others.
-          </p>
-          <p class="brand-promise">I help you submit with confidence &mdash; not by judging your work,
-          but by showing you exactly where it&rsquo;s strong and where it needs strengthening.</p>
-          <ol class="how-it-works" style="margin:10px 0 0 0; padding-left:20px; color:#374151; font-size:0.95rem;">
-            <li>Add your result statement</li>
-            <li>Describe your supporting evidence</li>
-            <li>Get a confidence label + specific fixes &mdash; in 10 minutes</li>
-          </ol>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """
         <div style="border-left:4px solid #8A6500; border-radius:8px; padding:14px 20px; margin:16px 0; background:transparent;">
           <p style="margin:0; font-size:0.95rem; color:#212121;">
             <strong>Funders now ask:</strong> What changed? How do you know? How strong is the evidence?
             What did you learn? &mdash; <em>This check tells you before they do.</em>
           </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """
-        <div class="what-we-check" style="border-radius:8px;padding:16px 20px;
-                    margin:16px 0;border-left:4px solid #1B5E20;">
-          <h4 style="margin:0 0 10px 0;">&#128203; What we check</h4>
-          <ul style="margin:0;padding-left:18px;">
-            <li style="margin-bottom:6px;"><strong>Logframe linkage</strong>
-              &mdash; does your result tie to an approved indicator?</li>
-            <li style="margin-bottom:6px;"><strong>Evidence quality</strong>
-              &mdash; direct, verified, recent, defensible?</li>
-            <li style="margin-bottom:6px;"><strong>Beneficiary voice</strong>
-              &mdash; were they part of the evidence?</li>
-            <li style="margin-bottom:6px;"><strong>Definition clarity</strong>
-              &mdash; would two readers interpret it the same way?</li>
-            <li><strong>Submission completeness</strong>
-              &mdash; is your package donor-ready?</li>
-          </ul>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """
-        <div class="is-not-grid">
-          <div class="is-col" style="color: #1B5E20 !important;">
-            <h4>&#10003; What this IS</h4>
-            <ul style="color: #1B5E20 !important;">
-              <li style="color: #1B5E20 !important;">A quick confidence check for reported results before submission</li>
-              <li style="color: #1B5E20 !important;">A transparent guide that shows what to fix and why</li>
-              <li style="color: #1B5E20 !important;">Privacy-conscious — your raw documents are processed and discarded, never stored</li>
-              <li style="color: #1B5E20 !important;">Your first 3 checks are free</li>
-            </ul>
-          </div>
-          <div class="isnot-col" style="color: #C62828 !important;">
-            <h4 style="color: #C62828 !important;">&#10007; What this is NOT</h4>
-            <ul style="color: #C62828 !important;">
-              <li style="color: #C62828 !important;">A full reporting system, database, or audit tool</li>
-              <li style="color: #C62828 !important;">A replacement for your M&amp;E/MEL framework</li>
-              <li style="color: #C62828 !important;">An AI that invents or assumes missing data</li>
-              <li style="color: #C62828 !important;">A gatekeeper that decides who passes or fails</li>
-            </ul>
-          </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -3755,17 +3685,6 @@ def render_screen_0():
           </p>
         </div>
         """,
-        unsafe_allow_html=True,
-    )
-
-    st.caption(
-        "We store your account email and usage status to manage your free checks. "
-        "Uploaded documents are processed (including by AI for Instant Report Check) "
-        "but not stored. Anonymised text snippets are saved only if you opt in below."
-    )
-    st.markdown(
-        '<p style="color:#8A6500;font-style:italic;font-size:14px;margin:4px 0 8px 0;">'
-        "Anchored in USAID DQA, OECD-DAC, FCDO, and Bond Evidence Principles.</p>",
         unsafe_allow_html=True,
     )
 
