@@ -2457,7 +2457,7 @@ def _render_slot_fields(slot: int):
     # --- END UX: CONDITIONAL FIELDS (v3.2) ---
 
     st.markdown("#### Reporting Period")
-    st.caption("The period this submission covers. Evidence dates outside this range will be flagged.")
+    st.caption("The period this submission covers. Evidence dates outside this range trigger a flag.")
     _rp_col_s, _rp_col_e = st.columns(2)
     with _rp_col_s:
         st.date_input(
@@ -2672,7 +2672,7 @@ def _render_tab1_slot(slot: int):
     if _rs_filled and not _tg:
         st.caption(f"💡 Hint: {_tg_hint}")
     elif len(_tg) > 5 and not any(m in _tg.lower() for m in _DEMO_MARKERS):
-        st.warning("Target group should describe who was reached — include population type, age, or role.")
+        st.warning("Target group should describe who you reached — include population type, age, or role.")
 
     _tf = _ss_str(f"timeframe{s}").strip()
     if _rs_filled and not _tf:
@@ -2921,7 +2921,7 @@ def _render_tab3_slot(slot: int):
             "is treated the same as 'No' and lowers the score."
         )
         _irc_widget(
-            st.selectbox, "Sampling or selection method documented (who was included, and how)",
+            st.selectbox, "Sampling or selection method documented (who you included, and how)",
             f"provenance_sampling{s}", default=PROVENANCE_YES_NO_NA_OPTIONS[0],
             options=PROVENANCE_YES_NO_NA_OPTIONS,
         )
@@ -2968,7 +2968,7 @@ def _render_tab3_slot(slot: int):
             st.caption("Completing this checklist can add up to **+0.6** to your Verification score.")
 
         st.markdown("#### Reporting Period")
-        st.caption("The period this submission covers. Evidence dates outside this range will be flagged.")
+        st.caption("The period this submission covers. Evidence dates outside this range trigger a flag.")
         _rp_c1, _rp_t1 = st.columns([5, 1])
         with _rp_c1:
             _irc_widget(
@@ -3344,7 +3344,7 @@ def _render_email_gate_inline(form_key_suffix: str = "") -> None:
                     st.session_state["_otp_code"] = _new_code
                     st.session_state["_otp_sent_at"] = time.time()
                     st.session_state["_otp_attempts"] = 0
-                    st.success("A new code has been sent.")
+                    st.success("New code sent.")
                 else:
                     st.error(f"Could not send code: {_err}")
         with _otp_c2:
@@ -3365,7 +3365,7 @@ def _render_email_gate_inline(form_key_suffix: str = "") -> None:
                 if "@" not in _gate_email or "." not in _gate_email.split("@")[-1]:
                     st.warning("Please enter a valid email address.")
                 elif _is_disposable_email(_gate_email):
-                    st.warning("Please use a permanent work or personal email — temporary addresses aren't accepted.")
+                    st.warning("Please use a permanent work or personal email — we don't accept temporary addresses.")
                 else:
                     _e = _gate_email.strip().lower()
                     if otp_enabled():
@@ -3803,7 +3803,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
     if _has_prefill:
         _pf_c1, _pf_c2 = st.columns([3, 1])
         with _pf_c1:
-            st.info("📂 Continuing from a previous session — your form fields are pre-populated.")
+            st.info("📂 Continuing from a previous session — your form fields are pre-filled from a previous session.")
         with _pf_c2:
             if st.button("Clear and start fresh", key="clear_prefill"):
                 _reset_all_slots()
@@ -3985,7 +3985,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 else:
                     st.info(f"{_n_ticked} of {_n_total} required item(s) confirmed.")
             elif _sub_type and _sub_type not in ("Choose an option...", "Select submission type...", ""):
-                st.info("No standard checklist defined for this submission type.")
+                st.info("No standard checklist for this submission type.")
             else:
                 st.caption("Select a submission type above to see the required items checklist.")
             st.caption(
@@ -4445,7 +4445,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                     st.session_state["_scroll_to_content"] = True
                     st.rerun()
             if not _t2_done:
-                st.caption("Some logframe fields weren't found in your uploaded report — you can fill them in now or continue and complete them later.")
+                st.caption("Some logframe fields weren't in your uploaded report — you can fill them in now or continue and complete them later.")
         else:
             st.caption("Fill in all three logframe fields above to continue.")
         # --- END v3.3 ---
@@ -4515,7 +4515,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             elif _banner_c >= 50 or _banner_cl >= 50:
                 st.warning("⚠️ Submission Needs Work — Address the items below before submitting.")
             else:
-                st.error("🔴 High Risk — This result is likely to be queried or rejected. Fix critical issues first.")
+                st.error("🔴 High Risk — Your donor will likely query or reject this result. Fix critical issues first.")
         except Exception:
             pass
         # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
@@ -4953,7 +4953,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         st.markdown("**4. What did you learn?**")
         learn = fr_top.get("learning", {})
         if learn.get("detected"):
-            st.markdown("Yes — the report describes what was learned and how the program adapted.")
+            st.markdown("Yes — the report describes what your team learned and how the programme adapted.")
         else:
             st.markdown("_Not yet stated._ Add a sentence on what you learned and changed as a result.")
 
@@ -5126,7 +5126,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         )
 
     if learn.get("detected"):
-        st.success("Learning & adaptation stated — the report describes what was learned and changed.")
+        st.success("Learning & adaptation stated — the report describes what your team learned and changed.")
     else:
         st.warning(
             "No learning/adaptation statement detected. Consider adding what your "
@@ -5172,7 +5172,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             )
 
     if diag_state == "STRONG":
-        st.success("No further fixes flagged by this tool's checks.")
+        st.success("This check found no further fixes to address.")
         if fixes:
             smallest = fixes[0]
             st.caption(f"Optional refinement: {smallest['message']} ({smallest['score_impact']})")
@@ -5466,7 +5466,7 @@ def render_screen_2():
             use_container_width=True,
         )
         if st.session_state.get("lite_mode", False):
-            st.caption("Low-bandwidth mode: report will be a smaller, self-contained file viewable offline.")
+            st.caption("Low-bandwidth mode: report downloads as a smaller, self-contained file — readable offline.")
         _pdf_bytes = _html_to_pdf_bytes(html_report)
         if _pdf_bytes:
             st.download_button(
@@ -6130,7 +6130,7 @@ def _build_markdown_report(submission: dict, evaluation: dict, timestamp: str) -
         lines.append("")
 
     if not fixes:
-        lines += ["No further fixes flagged by this tool's checks.", ""]
+        lines += ["This check found no further fixes to address.", ""]
 
     lines += [
         "---",
@@ -6997,7 +6997,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
         fixes_html += ("<h3 style='color:#1B5E20;'>Sharpen your definition (Clarity)</h3>"
                        f"<ul>{fix_items(clar_fixes)}</ul>")
     if not fixes:
-        fixes_html = "<p style='color:#1B5E20;font-weight:700;'>No further fixes flagged by this tool's checks.</p>"
+        fixes_html = "<p style='color:#1B5E20;font-weight:700;'>This check found no further fixes to address.</p>"
 
     # --- What Donors Want to Know (four-question summary) ---
     ladder   = evaluation.get("evidence_ladder", {})
@@ -7012,7 +7012,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
     q2_answer = f"Evidence type: <strong>{ev_type_top}</strong>"
     if dominant:
         q2_answer += f" &mdash; evidence base is mainly <strong>{dominant}</strong>-tier."
-    q4_answer = ("Yes &mdash; the report describes what was learned and how the program adapted."
+    q4_answer = ("Yes &mdash; the report describes what your team learned and how the programme adapted."
                   if learn.get("detected") else
                   "Not yet stated. Add a sentence on what you learned and changed as a result.")
 
@@ -7078,7 +7078,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
                  if lim.get("detected") else
                  "No limitations disclosure detected. Consider adding a sentence on what this data "
                  "cannot confirm or cannot be generalized to.")
-    learn_text = ("Learning &amp; adaptation stated &mdash; the report describes what was learned and changed."
+    learn_text = ("Learning &amp; adaptation stated &mdash; the report describes what your team learned and changed."
                    if learn.get("detected") else
                    "No learning/adaptation statement detected. Consider adding what your organization "
                    "learned and how the program adapted as a result.")
@@ -7316,7 +7316,7 @@ def _build_review_summary_docx(submission: dict, evaluation: dict, review_info: 
         for fix in fixes:
             doc.add_paragraph(f"{fix.get('message', '')} ({fix.get('score_impact', '')})", style="List Bullet")
     else:
-        doc.add_paragraph("No further fixes flagged by this tool's checks.")
+        doc.add_paragraph("This check found no further fixes to address.")
 
     doc.add_heading("Review & Sign-off", level=1)
     review_table = doc.add_table(rows=0, cols=2)
@@ -7683,7 +7683,7 @@ def main():
                 except Exception:
                     pass
         elif _pay_result.get("status") == "failed":
-            st.warning("Payment was not completed. Please try again.")
+            st.warning("Payment didn't go through. Please try again.")
             try:
                 st.query_params.clear()
             except Exception:
