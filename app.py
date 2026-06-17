@@ -3425,6 +3425,21 @@ def inject_matchday_css():
         padding:6px 10px; border-radius:6px; letter-spacing:1.5px; flex-shrink:0; }
     .md-var-text strong { font-size:1rem; }
     .md-var-text span { font-size:0.85rem; color:#aaa8a0; }
+    .md-pitch { background:#1a1a18; border-radius:10px; padding:14px 16px; margin:0 0 14px 0; }
+    .md-pitch-stages { display:flex; align-items:flex-start; justify-content:space-between;
+        position:relative; }
+    .md-pitch-stages::before { content:""; position:absolute; top:16px; left:10%; right:10%;
+        height:2px; background:#333; z-index:0; }
+    .md-pstage { display:flex; flex-direction:column; align-items:center; gap:6px;
+        flex:1; position:relative; z-index:1; }
+    .md-pstage .dot { width:32px; height:32px; border-radius:50%; background:#333;
+        color:#666; font-size:12px; font-weight:700; display:flex;
+        align-items:center; justify-content:center; }
+    .md-pstage .lbl { font-size:10px; color:#555; text-align:center; letter-spacing:.3px; }
+    .md-pstage.done .dot { background:#1D9E75; color:#fff; }
+    .md-pstage.done .lbl { color:#1D9E75; }
+    .md-pstage.active .dot { background:#FAC775; color:#1a1a18; }
+    .md-pstage.active .lbl { color:#FAC775; font-weight:600; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -3496,6 +3511,31 @@ def render_var_review():
         '</div></div>',
         unsafe_allow_html=True,
     )
+
+
+MATCHDAY_STAGES = [
+    ("enter",    "Line-up"),
+    ("logframe", "Build-up"),
+    ("evidence", "VAR"),
+    ("review",   "The shot"),
+    ("report",   "Full time"),
+]
+
+
+def render_pitch_strip(current_stage: str):
+    keys = [k for k, _ in MATCHDAY_STAGES]
+    try:
+        cur = keys.index(current_stage)
+    except ValueError:
+        cur = -1
+    cells = ""
+    for idx, (k, lbl) in enumerate(MATCHDAY_STAGES):
+        cls = "done" if idx < cur else ("active" if idx == cur else "")
+        mark = "✓" if idx < cur else str(idx + 1)
+        cells += (f'<div class="md-pstage {cls}"><div class="dot">{mark}</div>'
+                  f'<div class="lbl">{lbl}</div></div>')
+    st.markdown(f'<div class="md-pitch"><div class="md-pitch-stages">{cells}</div></div>',
+                unsafe_allow_html=True)
 
 
 def render_screen_0():
@@ -3895,6 +3935,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
 
     # --- UX: PROGRESS BAR (v3.2) ---
     _cur_tab = st.session_state.get("current_tab", 0)
+    render_pitch_strip(["enter", "logframe", "evidence", "review"][_cur_tab])
     _tab_cols = st.columns(4)
     for _ti, (_tc, _tn) in enumerate(zip(_tab_cols, _UX_TAB_NAMES)):
         with _tc:
@@ -5231,6 +5272,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
 
 
 def render_screen_2():
+    render_pitch_strip("report")
     # Run evaluations once, cache results
     if not st.session_state.get("evaluations"):
         active = st.session_state.get("active_slots_run", st.session_state.get("active_slots", 1))
