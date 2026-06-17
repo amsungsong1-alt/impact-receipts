@@ -3419,6 +3419,12 @@ def inject_matchday_css():
     .md-stat .sub { font-size:11px; color:#888780; margin-top:6px; }
     .md-div { background:#d3d1c7; }
     .md-green { color:#1D9E75; } .md-amber { color:#BA7517; } .md-red { color:#A32D2D; }
+    .md-var { background:#1a1a18; color:#fff; border-radius:12px;
+        padding:24px 20px; margin:16px 0; display:flex; align-items:center; gap:18px; }
+    .md-var-badge { background:#A32D2D; color:#fff; font-size:11px; font-weight:700;
+        padding:6px 10px; border-radius:6px; letter-spacing:1.5px; flex-shrink:0; }
+    .md-var-text strong { font-size:1rem; }
+    .md-var-text span { font-size:0.85rem; color:#aaa8a0; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -3477,6 +3483,19 @@ def render_scoreboard(confidence=None, clarity=None, verified=False):
       </div>
     </div>
     """, unsafe_allow_html=True)
+
+
+def render_var_review():
+    """Dark VAR panel shown while the confidence check is running."""
+    st.markdown(
+        '<div class="md-var">'
+        '<div class="md-var-badge">VAR</div>'
+        '<div class="md-var-text">'
+        '<strong>VAR Review in progress</strong><br>'
+        '<span>Checking video evidence — the official decision is coming.</span>'
+        '</div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def render_screen_0():
@@ -5217,7 +5236,8 @@ def render_screen_2():
         active = st.session_state.get("active_slots_run", st.session_state.get("active_slots", 1))
         subs, evs = [], []
         try:
-            with st.spinner("Running confidence check..."):
+            render_var_review()
+            with st.spinner("VAR reviewing evidence…"):
                 for slot in range(1, active + 1):
                     sub = _build_submission_from_session(slot)
                     ev  = _evaluator.evaluate_submission(sub)
