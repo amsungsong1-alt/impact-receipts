@@ -3442,6 +3442,12 @@ def inject_matchday_css():
     .md-fulltime p { margin:0; font-size:0.85rem; color:#aaa8a0; line-height:1.5; }
     .md-card { background:#f9f8f5; border:1px solid #e0ded8; border-radius:10px;
         padding:14px 16px; margin:8px 0; }
+    .md-pitch-tip { font-size:11px; color:#aaa8a0; text-align:center;
+        margin-top:6px; padding:0 8px; min-height:14px; }
+    .md-tab-header { margin:10px 0 14px; }
+    .md-tab-header .tab-num { font-size:11px; color:#888780; letter-spacing:.5px;
+        text-transform:uppercase; display:block; margin-bottom:2px; }
+    .md-tab-header .tab-name { font-size:1.05rem; font-weight:700; color:#1B5E20; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -3526,7 +3532,7 @@ MATCHDAY_STAGES = [
 MATCHDAY_TIPS = {
     "enter":    "Step 1 — Define your result: who benefited, what changed, where and when",
     "logframe": "Step 2 — Link your result to your logframe indicator and target",
-    "evidence": "VAR · Verification Assistant Referee — evidence check before your score counts",
+    "evidence": "Step 3 · VAR — Verification Assistant Referee: evidence check before your score counts",
     "review":   "Step 4 — Add donor context and submit for your Confidence &amp; Clarity scores",
     "report":   "Full time — your Confidence &amp; Clarity scores and verdict are in",
 }
@@ -3545,9 +3551,11 @@ def render_pitch_strip(current_stage: str):
         tip = MATCHDAY_TIPS.get(k, "")
         cells += (f'<div class="md-pstage {cls}" title="{tip}"><div class="dot">{mark}</div>'
                   f'<div class="lbl">{lbl}</div></div>')
+    _active_tip = MATCHDAY_TIPS.get(current_stage, "")
+    _tip_html = f'<div class="md-pitch-tip">{_active_tip}</div>' if _active_tip else ""
     st.markdown(
-        f'<div class="md-pitch"><div class="md-pitch-stages">{cells}</div></div>'
-        f'<div style="height:64px"></div>',
+        f'<div class="md-pitch"><div class="md-pitch-stages">{cells}</div>{_tip_html}</div>'
+        f'<div style="height:72px"></div>',
         unsafe_allow_html=True,
     )
 
@@ -3937,17 +3945,13 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         st.toast("⏰ You've been working for 5+ minutes. Download your draft from Tab 4 before continuing.", icon="💾")
         st.session_state["save_reminded"] = True
 
-    _tab_cols = st.columns(4)
-    for _ti, (_tc, _tn) in enumerate(zip(_tab_cols, _UX_TAB_NAMES)):
-        with _tc:
-            if st.button(
-                f"● {_tn}" if _ti == _cur_tab else f"{_ti + 1}. {_tn}",
-                key=f"_tab_nav_{_ti}",
-                type="primary" if _ti == _cur_tab else "secondary",
-                use_container_width=True,
-            ):
-                st.session_state["current_tab"] = _ti
-                st.rerun()
+    st.markdown(
+        f'<div class="md-tab-header">'
+        f'<span class="tab-num">Step {_cur_tab + 1} of 4</span>'
+        f'<span class="tab-name">{_UX_TAB_NAMES[_cur_tab]}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     if _cur_tab == 0:
         render_commentary("enter")
