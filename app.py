@@ -1593,20 +1593,12 @@ def _render_tutorial(step: int):
     copy = _TUTORIAL_COPY.get(step)
     if not copy:
         return
-    with st.info(f"**{copy['title']}**\n\n{copy['body']}"):
-        pass
-    col_got, col_skip = st.columns([1, 1])
-    with col_got:
-        if st.button("Got it →", key=f"tutorial_got_{step}"):
-            if step == _TUTORIAL_LAST_STEP:
-                st.session_state["has_seen_tutorial"] = True
-            st.session_state["tutorial_step"] = step + 1
-            st.rerun()
-    with col_skip:
-        if st.button("Skip tutorial", key=f"tutorial_skip_{step}"):
+    st.caption(f"💡 **{copy['title']}** — {copy['body']}")
+    if st.button("Got it →", key=f"tutorial_got_{step}"):
+        if step == _TUTORIAL_LAST_STEP:
             st.session_state["has_seen_tutorial"] = True
-            st.session_state["tutorial_step"] = _TUTORIAL_LAST_STEP + 1
-            st.rerun()
+        st.session_state["tutorial_step"] = step + 1
+        st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -3432,7 +3424,7 @@ def inject_matchday_css():
     .md-pitch-stages::before { content:""; position:absolute; top:16px; left:10%; right:10%;
         height:2px; background:#333; z-index:0; }
     .md-pstage { display:flex; flex-direction:column; align-items:center; gap:6px;
-        flex:1; position:relative; z-index:1; }
+        flex:1; position:relative; z-index:1; cursor:help; }
     .md-pstage .dot { width:32px; height:32px; border-radius:50%; background:#333;
         color:#666; font-size:12px; font-weight:700; display:flex;
         align-items:center; justify-content:center; }
@@ -3441,6 +3433,7 @@ def inject_matchday_css():
     .md-pstage.done .lbl { color:#1D9E75; }
     .md-pstage.active .dot { background:#FAC775; color:#1a1a18; }
     .md-pstage.active .lbl { color:#FAC775; font-weight:600; }
+    .md-pstage:hover .lbl { text-decoration: underline dotted; }
     .md-fulltime { background:#2C2C2A; color:#fff; border-radius:12px;
         padding:20px 20px 16px; margin:12px 0; text-align:center; }
     .md-fulltime .whistle { font-size:10px; letter-spacing:1.5px; text-transform:uppercase;
@@ -3530,6 +3523,14 @@ MATCHDAY_STAGES = [
     ("report",   "Full time"),
 ]
 
+MATCHDAY_TIPS = {
+    "enter":    "Step 1 — Define your result: who benefited, what changed, where and when",
+    "logframe": "Step 2 — Link your result to your logframe indicator and target",
+    "evidence": "VAR · Verification Assistant Referee — evidence check before your score counts",
+    "review":   "Step 4 — Add donor context and submit for your Confidence &amp; Clarity scores",
+    "report":   "Full time — your Confidence &amp; Clarity scores and verdict are in",
+}
+
 
 def render_pitch_strip(current_stage: str):
     keys = [k for k, _ in MATCHDAY_STAGES]
@@ -3541,7 +3542,8 @@ def render_pitch_strip(current_stage: str):
     for idx, (k, lbl) in enumerate(MATCHDAY_STAGES):
         cls = "done" if idx < cur else ("active" if idx == cur else "")
         mark = "✓" if idx < cur else str(idx + 1)
-        cells += (f'<div class="md-pstage {cls}"><div class="dot">{mark}</div>'
+        tip = MATCHDAY_TIPS.get(k, "")
+        cells += (f'<div class="md-pstage {cls}" title="{tip}"><div class="dot">{mark}</div>'
                   f'<div class="lbl">{lbl}</div></div>')
     st.markdown(
         f'<div class="md-pitch"><div class="md-pitch-stages">{cells}</div></div>'
@@ -3826,7 +3828,7 @@ def render_screen_1():
                    "geographic_scope", "evidence_description")
     )
 
-    with st.expander("ℹ️ How this works — new here? Start here.", expanded=not _has_prefill):
+    with st.expander("ℹ️ How this works — new here? Start here.", expanded=False):
         st.markdown(
             """
 **Fill in 4 short sections about your result → click Run Check → get your scores.**
@@ -3917,61 +3919,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         st.toast("⏰ You've been working for 5+ minutes. Download your draft from Tab 4 before continuing.", icon="💾")
         st.session_state["save_reminded"] = True
 
-    # Global selectors — above tabs so they always run before tab content
-    st.selectbox(
-        "Sector (optional — helps tailor examples)",
-        key="sector",
-        options=SECTOR_OPTIONS,
-        help="Select your sector to see sector-specific example placeholders in the evidence description field.",
-    )
-    _sector_val = st.session_state.get("sector", SECTOR_OPTIONS[0])
-    if _sector_val == "Other":
-        st.text_input(
-            "Specify your sector",
-            key="sector_other",
-            placeholder="e.g., Disaster Response, Gender Equality, Financial Inclusion",
-        )
-
-    st.selectbox(
-        "Primary donor for this submission",
-        key="donor_selected",
-        options=["(No donor specified)", "USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "EU / EuropeAid", "Other"],
-        index=0,
-        help="Select your primary donor to receive tailored reporting tips and donor-specific diagnostic guidance.",
-    )
-    st.selectbox(
-        "Donor reporting framework for the crosswalk table",
-        key="donor_framework",
-        options=list(DONOR_PROFILES.keys()),
-        format_func=lambda k: DONOR_PROFILES[k]["label"],
-        index=0,
-        help="Choose which audit framework's standards are shown alongside each "
-             "sub-score in the donor framework crosswalk.",
-    )
-    st.text_input(
-        "Project name (optional — used to group/compare indicators in Trends over time)",
-        key="project_name",
-        placeholder="e.g., Northern Region WASH Programme",
-    )
-    _donor_val = st.session_state.get("donor_selected", "(No donor specified)")
-    if _donor_val == "Other":
-        st.text_input(
-            "Specify donor name",
-            key="donor_other",
-            placeholder="e.g., DFID, KfW, Bill & Melinda Gates Foundation",
-        )
-    if _donor_val in DONOR_GUIDANCE:
-        _dg = DONOR_GUIDANCE[_donor_val]
-        with st.expander(f"💡 {_donor_val} reporting tips", expanded=True):
-            st.markdown(f"**Key emphasis:** {_dg['key_emphasis']}")
-            st.markdown(f"**Most common rejection:** {_dg['common_rejection']}")
-            st.markdown(f"**Tip:** {_dg['tip']}")
-
-    # --- UX: SMART DEFAULTS (v3.2) ---
-    st.session_state["remembered_sector"] = st.session_state.get("sector", "")
-    st.session_state["remembered_donor"]  = st.session_state.get("donor_selected", "")
-    # --- END UX: SMART DEFAULTS (v3.2) ---
-
     _tab_cols = st.columns(4)
     for _ti, (_tc, _tn) in enumerate(zip(_tab_cols, _UX_TAB_NAMES)):
         with _tc:
@@ -3986,7 +3933,55 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
 
     if _cur_tab == 0:
         render_commentary("enter")
-        st.caption("💾 Draft auto-saves as you type. Use Tab 4 to download for offline backup.")
+        with st.expander("📋 Submission context — sector, donor, project", expanded=not _has_prefill):
+            st.selectbox(
+                "Sector (optional — helps tailor examples)",
+                key="sector",
+                options=SECTOR_OPTIONS,
+                help="Select your sector to see sector-specific example placeholders in the evidence description field.",
+            )
+            _sector_val = st.session_state.get("sector", SECTOR_OPTIONS[0])
+            if _sector_val == "Other":
+                st.text_input(
+                    "Specify your sector",
+                    key="sector_other",
+                    placeholder="e.g., Disaster Response, Gender Equality, Financial Inclusion",
+                )
+            st.selectbox(
+                "Primary donor for this submission",
+                key="donor_selected",
+                options=["(No donor specified)", "USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "EU / EuropeAid", "Other"],
+                index=0,
+                help="Select your primary donor to receive tailored reporting tips and donor-specific diagnostic guidance.",
+            )
+            st.selectbox(
+                "Donor reporting framework for the crosswalk table",
+                key="donor_framework",
+                options=list(DONOR_PROFILES.keys()),
+                format_func=lambda k: DONOR_PROFILES[k]["label"],
+                index=0,
+                help="Choose which audit framework's standards are shown alongside each sub-score in the donor framework crosswalk.",
+            )
+            st.text_input(
+                "Project name (optional — used to group/compare indicators in Trends over time)",
+                key="project_name",
+                placeholder="e.g., Northern Region WASH Programme",
+            )
+            _donor_val = st.session_state.get("donor_selected", "(No donor specified)")
+            if _donor_val == "Other":
+                st.text_input(
+                    "Specify donor name",
+                    key="donor_other",
+                    placeholder="e.g., DFID, KfW, Bill & Melinda Gates Foundation",
+                )
+            if _donor_val in DONOR_GUIDANCE:
+                _dg = DONOR_GUIDANCE[_donor_val]
+                with st.expander(f"💡 {_donor_val} reporting tips", expanded=True):
+                    st.markdown(f"**Key emphasis:** {_dg['key_emphasis']}")
+                    st.markdown(f"**Most common rejection:** {_dg['common_rejection']}")
+                    st.markdown(f"**Tip:** {_dg['tip']}")
+            st.session_state["remembered_sector"] = st.session_state.get("sector", "")
+            st.session_state["remembered_donor"]  = st.session_state.get("donor_selected", "")
         # --- IRC fill summary banner (shown once after extraction) ---
         _irc_summary = st.session_state.pop("_irc_summary", None)
         if _irc_summary:
@@ -4471,7 +4466,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
 
     elif _cur_tab == 1:
         render_commentary("logframe")
-        st.caption("💾 Draft auto-saves as you type.")
         for slot in range(1, active + 1):
             if active > 1:
                 st.markdown(f"---\n#### Result {slot}")
@@ -4500,7 +4494,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
 
     elif _cur_tab == 2:
         render_commentary("evidence")
-        st.caption("💾 Draft auto-saves as you type.")
         for slot in range(1, active + 1):
             if active > 1:
                 st.markdown(f"---\n#### Result {slot}")
