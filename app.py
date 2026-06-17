@@ -3806,7 +3806,7 @@ def render_screen_1():
     _render_tutorial(1)
 
     # Persistent save-draft affordance — sidebar Save Draft isn't visible on mobile/narrow screens
-    _sav_c1, _sav_c2 = st.columns([5, 1])
+    _sav_c1, _sav_c2, _sav_c3 = st.columns([4, 1, 1])
     with _sav_c1:
         if st.session_state.get("_last_saved_time"):
             st.caption(f"💾 Draft saved at {st.session_state['_last_saved_time']} — reload-safe.")
@@ -3815,6 +3815,9 @@ def render_screen_1():
     with _sav_c2:
         if st.button("Save", key="top_save_draft_btn", help="Save draft to disk"):
             _save_draft()
+    with _sav_c3:
+        if st.button("← Home", key="top_home_btn", help="Back to landing page"):
+            _go_to_screen(0)
             st.toast("Draft saved!", icon="💾")
 
     _has_prefill = any(
