@@ -3796,18 +3796,8 @@ def render_screen_0():
 # ---------------------------------------------------------------------------
 
 def render_screen_1():
-    st.markdown(
-        """
-        <div class="progress-steps">
-          <span class="step">1</span><span class="step-label">Result Basics</span>
-          <span class="connector"></span>
-          <span class="step">2</span><span class="step-label">Evidence</span>
-          <span class="connector"></span>
-          <span class="step">3</span><span class="step-label">Review Status</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    _cur_tab = st.session_state.get("current_tab", 0)
+    render_pitch_strip(["enter", "logframe", "evidence", "review"][_cur_tab])
 
     _render_tutorial(1)
 
@@ -3975,8 +3965,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
     st.session_state["remembered_donor"]  = st.session_state.get("donor_selected", "")
     # --- END UX: SMART DEFAULTS (v3.2) ---
 
-    _cur_tab = st.session_state.get("current_tab", 0)
-    render_pitch_strip(["enter", "logframe", "evidence", "review"][_cur_tab])
     _tab_cols = st.columns(4)
     for _ti, (_tc, _tn) in enumerate(zip(_tab_cols, _UX_TAB_NAMES)):
         with _tc:
@@ -7727,12 +7715,6 @@ def main():
             except Exception:
                 pass
     # --- End Paystack handler ---
-
-    screen = st.session_state["screen"]
-    if screen == 1:
-        st.progress(0.5, text="Submission Form")
-    elif screen == 2:
-        st.progress(1.0, text="Confidence Check Complete")
 
     {0: render_screen_0, 1: render_screen_1, 2: render_screen_2, 3: render_screen_3}.get(
         screen, render_screen_0
