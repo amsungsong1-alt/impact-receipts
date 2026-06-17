@@ -3651,7 +3651,7 @@ def render_screen_0():
         """
         <div style="border-left:4px solid #8A6500; border-radius:8px; padding:14px 20px; margin:16px 0; background:transparent;">
           <p style="margin:0; font-size:0.95rem; color:#212121;">
-            <strong>Funders now ask:</strong> What changed? How do you know? How strong is the evidence?
+            <strong>Donors now ask:</strong> What changed? How do you know? How strong is the evidence?
             What did you learn? &mdash; <em>This check tells you before they do.</em>
           </p>
         </div>
@@ -3681,7 +3681,7 @@ def render_screen_0():
             <strong style="color:#1B5E20;">&#128204; Real case from 2024:</strong>
             An African consultancy&rsquo;s final donor report was rejected three times
             for missing M&amp;E data and logframe gaps. 40+ hours of senior staff rework.
-            Impact-Receipts catches these issues before they reach your donor.
+            Impact Integrity Diagnostic catches these issues before they reach your donor.
           </p>
         </div>
         """,
@@ -3716,6 +3716,10 @@ def render_screen_0():
         </div>
         <p style="color:#616161;font-style:italic;font-size:0.85rem;margin:8px 0 4px 0;">
           I&rsquo;m a MEL practitioner in Accra who got tired of submitting results without a confidence check &mdash; so I built this.
+        </p>
+        <p style="color:#616161;font-size:0.85rem;margin:2px 0 8px 0;">
+          A <em>confidence check</em> = an honest answer to &ldquo;Would my donor accept this result?&rdquo;
+          &mdash; evidence strength, result clarity, logframe linkage, all checked in under 10 minutes.
         </p>
         """,
         unsafe_allow_html=True,
