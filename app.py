@@ -3420,7 +3420,7 @@ def render_screen_0():
         <div class="hero-block">
           {_logo_tag}
           <h1>Know which reported results are strong, weak, or need fixing — before your donor sees them.</h1>
-          <p class="hero-tagline">Instant Confidence &amp; Clarity scores for your result statements — free, no login.</p>
+          <p class="hero-tagline">See if your evidence is strong and your result statement is clear enough — before your donor asks.</p>
         </div>
         """,
         unsafe_allow_html=True,
