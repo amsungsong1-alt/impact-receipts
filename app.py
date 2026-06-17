@@ -3808,8 +3808,19 @@ def render_screen_1():
     if st.session_state.pop("_scroll_to_content", False):
         import streamlit.components.v1 as components
         components.html(
-            '<script>window.parent.scrollTo({top:0,behavior:"smooth"});</script>',
-            height=0,
+            """<script>
+            (function() {
+                var p = window.parent;
+                try { p.scrollTo(0, 0); } catch(e) {}
+                try { p.document.documentElement.scrollTop = 0; } catch(e) {}
+                try { p.document.body.scrollTop = 0; } catch(e) {}
+                try {
+                    var m = p.document.querySelector('[data-testid="stMain"]');
+                    if (m) m.scrollTop = 0;
+                } catch(e) {}
+            })();
+            </script>""",
+            height=1,
         )
 
     _render_tutorial(1)
