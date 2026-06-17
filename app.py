@@ -3440,6 +3440,14 @@ def inject_matchday_css():
     .md-pstage.done .lbl { color:#1D9E75; }
     .md-pstage.active .dot { background:#FAC775; color:#1a1a18; }
     .md-pstage.active .lbl { color:#FAC775; font-weight:600; }
+    .md-fulltime { background:#2C2C2A; color:#fff; border-radius:12px;
+        padding:20px 20px 16px; margin:12px 0; text-align:center; }
+    .md-fulltime .whistle { font-size:10px; letter-spacing:1.5px; text-transform:uppercase;
+        color:#888780; margin-bottom:8px; }
+    .md-fulltime h3 { margin:0 0 8px; font-size:1.3rem; color:#FAC775; }
+    .md-fulltime p { margin:0; font-size:0.85rem; color:#aaa8a0; line-height:1.5; }
+    .md-card { background:#f9f8f5; border:1px solid #e0ded8; border-radius:10px;
+        padding:14px 16px; margin:8px 0; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -3536,6 +3544,40 @@ def render_pitch_strip(current_stage: str):
                   f'<div class="lbl">{lbl}</div></div>')
     st.markdown(f'<div class="md-pitch"><div class="md-pitch-stages">{cells}</div></div>',
                 unsafe_allow_html=True)
+
+
+def _esc(s: str) -> str:
+    import html
+    return html.escape(str(s))
+
+
+def render_fulltime(confidence, clarity, summary):
+    """Final-result card. Render directly above your st.download_button().
+
+    confidence / clarity : final 0-100 scores (verified).
+    summary : a short honest sentence about the result.
+    """
+    conf_txt = "—" if confidence is None else str(int(round(confidence)))
+    clar_txt = "—" if clarity is None else str(int(round(clarity)))
+    st.markdown(f"""
+    <div class="md-fulltime">
+      <div class="whistle">Full-time whistle</div>
+      <h3>Confidence {conf_txt} · Clarity {clar_txt}</h3>
+      <p>{_esc(summary)}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_season_teaser():
+    """One-line hook seeding the Phase 2 'Integrity League'. Copy only."""
+    st.markdown(
+        '<div class="md-card" style="text-align:center;">'
+        '<h4 style="margin:0 0 4px 0;">Season record</h4>'
+        '<p style="font-size:12px;color:#888780;margin:0;">This match is logged to your '
+        'integrity record. Your rating rises only on verified evidence — never on volume. '
+        '(Coming soon.)</p></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def render_screen_0():
@@ -5266,7 +5308,13 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         st.code(_wa_text, language=None)
         st.caption("Tap the copy icon above and paste into WhatsApp or your team chat.")
 
+    render_fulltime(
+        confidence=round(conf_score * 20),
+        clarity=round(clar_score * 20),
+        summary=_PLAIN_ENGLISH_VERDICT.get(diag_state, verdict),
+    )
     _render_review_handoff(submission, ev, card_idx)
+    render_season_teaser()
 
     st.divider()
 
