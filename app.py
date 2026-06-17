@@ -3425,8 +3425,8 @@ def inject_matchday_css():
         padding:6px 10px; border-radius:6px; letter-spacing:1.5px; flex-shrink:0; }
     .md-var-text strong { font-size:1rem; }
     .md-var-text span { font-size:0.85rem; color:#aaa8a0; }
-    .md-pitch { background:#1a1a18; border-radius:0 0 10px 10px; padding:14px 16px;
-        margin:0 0 14px 0; position:sticky; top:3.75rem; z-index:100; }
+    .md-pitch { background:#1a1a18; border-radius:0; padding:10px 16px;
+        margin:0; position:fixed; top:3.75rem; left:0; right:0; z-index:9999; }
     .md-pitch-stages { display:flex; align-items:flex-start; justify-content:space-between;
         position:relative; }
     .md-pitch-stages::before { content:""; position:absolute; top:16px; left:10%; right:10%;
@@ -3543,8 +3543,11 @@ def render_pitch_strip(current_stage: str):
         mark = "✓" if idx < cur else str(idx + 1)
         cells += (f'<div class="md-pstage {cls}"><div class="dot">{mark}</div>'
                   f'<div class="lbl">{lbl}</div></div>')
-    st.markdown(f'<div class="md-pitch"><div class="md-pitch-stages">{cells}</div></div>',
-                unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="md-pitch"><div class="md-pitch-stages">{cells}</div></div>'
+        f'<div style="height:64px"></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _esc(s: str) -> str:
