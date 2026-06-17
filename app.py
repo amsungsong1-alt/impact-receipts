@@ -3759,7 +3759,7 @@ def render_screen_0():
         unsafe_allow_html=True,
     )
 
-    if st.button("Run My Confidence Check", type="primary", use_container_width=True, key="cta_bottom"):
+    if st.button("Score My Result Statement →", type="primary", use_container_width=True, key="cta_bottom"):
         if not st.session_state.get("has_seen_tutorial"):
             st.session_state["tutorial_step"] = 1
         _go_to_screen(1, reset=True)
@@ -3833,7 +3833,7 @@ def render_screen_1():
 | **1. Result Basics** | Your result statement, target group, timeframe, and geography |
 | **2. Logframe Linkage** | Your logframe indicator, target, and what you achieved |
 | **3. Evidence & Verification** | Your evidence type, source, and who verified the data |
-| **4. Review & Submit** | Donor framework, then click **Run My Confidence Check** |
+| **4. Review & Submit** | Donor framework, then click **Score My Result Statement →** |
 
 **What you get back:**
 - **Confidence score (0–5)** — how credible and strong your evidence is
@@ -4595,7 +4595,7 @@ A **content quality penalty** (×0.5 to ×1.0) applies when the result statement
         if not _check_allowed:
             _render_paywall()
         # --- End usage tracking ---
-        if _check_allowed and st.button("Run My Confidence Check", type="primary", use_container_width=True):
+        if _check_allowed and st.button("Score My Result Statement →", type="primary", use_container_width=True):
             mandatory = [
                 st.session_state.get("result_statement", ""),
                 st.session_state.get("target_group", ""),
