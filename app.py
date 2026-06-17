@@ -333,7 +333,7 @@ If the document names a specific donor/funder (e.g., USAID, FCDO, GIZ, RVO, Worl
 EU/EuropeAid), return that donor's name. If a donor is mentioned but not one of these, return
 the donor's name as written. If no donor is mentioned anywhere, return "Not found".
 
-### Rule 13 — Funder Readiness Inputs
+### Rule 13 — Donor Readiness Inputs
 Read the ENTIRE document — including annexes, appendices, lessons-learned sections, M&E/MEL
 sections, and any image captions or figure/table descriptions — for the following:
 - "learning_and_adaptation": A 1–3 sentence synthesis of what the implementing team learned
@@ -1449,7 +1449,7 @@ def _go_to_screen(screen: int, reset: bool = False):
 
 def _render_tagline_footer():
     st.markdown(
-        '<div class="trust-tagline">Stress-test a result before you submit it.</div>',
+        '<div class="trust-tagline">See if your evidence is strong and your result statement is clear enough — before your donor asks.</div>',
         unsafe_allow_html=True,
     )
 
@@ -3198,7 +3198,7 @@ def _render_tab3_slot(slot: int):
             "Is beneficiary data disaggregated (women, youth, PWD, rural)?",
             options=["Not specified", "Yes — fully disaggregated", "Partially disaggregated", "No"],
             key=f"disaggregation_status{s}",
-            help="Many funders now expect results broken down by sex, age, disability, and location.",
+            help="Many donors now expect results broken down by sex, age, disability, and location.",
         )
         st.divider()
         st.text_area(
@@ -3209,8 +3209,8 @@ def _render_tab3_slot(slot: int):
                 "so we adjusted our M&E plan to include monthly check-ins."
             ),
             help=(
-                "Funders increasingly look for evidence of learning and adaptation. "
-                "This appears as a Funder Readiness flag in your report — it does not "
+                "Donors increasingly look for evidence of learning and adaptation. "
+                "This appears as a Donor Readiness flag in your report — it does not "
                 "affect your Confidence or Clarity scores."
             ),
         )
@@ -3222,7 +3222,7 @@ def _render_tab3_slot(slot: int):
                 "generalized to rural areas."
             ),
             help=(
-                "Disclosing limitations builds credibility. This appears as a Funder "
+                "Disclosing limitations builds credibility. This appears as a Donor "
                 "Readiness flag in your report — it does not affect your Confidence or "
                 "Clarity scores."
             ),
@@ -4321,7 +4321,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                                     except Exception:
                                         pass
 
-                                    # --- Funder Readiness inputs (v3.5) ---
+                                    # --- Donor Readiness inputs (v3.5) ---
                                     _fri = _irc_data.get("funder_readiness_inputs", {})
                                     _irc_set("learning_notes",     _fri.get("learning_and_adaptation"))
                                     _irc_set("limitations_notes",  _fri.get("limitations"))
@@ -4930,7 +4930,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     verify_level = conf_comp.get("verify_level", 0)
     def_score    = clar_comp.get("definition_score", 0)
 
-    st.markdown("### What Funders Want to Know")
+    st.markdown("### What Donors Want to Know")
     fq_col1, fq_col2 = st.columns(2)
     with fq_col1:
         st.markdown("**1. What has changed?**")
@@ -5094,7 +5094,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     if maturity.get("flagged"):
         st.markdown("#### Indicator Maturity")
         st.caption(
-            "This indicator is written as a raw count. Funders increasingly expect "
+            "This indicator is written as a raw count. Donors increasingly expect "
             "indicators that show whether the result was sustained or verified."
         )
         _your_indicator = (submission.get("logframe_indicator", "") or "").strip() or "(not specified)"
@@ -5107,10 +5107,10 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             "count-only indicator framing."
         )
 
-    # Funder Readiness flags (informational only — no score impact)
-    st.markdown("#### Funder Readiness")
+    # Donor Readiness flags (informational only — no score impact)
+    st.markdown("#### Donor Readiness")
     st.caption(
-        "Two quick checks funders increasingly look for — these do not affect "
+        "Two quick checks donors increasingly look for — these do not affect "
         "your Confidence or Clarity scores."
     )
     fr = ev.get("funder_readiness", {})
@@ -6999,7 +6999,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
     if not fixes:
         fixes_html = "<p style='color:#1B5E20;font-weight:700;'>No further fixes flagged by this tool's checks.</p>"
 
-    # --- What Funders Want to Know (four-question summary) ---
+    # --- What Donors Want to Know (four-question summary) ---
     ladder   = evaluation.get("evidence_ladder", {})
     maturity = evaluation.get("indicator_maturity", {})
     fr       = evaluation.get("funder_readiness", {})
@@ -7017,7 +7017,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
                   "Not yet stated. Add a sentence on what you learned and changed as a result.")
 
     four_questions_html = f"""
-<h2>What Funders Want to Know</h2>
+<h2>What Donors Want to Know</h2>
 <table>
   <tr><th>Question</th><th>Answer</th></tr>
   <tr><td><strong>1. What has changed?</strong></td>
@@ -7067,13 +7067,13 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
         _your_indicator = (submission.get("logframe_indicator", "") or "").strip() or "(not specified)"
         maturity_html = f"""
 <h2>Indicator Maturity</h2>
-<p style="color:#616161;font-size:0.85rem;">This indicator is written as a raw count. Funders increasingly expect indicators that show whether the result was sustained or verified.</p>
+<p style="color:#616161;font-size:0.85rem;">This indicator is written as a raw count. Donors increasingly expect indicators that show whether the result was sustained or verified.</p>
 <p><strong>Your indicator (as written):</strong> {_your_indicator}</p>
 <table><tr><th>Level</th><th>Example wording</th></tr>{maturity_rows}</table>
 <p>Measurement score adjusted by <strong>{maturity['adjustment']}</strong> for this count-only indicator framing.</p>
 """
 
-    # --- Funder Readiness flags ---
+    # --- Donor Readiness flags ---
     lim_text = ("Limitations disclosed &mdash; the report states what the data can't confidently say."
                  if lim.get("detected") else
                  "No limitations disclosure detected. Consider adding a sentence on what this data "
@@ -7083,7 +7083,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
                    "No learning/adaptation statement detected. Consider adding what your organization "
                    "learned and how the program adapted as a result.")
     funder_readiness_html = f"""
-<h2>Funder Readiness</h2>
+<h2>Donor Readiness</h2>
 <p style="color:#616161;font-size:0.85rem;">These checks do not affect your Confidence or Clarity scores.</p>
 <ul>
   <li>{lim_text}</li>
