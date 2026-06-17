@@ -3805,6 +3805,13 @@ def render_screen_1():
     _cur_tab = st.session_state.get("current_tab", 0)
     render_pitch_strip(["enter", "logframe", "evidence", "review"][_cur_tab])
 
+    if st.session_state.pop("_scroll_to_content", False):
+        import streamlit.components.v1 as components
+        components.html(
+            '<script>window.parent.scrollTo({top:0,behavior:"smooth"});</script>',
+            height=0,
+        )
+
     _render_tutorial(1)
 
     # Persistent save-draft affordance — sidebar Save Draft isn't visible on mobile/narrow screens
@@ -4457,8 +4464,8 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         if _t1_done:
             if st.button("Next: Logframe Linkage →", key="tab1_next_btn", type="primary"):
                 st.session_state["current_tab"] = 1
-                # allow user to review logframe even if IRC already filled it
                 st.session_state["_tab2_auto_advanced"] = False
+                st.session_state["_scroll_to_content"] = True
                 st.rerun()
         else:
             st.caption("Fill in all four fields above to continue.")
@@ -4485,6 +4492,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             if st.button("Next: Evidence & Verification →", key="tab2_next_btn", type="primary"):
                 st.session_state["current_tab"] = 2
                 st.session_state["_tab2_auto_advanced"] = True
+                st.session_state["_scroll_to_content"] = True
                 st.rerun()
             if not _t2_done:
                 st.caption("Some logframe fields weren't found in your uploaded report — you can fill them in now or continue and complete them later.")
@@ -4502,6 +4510,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         # --- v3.3: next button to Review & Submit ---
         if st.button("Next: Review & Submit →", key="tab3_next_btn", type="primary"):
             st.session_state["current_tab"] = 3
+            st.session_state["_scroll_to_content"] = True
             st.rerun()
         # --- END v3.3 ---
 
