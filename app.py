@@ -1437,8 +1437,6 @@ def _reset_all_slots():
 def _go_to_screen(screen: int, reset: bool = False):
     if reset:
         _reset_all_slots()
-        if screen == 1:
-            _load_draft()
     st.session_state["screen"] = screen
     st.rerun()
 
@@ -1502,9 +1500,8 @@ def _save_draft():
                "cl_logframe", "cl_annexes", "cl_beneficiary", "cl_sustainability",
                "cl_budget", "donor_selected", "donor_other"):
         draft[gk] = st.session_state.get(gk, "")
-    os.makedirs("inputs", exist_ok=True)
-    with open(_DRAFT_PATH, "w", encoding="utf-8") as f:
-        json.dump(draft, f, indent=2, ensure_ascii=False)
+    _draft_json = json.dumps(draft, indent=2, ensure_ascii=False)
+    st.session_state["_draft_bytes"] = _draft_json.encode("utf-8")
     st.session_state["_last_saved_time"] = datetime.now().strftime("%H:%M")
 
 
@@ -1548,7 +1545,9 @@ def _load_draft():
 
 
 def _clear_draft():
-    if os.path.exists(_DRAFT_PATH):
+    st.session_state.pop("_draft_bytes", None)
+    st.session_state.pop("_last_saved_time", None)
+    if os.path.exists(_DRAFT_PATH):  # clean up any legacy file
         os.remove(_DRAFT_PATH)
 
 
@@ -3760,7 +3759,7 @@ def render_screen_1():
     _sav_c1, _sav_c2, _sav_c3 = st.columns([4, 1, 1])
     with _sav_c1:
         if st.session_state.get("_last_saved_time"):
-            st.caption(f"💾 Draft saved at {st.session_state['_last_saved_time']} — reload-safe.")
+            st.caption(f"💾 Draft saved at {st.session_state['_last_saved_time']} — download below to preserve across sessions.")
         else:
             st.caption("💾 Save your draft so you can resume later, even if your internet cuts out.")
     with _sav_c2:
@@ -4628,20 +4627,16 @@ A **content quality penalty** (×0.5 to ×1.0) applies when the result statement
 
         _save_draft()
         st.caption(f"💾 Auto-saved across all tabs · Last saved {st.session_state.get('_last_saved_time', '--:--')}")
-        if os.path.exists(_DRAFT_PATH):
-            try:
-                with open(_DRAFT_PATH, encoding="utf-8") as _df:
-                    _draft_bytes = _df.read().encode("utf-8")
-                st.download_button(
-                    "📥 Download Draft (JSON)",
-                    data=_draft_bytes,
-                    file_name="impact_receipts_draft.json",
-                    mime="application/json",
-                    use_container_width=True,
-                    help="Download your draft to restore later via 'Resume Previous Session' on the landing page.",
-                )
-            except Exception:
-                pass
+        _draft_bytes = st.session_state.get("_draft_bytes", b"")
+        if _draft_bytes:
+            st.download_button(
+                "📥 Download Draft (JSON)",
+                data=_draft_bytes,
+                file_name="impact_receipts_draft.json",
+                mime="application/json",
+                use_container_width=True,
+                help="Download your draft to restore later via 'Resume Previous Session' on the landing page.",
+            )
 
         st.divider()
 
