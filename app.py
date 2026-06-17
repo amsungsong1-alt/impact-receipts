@@ -3940,6 +3940,10 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 st.info(f"ℹ️ {_irc_summary['confidence_note']}")
             if _irc_summary.get("compliance_gaps"):
                 st.warning(f"⚠️ Compliance gaps not found: {_irc_summary['compliance_gaps']}")
+            st.info(
+                "📋 **Checked one result.** If your report has more, click "
+                "**＋ Add Another Result** above, then re-run the check targeting a different result."
+            )
         # --- END IRC fill summary banner ---
 
         with st.expander("📦 Submission Package Completeness Check (Recommended)", expanded=st.session_state.get("_irc_used", False)):
@@ -4040,9 +4044,11 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             ):
                 st.caption(
                     "Upload your donor report (PDF, DOCX, TXT, CSV, PPTX, or Excel), or a previously "
-                    "downloaded Impact-Receipts draft (JSON) to pick up where you left off. "
-                    "Responsible AI pre-fills fields across all tabs using only what's written in your document — "
-                    "it never invents or assumes missing data. Always review before submitting."
+                    "downloaded draft (JSON) to pick up where you left off. "
+                    "Responsible AI pre-fills one result at a time using only what's in your document — "
+                    "it never invents missing data. "
+                    "📌 Report with multiple results? Add a hint below to target the right one, "
+                    "then use ＋ Add Another Result to check each one separately."
                 )
                 _irc_paid_flag = (st.session_state.get("is_paid") or
                                   is_still_paid(get_user(st.session_state.get("user_email",""))))
@@ -4052,6 +4058,13 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                             "Upgrade to auto-fill all form fields from your uploaded document.")
                     _render_paywall(irc_context=True)
                 else:
+                    st.text_input(
+                        "Which result should we focus on? (optional)",
+                        key="irc_result_hint",
+                        placeholder='e.g. "maternal health result" or "Result 3 — ANC attendance"',
+                        help="If your report has multiple results, name the one you want extracted. "
+                             "Leave blank to extract the most prominent result.",
+                    )
                     _irc_files = st.file_uploader(
                         "Upload report file(s) (or a previously downloaded draft.json)",
                         type=["pdf", "docx", "txt", "csv", "pptx", "xlsx", "xls", "json"],
@@ -4136,9 +4149,14 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                                         if _fex: _fewshot[_ff] = _fex
                                     import json as _ijsonfs
                                     _fewshot_str = _ijsonfs.dumps(_fewshot, indent=2) if _fewshot else ""
+                                    _irc_hint = st.session_state.get("irc_result_hint", "").strip()
+                                    _hint_prefix = (
+                                        f"FOCUS INSTRUCTION: The user wants to extract the result about: {_irc_hint}\n"
+                                        f"Prioritise this result statement over others in the document.\n\n"
+                                    ) if _irc_hint else ""
                                     _irc_msgs = [{"role": "user", "content": [
                                         *([{"type":"text","text":f"Field examples for better extraction:\n{_fewshot_str}"}] if _fewshot_str else []),
-                                        {"type":"text","text":f"Extract all fields from this report:\n\n{_full_text[:60000]}"}
+                                        {"type":"text","text":f"{_hint_prefix}Extract all fields from this report:\n\n{_full_text[:60000]}"}
                                     ]}]
                                     # Run the AI call in a background thread so we can
                                     # show a live elapsed-time indicator while it works.
