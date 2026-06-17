@@ -3645,6 +3645,20 @@ def render_screen_0():
             st.session_state["tutorial_step"] = 1
         _go_to_screen(1)
 
+    st.markdown(
+        """
+        <div style="border-radius:8px; background:#F1F8E9; border-left:3px solid #1B5E20;
+                    padding:10px 16px; margin:14px 0; font-size:0.85rem; color:#374151;">
+          <strong style="color:#1B5E20;">🔒 Your data stays in your browser.</strong>
+          We never store your result statements, evidence, or uploaded documents on our servers.
+          Your session ends when you close the tab — nothing is kept.<br>
+          <strong style="color:#1B5E20;">&#10003; This is a self-check, not an audit.</strong>
+          It helps you improve your result before submission.
+          It doesn't judge your work or report anything to your donor.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.markdown(
         """
@@ -5407,60 +5421,26 @@ def render_screen_2():
     # --- Stage 2 Engagement Card ---
     st.markdown("---")
     with st.container(border=True):
-        st.markdown("#### 🎯 Recommended Next Step: Stage 2 Diagnostic Engagement")
+        st.markdown("#### 📋 Want someone to look at this with you?")
         st.info(
-            "This diagnostic provides a first-pass profile of your submission readiness posture. "
-            "A Stage 2 Engagement with Impact-Receipts offers a structured deep-dive: facilitated "
-            "sessions with your MEL/Reporting lead, prioritised fixes to strengthen the compliance, "
-            "ethics, clarity, and confidence level of your reported results, and support in aligning "
-            "your submission with the relevant donor-required checklists. This moves your submission "
-            "from a first-pass profile toward submission-ready integrity."
+            "You've run your first check. If you want to go deeper — working through "
+            "the gaps together, aligning this result with your specific donor's requirements, "
+            "and making it submission-ready — reach out for a free conversation. "
+            "I personally review results with teams before their submission deadline."
         )
-        if st.button("✉️ Request a Stage 2 Conversation", key="stage2_request_btn", type="primary"):
-            st.session_state["_show_stage2_mail_options"] = True
-
-        if st.session_state.get("_show_stage2_mail_options"):
-            _s2_to      = "info@impact-receipts.com"
-            _s2_subject = "Stage 2 Conversation Request"
-            _s2_body = (
-                "Hello Impact-Receipts team,\n\n"
-                "I would like to request a Stage 2 Diagnostic Engagement conversation "
-                "following my Instant Confidence & Clarity Check.\n\n"
-                "(Please attach your downloaded report to this email before sending.)\n\n"
-                "Organisation:\n"
-                "Programme/Project:\n"
-            )
-            _s2_subject_enc = urllib.parse.quote(_s2_subject)
-            _s2_body_enc    = urllib.parse.quote(_s2_body)
-
-            _s2_link_style = (
-                "display:inline-block;background:#1B5E20;color:white;padding:8px 18px;"
-                "border-radius:8px;text-decoration:none;font-weight:700;font-size:0.85rem;"
-                "text-align:center;width:100%;box-sizing:border-box;"
-            )
-            st.caption("Choose how you'd like to send your request:")
-            _s2_c1, _s2_c2, _s2_c3 = st.columns(3)
-            with _s2_c1:
-                st.markdown(
-                    f'<a href="mailto:{_s2_to}?subject={_s2_subject_enc}&body={_s2_body_enc}"'
-                    f' style="{_s2_link_style}">📧 Default Mail App</a>',
-                    unsafe_allow_html=True,
-                )
-            with _s2_c2:
-                st.markdown(
-                    f'<a href="https://mail.google.com/mail/?view=cm&fs=1&to={_s2_to}'
-                    f'&su={_s2_subject_enc}&body={_s2_body_enc}"'
-                    f' target="_blank" style="{_s2_link_style}">Gmail</a>',
-                    unsafe_allow_html=True,
-                )
-            with _s2_c3:
-                st.markdown(
-                    f'<a href="https://outlook.office.com/mail/deeplink/compose?to={_s2_to}'
-                    f'&subject={_s2_subject_enc}&body={_s2_body_enc}"'
-                    f' target="_blank" style="{_s2_link_style}">Outlook</a>',
-                    unsafe_allow_html=True,
-                )
-        st.caption("Tip: download your report below and attach it to the email before sending.")
+        _s2_wa_url = "https://wa.me/233503648195?text=" + urllib.parse.quote(
+            "Hi, I've just run an Impact Integrity Diagnostic check and would like "
+            "a deeper review of my result before submission. Can we talk?"
+        )
+        st.markdown(
+            f'<a href="{_s2_wa_url}" target="_blank" style="display:inline-block;'
+            f'background:#1B5E20;color:white;padding:8px 18px;border-radius:8px;'
+            f'text-decoration:none;font-weight:700;font-size:0.85rem;'
+            f'text-align:center;width:100%;box-sizing:border-box;">'
+            f'📱 Book a free conversation on WhatsApp</a>',
+            unsafe_allow_html=True,
+        )
+        st.caption("Tip: download your report below and share it before the call.")
     # --- End Stage 2 Card ---
 
     _render_tutorial(3)
