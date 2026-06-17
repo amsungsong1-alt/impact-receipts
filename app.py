@@ -4396,11 +4396,16 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             _ss_str("geographic_scope").strip(),
         ])
         if _t1_done:
-            if st.button("Next: Logframe Linkage →", key="tab1_next_btn", type="primary"):
-                st.session_state["current_tab"] = 1
-                st.session_state["_tab2_auto_advanced"] = False
-                st.session_state["_scroll_to_content"] = True
-                st.rerun()
+            _nb1, _pb1 = st.columns([3, 1])
+            with _nb1:
+                if st.button("Next: Logframe Linkage →", key="tab1_next_btn", type="primary", use_container_width=True):
+                    st.session_state["current_tab"] = 1
+                    st.session_state["_tab2_auto_advanced"] = False
+                    st.session_state["_scroll_to_content"] = True
+                    st.rerun()
+            with _pb1:
+                if st.button("← Home", key="tab1_back_btn", use_container_width=True):
+                    _go_to_screen(0)
         else:
             st.caption("Fill in all four fields above to continue.")
         # --- END v3.3 ---
@@ -4423,11 +4428,18 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         # still requires all three fields before proceeding.
         _t2_can_advance = _t2_done or st.session_state.get("_irc_used", False)
         if _t2_can_advance:
-            if st.button("Next: Evidence & Verification →", key="tab2_next_btn", type="primary"):
-                st.session_state["current_tab"] = 2
-                st.session_state["_tab2_auto_advanced"] = True
-                st.session_state["_scroll_to_content"] = True
-                st.rerun()
+            _nb2, _pb2 = st.columns([3, 1])
+            with _nb2:
+                if st.button("Next: Evidence & Verification →", key="tab2_next_btn", type="primary", use_container_width=True):
+                    st.session_state["current_tab"] = 2
+                    st.session_state["_tab2_auto_advanced"] = True
+                    st.session_state["_scroll_to_content"] = True
+                    st.rerun()
+            with _pb2:
+                if st.button("← Back", key="tab2_back_btn", use_container_width=True):
+                    st.session_state["current_tab"] = 0
+                    st.session_state["_scroll_to_content"] = True
+                    st.rerun()
             if not _t2_done:
                 st.caption("Some logframe fields weren't found in your uploaded report — you can fill them in now or continue and complete them later.")
         else:
@@ -4442,10 +4454,17 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             _render_tab3_slot(slot)
 
         # --- v3.3: next button to Review & Submit ---
-        if st.button("Next: Review & Submit →", key="tab3_next_btn", type="primary"):
-            st.session_state["current_tab"] = 3
-            st.session_state["_scroll_to_content"] = True
-            st.rerun()
+        _nb3, _pb3 = st.columns([3, 1])
+        with _nb3:
+            if st.button("Next: Review & Submit →", key="tab3_next_btn", type="primary", use_container_width=True):
+                st.session_state["current_tab"] = 3
+                st.session_state["_scroll_to_content"] = True
+                st.rerun()
+        with _pb3:
+            if st.button("← Back", key="tab3_back_btn", use_container_width=True):
+                st.session_state["current_tab"] = 1
+                st.session_state["_scroll_to_content"] = True
+                st.rerun()
         # --- END v3.3 ---
 
     elif _cur_tab == 3:
@@ -4534,6 +4553,14 @@ A **content quality penalty** (×0.5 to ×1.0) applies when the result statement
         if not _check_allowed:
             _render_paywall()
         # --- End usage tracking ---
+        _sb4, _bb4 = st.columns([3, 1])
+        with _bb4:
+            if st.button("← Back", key="tab4_back_btn", use_container_width=True):
+                st.session_state["current_tab"] = 2
+                st.session_state["_scroll_to_content"] = True
+                st.rerun()
+        with _sb4:
+            pass
         if _check_allowed and st.button("Score My Result Statement →", type="primary", use_container_width=True):
             mandatory = [
                 st.session_state.get("result_statement", ""),
