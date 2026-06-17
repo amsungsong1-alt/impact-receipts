@@ -3393,6 +3393,92 @@ def _render_email_gate_inline(form_key_suffix: str = "") -> None:
     st.stop()
 
 
+# ============================================================
+# MATCH DAY — Patch 1: Scoreboard + Commentary ticker
+# ============================================================
+
+def inject_matchday_css():
+    """Call ONCE per run, after st.set_page_config()."""
+    st.markdown("""
+    <style>
+    .md-ticker { background:#2C2C2A; color:#fff; border-radius:8px; padding:10px 14px;
+        font-size:14px; display:flex; align-items:center; gap:10px; margin:0 0 14px 0; }
+    .md-ticker .mic { background:#A32D2D; color:#fff; font-size:9px; font-weight:600;
+        padding:2px 6px; border-radius:4px; letter-spacing:.5px; flex-shrink:0; }
+    .md-ticker .txt { line-height:1.4; }
+    .md-sb { background:#fff; border:1px solid #d3d1c7; border-radius:12px;
+        overflow:hidden; margin:0 0 16px 0; }
+    .md-sb-head { background:#2C2C2A; color:#fff; padding:8px 16px; font-size:11px;
+        letter-spacing:1px; text-transform:uppercase; display:flex;
+        justify-content:space-between; align-items:center; }
+    .md-sb-live { font-size:10px; }
+    .md-sb-body { display:grid; grid-template-columns:1fr 1px 1fr; }
+    .md-stat { padding:18px 16px; text-align:center; }
+    .md-stat .name { font-size:12px; color:#888780; margin-bottom:4px; }
+    .md-stat .val { font-size:34px; font-weight:600; line-height:1; }
+    .md-stat .sub { font-size:11px; color:#888780; margin-top:6px; }
+    .md-div { background:#d3d1c7; }
+    .md-green { color:#1D9E75; } .md-amber { color:#BA7517; } .md-red { color:#A32D2D; }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+MATCHDAY_COMMENTARY = {
+    "enter":    "Kickoff. Your indicators are taking the field — let's line them up.",
+    "logframe": "Good movement — let's see which indicators find a home in the logframe.",
+    "evidence": "The goal is being checked. VAR is reviewing the evidence before anything counts.",
+    "review":   "Decision time. Submit as-is, or strengthen a flagged claim before you shoot.",
+    "report":   "Full time. Here's your result and the official match report.",
+}
+
+
+def render_commentary(stage_key: str):
+    """Renders the one-line match commentary for the given stage."""
+    line = MATCHDAY_COMMENTARY.get(stage_key, "")
+    if not line:
+        return
+    st.markdown(
+        f'<div class="md-ticker"><span class="mic">LIVE</span>'
+        f'<span class="txt">{line}</span></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _score_class(value, verified):
+    if value is None or not verified:
+        return "md-amber"
+    if value >= 70:
+        return "md-green"
+    if value >= 50:
+        return "md-amber"
+    return "md-red"
+
+
+def render_scoreboard(confidence=None, clarity=None, verified=False):
+    """Two-stat match scoreboard for Confidence and Clarity (0-100 scale)."""
+    conf_txt = "—" if confidence is None else str(int(round(confidence)))
+    clar_txt = "—" if clarity is None else str(int(round(clarity)))
+    conf_cls = _score_class(confidence, verified)
+    clar_cls = _score_class(clarity, verified)
+    status = "● final" if verified else "● provisional"
+    status_color = "#9FE1CB" if verified else "#FAC775"
+    st.markdown(f"""
+    <div class="md-sb">
+      <div class="md-sb-head"><span>Match stats</span>
+        <span class="md-sb-live" style="color:{status_color}">{status}</span></div>
+      <div class="md-sb-body">
+        <div class="md-stat"><div class="name">Confidence</div>
+          <div class="val {conf_cls}">{conf_txt}</div>
+          <div class="sub">is the evidence trustworthy?</div></div>
+        <div class="md-div"></div>
+        <div class="md-stat"><div class="name">Clarity</div>
+          <div class="val {clar_cls}">{clar_txt}</div>
+          <div class="sub">is the claim well-stated?</div></div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
 def render_screen_0():
     _logo_path = pathlib.Path(__file__).parent / "logo.png.png"
     try:
@@ -3806,6 +3892,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
     # --- END UX: PROGRESS BAR (v3.2) ---
 
     if _cur_tab == 0:
+        render_commentary("enter")
         st.caption("💾 Draft auto-saves as you type. Use Tab 4 to download for offline backup.")
         # --- IRC fill summary banner (shown once after extraction) ---
         _irc_summary = st.session_state.pop("_irc_summary", None)
@@ -4290,6 +4377,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         # --- END v3.3 ---
 
     elif _cur_tab == 1:
+        render_commentary("logframe")
         st.caption("💾 Draft auto-saves as you type.")
         for slot in range(1, active + 1):
             if active > 1:
@@ -4318,6 +4406,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         # --- END v3.3 ---
 
     elif _cur_tab == 2:
+        render_commentary("evidence")
         st.caption("💾 Draft auto-saves as you type.")
         for slot in range(1, active + 1):
             if active > 1:
@@ -4331,6 +4420,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         # --- END v3.3 ---
 
     elif _cur_tab == 3:
+        render_commentary("review")
         st.caption("Review your scores, download your draft, and submit when ready.")
 
         _REQUIRED_FIELDS_B = [
@@ -4727,6 +4817,12 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     )
 
     # Plain-English "what this means" — shown before the score wall
+    render_commentary("report")
+    render_scoreboard(
+        confidence=round(conf_score * 20),
+        clarity=round(clar_score * 20),
+        verified=True,
+    )
     _pev = _PLAIN_ENGLISH_VERDICT.get(diag_state, "")
     if _pev:
         st.info(_pev)
@@ -7466,6 +7562,7 @@ def main():
     )
 
     st.markdown(CSS, unsafe_allow_html=True)
+    inject_matchday_css()
     _init_session_state()
 
     with st.sidebar:
