@@ -3098,6 +3098,10 @@ def _render_tab3_slot(slot: int):
     _minors_triggered = _minors_possibly_involved(slot)
     st.markdown("---")
     with st.expander("🛡️ Compliance & Data Governance", expanded=_pii_triggered or _safeguarding_triggered or _minors_triggered or st.session_state.get("_irc_used", False)):
+        st.caption(
+            "Handling beneficiary data in your M&E? This flags where you may be exposed "
+            "under Ghana's Act 843 / Nigeria's NDPA."
+        )
         st.subheader("🛡️ Compliance & Ethics Check")
         st.caption("*Ensure your evidence is not just credible — but legally safe and safe for the people in it.*")
         if _pii_triggered:
@@ -3538,11 +3542,11 @@ def render_scoreboard(confidence=None, clarity=None, verified=False):
       <div class="md-sb-body">
         <div class="md-stat"><div class="name">Confidence</div>
           <div class="val {conf_cls}">{conf_txt}</div>
-          <div class="sub">is the evidence trustworthy?</div></div>
+          <div class="sub">Will the donor trust the evidence?</div></div>
         <div class="md-div"></div>
         <div class="md-stat"><div class="name">Clarity</div>
           <div class="val {clar_cls}">{clar_txt}</div>
-          <div class="sub">is the claim well-stated?</div></div>
+          <div class="sub">Is the result clear enough to stand alone?</div></div>
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -3643,7 +3647,7 @@ def render_screen_0():
             f'<img src="data:image/png;base64,{_logo_b64}" alt="Impact-Receipts" style="height:56px;">'
             f'<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
             f'<span style="color:#1B5E20;">Impact Integrity Diagnostic</span><br>'
-            f'<span style="color:#8A6500; font-weight:400;">Pre-submission result checker for NGOs</span>'
+            f'<span style="color:#8A6500; font-weight:400;">Pre-submission confidence check for MEL teams reporting to donors</span>'
             f'</span>'
             f'</div>'
         )
@@ -3652,7 +3656,7 @@ def render_screen_0():
             '<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">'
             '<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
             '<span style="color:#1B5E20;">Impact Integrity Diagnostic</span><br>'
-            '<span style="color:#8A6500; font-weight:400;">Pre-submission result checker for NGOs</span>'
+            '<span style="color:#8A6500; font-weight:400;">Pre-submission confidence check for MEL teams reporting to donors</span>'
             '</span>'
             '</div>'
         )
@@ -3671,6 +3675,7 @@ def render_screen_0():
         if not st.session_state.get("has_seen_tutorial"):
             st.session_state["tutorial_step"] = 1
         _go_to_screen(1, reset=True)
+    st.caption("First check is free.")
 
     if st.button("📊 Portfolio Dashboard — score my whole logframe", use_container_width=True, key="cta_portfolio"):
         _go_to_screen(3)
@@ -3687,6 +3692,18 @@ def render_screen_0():
             st.session_state["tutorial_step"] = 1
         st.query_params["demo"] = "1"
         _go_to_screen(1)
+
+    with st.expander("How it works — new here? Start here", expanded=False):
+        st.markdown(
+            "1. Describe your result and link it to your logframe.\n\n"
+            "2. Add your evidence and how it was verified.\n\n"
+            "3. Get a Confidence and Clarity score — and exactly what to fix before you submit."
+        )
+
+    st.caption(
+        "Built by a MEL practitioner in Accra — because no one should submit "
+        "a result they haven't pressure-tested first."
+    )
 
     st.markdown(
         """
@@ -3753,11 +3770,11 @@ def render_screen_0():
         """
         <div class="gtm-card">
           <p><strong>Want a deeper check?</strong></p>
-          <p class="gtm-sub">I personally run free pilot verifications on 1&ndash;3 of your results
-          before your next submission. Real teams have caught logframe gaps, evidence
-          inconsistencies, and missing audit components &mdash; before donors flagged them.</p>
+          <p class="gtm-sub">I personally review results for MEL teams before their submission deadline.
+          Real teams have caught logframe gaps, evidence gaps, and missing audit items
+          &mdash; before donors flagged them.</p>
           <div class="gtm-btn-gold">
-            <a href="https://wa.me/233503648195" target="_blank">Book a Free Pilot Check</a>
+            <a href="https://wa.me/233503648195" target="_blank">Book a free first review with the founder</a>
           </div>
         </div>
         """,
@@ -3955,6 +3972,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
 
     if _cur_tab == 0:
         render_commentary("enter")
+        st.caption("A clear result is the first thing a donor checks. Define who benefited, what changed, where, and when.")
         with st.expander("📋 Submission context — sector, donor, project", expanded=not _has_prefill):
             st.selectbox(
                 "Sector (optional — helps tailor examples)",
@@ -4550,6 +4568,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
 
     elif _cur_tab == 2:
         render_commentary("evidence")
+        st.caption("This is where most donor rejections start. Weak or unverified evidence is caught here, not by your donor.")
         for slot in range(1, active + 1):
             if active > 1:
                 st.markdown(f"---\n#### Result {slot}")
@@ -4573,6 +4592,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
 
     elif _cur_tab == 3:
         render_commentary("review")
+        st.caption("Your last look before it leaves your hands. Fix flagged items now while it's cheap to fix.")
         st.caption("Review your scores, download your draft, and submit when ready.")
 
         _REQUIRED_FIELDS_B = [
@@ -5497,7 +5517,7 @@ def render_screen_2():
             "You've run your first check. If you want to go deeper — working through "
             "the gaps together, aligning this result with your specific donor's requirements, "
             "and making it submission-ready — reach out for a free conversation. "
-            "I personally review results with teams before their submission deadline."
+            "I personally review results for MEL teams before their submission deadline."
         )
         _s2_wa_url = "https://wa.me/233503648195?text=" + urllib.parse.quote(
             "Hi, I've just run an Impact Integrity Diagnostic check and would like "
@@ -5508,7 +5528,7 @@ def render_screen_2():
             f'background:#1B5E20;color:white;padding:8px 18px;border-radius:8px;'
             f'text-decoration:none;font-weight:700;font-size:0.85rem;'
             f'text-align:center;width:100%;box-sizing:border-box;">'
-            f'📱 Book a free conversation on WhatsApp</a>',
+            f'📱 Book a free first review with the founder on WhatsApp</a>',
             unsafe_allow_html=True,
         )
         st.caption("Tip: download your report below and share it before the call.")
