@@ -1434,10 +1434,37 @@ def _reset_all_slots():
         st.session_state.pop(k, None)
 
 
+def _init_from_query_params() -> None:
+    """Restore screen/tab from URL on first load. Skips Paystack callback URLs."""
+    if st.session_state.get("_nav_initialized"):
+        return
+    st.session_state["_nav_initialized"] = True
+    _p = st.query_params
+    if any(k in _p for k in ("paystack_ref", "reference", "trxref")):
+        return
+    if "screen" in _p:
+        try:
+            _s = int(_p["screen"])
+            if 0 <= _s <= 3:
+                st.session_state["screen"] = _s
+        except (ValueError, TypeError):
+            pass
+    if "tab" in _p:
+        try:
+            _t = int(_p["tab"])
+            if 0 <= _t <= 3:
+                st.session_state["current_tab"] = _t
+        except (ValueError, TypeError):
+            pass
+
+
 def _go_to_screen(screen: int, reset: bool = False):
     if reset:
         _reset_all_slots()
     st.session_state["screen"] = screen
+    st.query_params["screen"] = str(screen)
+    if screen != 1:
+        st.query_params.pop("tab", None)
     st.rerun()
 
 
@@ -1949,6 +1976,7 @@ def _render_live_score_preview(slot: int = 1):
         # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
         if st.button("→ Fix: Go to Result Basics", key="fix_content_quality", type="primary"):
             st.session_state["current_tab"] = 0
+            st.query_params["tab"] = "0"
             st.rerun()
         # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
@@ -1996,14 +2024,17 @@ def _render_live_score_preview(slot: int = 1):
     if state in ("MISLEADING", "FUNDAMENTALLY WEAK"):
         if st.button("→ Fix: Sharpen Result Statement", key="fix_misleading", type="primary"):
             st.session_state["current_tab"] = 0
+            st.query_params["tab"] = "0"
             st.rerun()
     if state in ("UNDEREVIDENCED", "FUNDAMENTALLY WEAK"):
         if st.button("→ Fix: Strengthen Evidence", key="fix_underevidenced", type="primary"):
             st.session_state["current_tab"] = 2
+            st.query_params["tab"] = "2"
             st.rerun()
     if state == "NEEDS REFINEMENT":
         if st.button("→ Fix: Review Specific Gaps", key="fix_refinement", type="primary"):
             st.session_state["current_tab"] = 1
+            st.query_params["tab"] = "1"
             st.rerun()
     # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
@@ -2059,6 +2090,7 @@ def _render_live_score_preview(slot: int = 1):
     if gov_score < 20:
         if st.button("→ Fix: Governance Issues", key="fix_gov_btn", type="primary"):
             st.session_state["current_tab"] = 2
+            st.query_params["tab"] = "2"
             st.rerun()
 
     # Per-item checklist
@@ -2205,6 +2237,8 @@ def _load_from_inputs_json(data: dict):
     st.session_state["_tab2_auto_advanced"] = True
     st.session_state["screen"] = 1
     st.session_state["current_tab"] = 0
+    st.query_params["screen"] = "1"
+    st.query_params["tab"] = "0"
     st.rerun()
 
 
@@ -4438,6 +4472,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                     st.session_state["current_tab"] = 1
                     st.session_state["_tab2_auto_advanced"] = False
                     st.session_state["_scroll_to_content"] = True
+                    st.query_params["tab"] = "1"
                     st.rerun()
             with _pb1:
                 if st.button("← Home", key="tab1_back_btn", use_container_width=True):
@@ -4470,11 +4505,13 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                     st.session_state["current_tab"] = 2
                     st.session_state["_tab2_auto_advanced"] = True
                     st.session_state["_scroll_to_content"] = True
+                    st.query_params["tab"] = "2"
                     st.rerun()
             with _pb2:
                 if st.button("← Back", key="tab2_back_btn", use_container_width=True):
                     st.session_state["current_tab"] = 0
                     st.session_state["_scroll_to_content"] = True
+                    st.query_params["tab"] = "0"
                     st.rerun()
             if not _t2_done:
                 st.caption("Some logframe fields weren't in your uploaded report — you can fill them in now or continue and complete them later.")
@@ -4495,11 +4532,13 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             if st.button("Next: Review & Submit →", key="tab3_next_btn", type="primary", use_container_width=True):
                 st.session_state["current_tab"] = 3
                 st.session_state["_scroll_to_content"] = True
+                st.query_params["tab"] = "3"
                 st.rerun()
         with _pb3:
             if st.button("← Back", key="tab3_back_btn", use_container_width=True):
                 st.session_state["current_tab"] = 1
                 st.session_state["_scroll_to_content"] = True
+                st.query_params["tab"] = "1"
                 st.rerun()
         # --- END v3.3 ---
 
@@ -4534,6 +4573,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 if st.button("→ Fix: Jump to First Missing Field", key="jump_missing_b", type="primary"):
                     _first_b = _TAB_IDX_B[_missing_b[0][0]]
                     st.session_state["current_tab"] = _first_b
+                    st.query_params["tab"] = str(_first_b)
                     st.rerun()
 
         # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
@@ -4594,6 +4634,7 @@ A **content quality penalty** (×0.5 to ×1.0) applies when the result statement
             if st.button("← Back", key="tab4_back_btn", use_container_width=True):
                 st.session_state["current_tab"] = 2
                 st.session_state["_scroll_to_content"] = True
+                st.query_params["tab"] = "2"
                 st.rerun()
         with _sb4:
             pass
@@ -7661,6 +7702,8 @@ def main():
                 st.session_state.pop("_pay_monthly_url", None)
                 st.session_state["screen"] = 1
                 st.session_state["current_tab"] = 0
+                st.query_params["screen"] = "1"
+                st.query_params["tab"] = "0"
                 st.session_state["entry_mode"] = "⚡ Instant Report Check"
                 st.session_state["_payment_success"] = True
                 try:
@@ -7684,6 +7727,7 @@ def main():
                 pass
     # --- End Paystack handler ---
 
+    _init_from_query_params()
     screen = st.session_state["screen"]
     {0: render_screen_0, 1: render_screen_1, 2: render_screen_2, 3: render_screen_3}.get(
         screen, render_screen_0
