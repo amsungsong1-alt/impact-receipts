@@ -3485,9 +3485,8 @@ def inject_matchday_css():
     .md-fulltime p { margin:0; font-size:0.85rem; color:#aaa8a0; line-height:1.5; }
     .md-card { background:#f9f8f5; border:1px solid #e0ded8; border-radius:10px;
         padding:14px 16px; margin:8px 0; }
-    .md-pitch-tip { font-size:11px; color:#aaa8a0; text-align:center;
-        margin-top:6px; padding:0 8px; min-height:14px;
-        max-width:730px; margin-left:auto; margin-right:auto; width:100%; }
+    .stage-tip { font-size:10px; color:#aaa8a0; text-align:center;
+        margin-top:4px; padding:0 2px; line-height:1.3; }
     .md-tab-header { margin:10px 0 14px; }
     .md-tab-header .tab-num { font-size:11px; color:#888780; letter-spacing:.5px;
         text-transform:uppercase; display:block; margin-bottom:2px; }
@@ -3593,12 +3592,11 @@ def render_pitch_strip(current_stage: str):
         cls = "done" if idx < cur else ("active" if idx == cur else "")
         mark = "✓" if idx < cur else str(idx + 1)
         tip = MATCHDAY_TIPS.get(k, "")
+        tip_html = f'<div class="stage-tip">{tip}</div>' if cls == "active" else ""
         cells += (f'<div class="md-pstage {cls}" title="{tip}"><div class="dot">{mark}</div>'
-                  f'<div class="lbl">{lbl}</div></div>')
-    _active_tip = MATCHDAY_TIPS.get(current_stage, "")
-    _tip_html = f'<div class="md-pitch-tip">{_active_tip}</div>' if _active_tip else ""
+                  f'<div class="lbl">{lbl}</div>{tip_html}</div>')
     st.markdown(
-        f'<div class="md-pitch"><div class="md-pitch-stages">{cells}</div>{_tip_html}</div>'
+        f'<div class="md-pitch"><div class="md-pitch-stages">{cells}</div></div>'
         f'<div style="height:72px"></div>',
         unsafe_allow_html=True,
     )
