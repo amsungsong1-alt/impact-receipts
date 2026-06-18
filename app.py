@@ -4117,7 +4117,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 _render_email_gate_inline("_irc")
             with st.expander(
                 "⚡ Instant Report Check — Upload your draft report to auto-fill this form",
-                expanded=True,
+                expanded=not st.session_state.get("_irc_used", False),
             ):
                 st.caption(
                     "Upload your donor report (PDF, DOCX, TXT, CSV, PPTX, or Excel), or a previously "
