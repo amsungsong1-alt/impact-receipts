@@ -1456,6 +1456,11 @@ def _init_from_query_params() -> None:
                 st.session_state["current_tab"] = _t
         except (ValueError, TypeError):
             pass
+    if _p.get("demo") == "1":
+        for _k, _v in _DEMO_SUBMISSION.items():
+            st.session_state[_k] = _v
+        for _k, _v in _DEMO_SELECT_FIELDS.items():
+            st.session_state[_k] = _v
 
 
 def _go_to_screen(screen: int, reset: bool = False):
@@ -1465,6 +1470,7 @@ def _go_to_screen(screen: int, reset: bool = False):
     st.query_params["screen"] = str(screen)
     if screen != 1:
         st.query_params.pop("tab", None)
+        st.query_params.pop("demo", None)
     st.rerun()
 
 
@@ -3672,12 +3678,14 @@ def render_screen_0():
     st.caption("No data to hand? Try a pre-filled Ghana health example:")
     if st.button("🚀 Try with a sample result →", key="cta_demo",
                  help="Loads a realistic ANC result from Ashanti Region — runs in seconds"):
+        _reset_all_slots()
         for _k, _v in _DEMO_SUBMISSION.items():
             st.session_state[_k] = _v
         for _k, _v in _DEMO_SELECT_FIELDS.items():
             st.session_state[_k] = _v
         if not st.session_state.get("has_seen_tutorial"):
             st.session_state["tutorial_step"] = 1
+        st.query_params["demo"] = "1"
         _go_to_screen(1)
 
     st.markdown(
@@ -3824,6 +3832,18 @@ def render_screen_1():
         for k in ("result_statement", "target_group", "timeframe",
                    "geographic_scope", "evidence_description")
     )
+
+    if _has_prefill:
+        import streamlit.components.v1 as components
+        components.html(
+            """<script>
+            window.parent.addEventListener('beforeunload', function(e) {
+                e.preventDefault();
+                e.returnValue = '';
+            });
+            </script>""",
+            height=0,
+        )
 
     with st.expander("ℹ️ How this works — new here? Start here.", expanded=False):
         st.markdown(
