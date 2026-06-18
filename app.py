@@ -3419,7 +3419,7 @@ def inject_matchday_css():
     .md-pitch { background:#1a1a18; border-radius:0; padding:10px 16px;
         margin:0; position:fixed; top:3.75rem; left:0; right:0; z-index:9999; }
     .md-pitch-stages { display:flex; align-items:flex-start; justify-content:space-between;
-        position:relative; }
+        position:relative; max-width:730px; margin:0 auto; width:100%; }
     .md-pitch-stages::before { content:""; position:absolute; top:16px; left:10%; right:10%;
         height:2px; background:#333; z-index:0; }
     .md-pstage { display:flex; flex-direction:column; align-items:center; gap:6px;
@@ -3442,7 +3442,8 @@ def inject_matchday_css():
     .md-card { background:#f9f8f5; border:1px solid #e0ded8; border-radius:10px;
         padding:14px 16px; margin:8px 0; }
     .md-pitch-tip { font-size:11px; color:#aaa8a0; text-align:center;
-        margin-top:6px; padding:0 8px; min-height:14px; }
+        margin-top:6px; padding:0 8px; min-height:14px;
+        max-width:730px; margin-left:auto; margin-right:auto; width:100%; }
     .md-tab-header { margin:10px 0 14px; }
     .md-tab-header .tab-num { font-size:11px; color:#888780; letter-spacing:.5px;
         text-transform:uppercase; display:block; margin-bottom:2px; }
