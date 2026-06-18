@@ -3833,17 +3833,26 @@ def render_screen_1():
                    "geographic_scope", "evidence_description")
     )
 
-    if _has_prefill:
-        import streamlit.components.v1 as components
-        components.html(
-            """<script>
-            window.parent.addEventListener('beforeunload', function(e) {
-                e.preventDefault();
-                e.returnValue = '';
-            });
-            </script>""",
-            height=0,
-        )
+    if _has_prefill and not st.session_state.get("_last_saved_time"):
+        _warn_c1, _warn_c2 = st.columns([3, 1])
+        with _warn_c1:
+            st.warning(
+                "⚠️ **Unsaved entries.** A browser refresh will clear your form. "
+                "Download your draft now to avoid losing your work.",
+                icon=None,
+            )
+        with _warn_c2:
+            _save_draft()
+            _warn_bytes = st.session_state.get("_draft_bytes", b"")
+            if _warn_bytes:
+                st.download_button(
+                    "💾 Save draft",
+                    data=_warn_bytes,
+                    file_name="impact_receipts_draft.json",
+                    mime="application/json",
+                    use_container_width=True,
+                    key="warn_download_btn",
+                )
 
     with st.expander("ℹ️ How this works — new here? Start here.", expanded=False):
         st.markdown(
