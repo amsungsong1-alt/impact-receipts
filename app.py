@@ -3744,14 +3744,18 @@ def render_screen_1():
         components.html(
             """<script>
             (function() {
-                var p = window.parent;
-                try { p.scrollTo(0, 0); } catch(e) {}
-                try { p.document.documentElement.scrollTop = 0; } catch(e) {}
-                try { p.document.body.scrollTop = 0; } catch(e) {}
-                try {
-                    var m = p.document.querySelector('[data-testid="stMain"]');
-                    if (m) m.scrollTop = 0;
-                } catch(e) {}
+                function scrollTop() {
+                    var p = window.parent;
+                    try { p.scrollTo(0, 0); } catch(e) {}
+                    try { p.document.documentElement.scrollTop = 0; } catch(e) {}
+                    try { p.document.body.scrollTop = 0; } catch(e) {}
+                    try {
+                        var m = p.document.querySelector('[data-testid="stMain"]');
+                        if (m) m.scrollTop = 0;
+                    } catch(e) {}
+                }
+                scrollTop();
+                setTimeout(scrollTop, 150);
             })();
             </script>""",
             height=1,
@@ -4065,8 +4069,13 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                                   is_still_paid(get_user(st.session_state.get("user_email",""))))
                 _irc_files = []
                 if not _irc_paid_flag:
-                    st.info("🔒 **Instant Report Check is a paid feature.** "
-                            "Upgrade to auto-fill all form fields from your uploaded document.")
+                    st.markdown("### Save 10+ minutes on every result:")
+                    st.markdown(
+                        "- **Upload your report** — AI reads it and pre-fills all form fields instantly\n"
+                        "- **No missed fields** — covers result, logframe, evidence, governance, and verifier\n"
+                        "- **Honest extraction** — only fills what's in your document, never invents\n\n"
+                        f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited checks + IRC*"
+                    )
                     _render_paywall(irc_context=True)
                 else:
                     st.text_input(
