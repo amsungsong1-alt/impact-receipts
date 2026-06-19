@@ -1489,7 +1489,7 @@ def _go_to_screen(screen: int, reset: bool = False):
 
 def _render_tagline_footer():
     st.markdown(
-        '<div class="trust-tagline">Check if your evidence is strong and your result statement is clear enough — before your donor asks.</div>',
+        '<div class="trust-tagline">Impact Integrity Diagnostic · Built in Accra for MEL teams across West Africa</div>',
         unsafe_allow_html=True,
     )
 
@@ -2087,7 +2087,7 @@ def _render_live_score_preview(slot: int = 1):
     st.markdown("#### 🛡️ Governance & Compliance")
     _gc1, _gc2 = st.columns([1, 2])
     with _gc1:
-        st.metric("Governance Score", f"{gov_score} / 24")
+        st.metric("Governance readiness", f"{int(gov_score / 24 * 100)}%")
     with _gc2:
         st.metric("Governance-Adjusted Confidence", f"{adjusted_conf:.0f} / 100")
 
@@ -2099,7 +2099,7 @@ def _render_live_score_preview(slot: int = 1):
     elif _answered == 0:
         st.markdown("**Data governance checklist not yet completed — 0 of 6 questions answered.**")
     else:
-        st.markdown(f"**Governance requirements partially met ({gov_score}/24) — review items below.**")
+        st.markdown(f"**Governance readiness: {int(gov_score / 24 * 100)}% — review items below.**")
 
     # Remediation action — placed right next to the status line so the fix is one click away
     if gov_score < 20:
@@ -2452,7 +2452,6 @@ def _render_slot_fields(slot: int):
     ev_desc = st.session_state.get(f"evidence_description{s}", "")
     _dl = _evaluator.get_directness_level(ev_type, ev_desc)
     _ds = round((_dl / 5) * 2.0, 1)
-    st.caption(f"Directness score from this evidence type: **{_ds}/2.0**")
 
     if ev_type == "Other":
         st.text_input("Specify evidence type", key=f"evidence_type_other{s}")
@@ -2550,8 +2549,7 @@ def _render_slot_fields(slot: int):
 
     st.markdown("#### Beneficiary Voice")
     st.caption(
-        "Did the beneficiaries contribute to or validate this evidence? "
-        "Anchored in Bond Evidence Principles 2024 + 60 Decibels Lean Data."
+        "Did the beneficiaries contribute to or validate this evidence?"
     )
     st.selectbox(
         "How were beneficiary voices captured?",
@@ -2814,8 +2812,7 @@ def _render_tab3_slot(slot: int):
         ev_desc = st.session_state.get(f"evidence_description{s}", "")
         _dl = _evaluator.get_directness_level(ev_type, ev_desc)
         _ds = round((_dl / 5) * 2.0, 1)
-        st.caption(f"Directness score from this evidence type: **{_ds}/2.0**")
-
+    
         _irc_widget(
             st.checkbox,
             "This result is evidenced qualitatively (case study, outcome harvesting, Most "
@@ -2963,10 +2960,8 @@ def _render_tab3_slot(slot: int):
 
         st.markdown("#### Data Collection & Provenance")
         st.caption(
-            "These answer whether the data was collected soundly — they adjust your "
-            "Verification score (USAID DQA Reliability/Precision). Answer 'Not applicable' "
-            "where it honestly doesn't apply — that's neutral. Leaving an item unanswered "
-            "is treated the same as 'No' and lowers the score."
+            "These adjust your Verification score. Answer 'Not applicable' where it honestly "
+            "doesn't apply — that's neutral. Unanswered items are treated as 'No'."
         )
         _irc_widget(
             st.selectbox, "Sampling or selection method documented (who you included, and how)",
@@ -3080,8 +3075,7 @@ def _render_tab3_slot(slot: int):
 
     st.markdown("#### Beneficiary Voice")
     st.caption(
-        "Did the beneficiaries contribute to or validate this evidence? "
-        "Anchored in Bond Evidence Principles 2024 + 60 Decibels Lean Data."
+        "Did the beneficiaries contribute to or validate this evidence?"
     )
     st.selectbox(
         "How were beneficiary voices captured?",
@@ -3700,18 +3694,6 @@ def render_screen_0():
         st.query_params["demo"] = "1"
         _go_to_screen(1)
 
-    with st.expander("How it works — new here? Start here", expanded=False):
-        st.markdown(
-            "1. Describe your result and link it to your logframe.\n\n"
-            "2. Add your evidence and how it was verified.\n\n"
-            "3. Get a Confidence and Clarity score — and exactly what to fix before you submit."
-        )
-
-    st.caption(
-        "Built by a MEL practitioner in Accra — because no one should submit "
-        "a result they haven't pressure-tested first."
-    )
-
     st.markdown(
         """
         <div style="border-radius:8px; background:#F1F8E9; border-left:3px solid #1B5E20;
@@ -4070,10 +4052,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 ],
                 key="submission_type",
             )
-            st.caption(
-                "Options: Quarterly progress report · Annual report · Baseline/mid-term/end-line · "
-                "Final/closeout report · Project proposal · Financial report · MEL plan · Ad-hoc report"
-            )
             _sub_type = st.session_state.get("submission_type", "")
             _checklist_items = SUBMISSION_CHECKLIST.get(_sub_type, [])
             if _checklist_items:
@@ -4094,11 +4072,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 st.info("No standard checklist for this submission type.")
             else:
                 st.caption("Select a submission type above to see the required items checklist.")
-            st.caption(
-                "**Common rejection cause:** Submitting a narrative report without the audit report "
-                "(for final reports) or without the financial report (for quarterly reports). "
-                "Always confirm the package list with your donor before submission."
-            )
 
         col_h, col_add = st.columns([5, 1])
         with col_h:
@@ -4145,12 +4118,8 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 expanded=not st.session_state.get("_irc_used", False),
             ):
                 st.caption(
-                    "Upload your donor report (PDF, DOCX, TXT, CSV, PPTX, or Excel), or a previously "
-                    "downloaded draft (JSON) to pick up where you left off. "
-                    "Responsible AI pre-fills one result at a time using only what's in your document — "
-                    "it never invents missing data. "
-                    "📌 Report with multiple results? Add a hint below to target the right one, "
-                    "then use ＋ Add Another Result to check each one separately."
+                    "Upload your donor report to auto-fill all fields — AI extracts only what's "
+                    "in the document, never invents. One result at a time."
                 )
                 _irc_paid_flag = (st.session_state.get("is_paid") or
                                   is_still_paid(get_user(st.session_state.get("user_email",""))))
@@ -4642,7 +4611,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
     elif _cur_tab == 3:
         render_commentary("review")
         st.caption("Your last look before it leaves your hands. Fix flagged items now while it's cheap to fix.")
-        st.caption("Review your scores, download your draft, and submit when ready.")
 
         _REQUIRED_FIELDS_B = [
             ("result_statement",     "Result statement (Tab 1)"),
@@ -4707,7 +4675,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
 A **content quality penalty** (×0.5 to ×1.0) applies when the result statement or evidence description appears to be placeholder text.
 """)
 
-        with st.expander("📊 Live Score Preview", expanded=True):
+        with st.expander("📊 Live Score Preview", expanded=False):
             _render_live_score_preview(1)
 
         st.divider()
@@ -5447,7 +5415,6 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         summary=_PLAIN_ENGLISH_VERDICT.get(diag_state, verdict),
     )
     _render_review_handoff(submission, ev, card_idx)
-    render_season_teaser()
 
     st.divider()
 
@@ -5499,7 +5466,7 @@ def render_screen_2():
     st.markdown(
         "<h2 style='color:#1B5E20;margin-bottom:4px;'>Your Confidence Snapshot</h2>"
         "<p style='color:#8A6500;font-style:italic;font-size:0.95rem;margin-bottom:16px;'>"
-        "Here&rsquo;s what would move your result from where it is now to where it needs to be.</p>",
+        "Your scores and what to fix.</p>",
         unsafe_allow_html=True,
     )
 
