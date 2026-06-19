@@ -4587,6 +4587,18 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         # still requires all three fields before proceeding.
         _t2_can_advance = _t2_done or st.session_state.get("_irc_used", False)
         if _t2_can_advance:
+            if _t2_done:
+                try:
+                    _q_ev2 = _evaluator.evaluate_submission(_build_submission_from_session(1))
+                    _q_clar2 = _q_ev2.get("clarity_score", 0)
+                    if _q_clar2 >= 4.0:
+                        st.success(f"✓ Logframe linkage looks strong ({_q_clar2:.1f}/5.0 Clarity so far) — evidence next.")
+                    elif _q_clar2 >= 2.5:
+                        st.info(f"Logframe linkage scores {_q_clar2:.1f}/5.0 on Clarity so far — adding strong evidence will raise this.")
+                    else:
+                        st.warning(f"Logframe linkage scores {_q_clar2:.1f}/5.0 — check that your indicator and achievement match the result statement above.")
+                except Exception:
+                    pass
             _nb2, _pb2 = st.columns([3, 1])
             with _nb2:
                 if st.button("Next: Evidence & Verification →", key="tab2_next_btn", type="primary", use_container_width=True):
@@ -4616,6 +4628,17 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             _render_tab3_slot(slot)
 
         # --- v3.3: next button to Review & Submit ---
+        try:
+            _q_ev3 = _evaluator.evaluate_submission(_build_submission_from_session(1))
+            _q_conf3 = _q_ev3.get("confidence_score", 0)
+            if _q_conf3 >= 4.0:
+                st.success(f"✓ Evidence looks strong ({_q_conf3:.1f}/5.0 Confidence) — ready for final review.")
+            elif _q_conf3 >= 2.5:
+                st.info(f"Evidence scores {_q_conf3:.1f}/5.0 on Confidence — completing the verification fields will improve this.")
+            else:
+                st.warning(f"Evidence scores {_q_conf3:.1f}/5.0 on Confidence — strengthen your evidence description or add a verifier before submitting.")
+        except Exception:
+            pass
         _nb3, _pb3 = st.columns([3, 1])
         with _nb3:
             if st.button("Next: Review & Submit →", key="tab3_next_btn", type="primary", use_container_width=True):
