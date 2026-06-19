@@ -3682,7 +3682,7 @@ def render_screen_0():
         if not st.session_state.get("has_seen_tutorial"):
             st.session_state["tutorial_step"] = 1
         _go_to_screen(1, reset=True)
-    st.caption("First check is free.")
+    st.caption("First 3 checks are free. No card needed.")
 
     if st.button("📊 Portfolio Dashboard — score my whole logframe", use_container_width=True, key="cta_portfolio"):
         _go_to_screen(3)
@@ -4718,6 +4718,14 @@ A **content quality penalty** (×0.5 to ×1.0) applies when the result statement
             "(Act 843 / NDPA compliant — no names or organisations are stored.)",
             key="consent_examples",
         )
+        # --- Require email before running any check ---
+        if not st.session_state.get("user_email"):
+            st.warning(
+                "📧 **Enter your email to run your check.** "
+                "We use it to track your free checks — no password needed."
+            )
+            _render_email_gate_inline("_check")
+            st.stop()
         # --- Usage tracking ---
         _email_now = st.session_state.get("user_email", "")
         _u_now = get_user(_email_now) if _email_now else None
