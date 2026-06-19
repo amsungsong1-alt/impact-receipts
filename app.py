@@ -1203,7 +1203,7 @@ h1, h2, h3, h4 {
 /* Top-line "is this good enough to submit?" banner */
 .readiness-banner {
   padding: 14px 20px;
-  border-radius: 10px;
+  border-radius: 8px;
   font-weight: 700;
   font-size: 1.1rem;
   margin-bottom: 12px;
