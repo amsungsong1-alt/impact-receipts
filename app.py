@@ -3755,7 +3755,7 @@ def render_screen_1():
                     } catch(e) {}
                 }
                 scrollTop();
-                setTimeout(scrollTop, 150);
+                [200, 500, 1000].forEach(function(d) { setTimeout(scrollTop, d); });
             })();
             </script>""",
             height=1,
@@ -4072,7 +4072,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                     st.markdown("### Save 10+ minutes on every result:")
                     st.markdown(
                         "- **Upload your report** — AI reads it and pre-fills all form fields instantly\n"
-                        "- **No missed fields** — covers result, logframe, evidence, governance, and verifier\n"
+                        "- **Fills every field your document contains** — skips only what isn't there, flags it clearly\n"
                         "- **Honest extraction** — only fills what's in your document, never invents\n\n"
                         f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited checks + IRC*"
                     )
