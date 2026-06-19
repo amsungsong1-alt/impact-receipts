@@ -312,13 +312,13 @@ Choose the closest match from this list, based on the document's title, framing,
 "MEL plan", "Others (Special/Ad-hoc reports)"
 
 ### Rule 7 — Compliance Flags
-For the three compliance fields (consent, anonymisation, data protection), if the document does not explicitly address them, return "Not found" — do NOT assume compliance.
+For the six compliance fields (consent, anonymisation, data protection, safeguarding, child safeguarding, secure data handling), if the document does not explicitly address them, return "Not found" — do NOT assume compliance. For safeguarding_measures, return text evidence if the document mentions "do no harm" protocols, referral pathways, or participant safety measures. For child_safeguarding, return text evidence if child safeguarding policies are mentioned. For secure_data_handling, return text evidence if secure file handling (e.g., password-protected files, restricted access) is described.
 
 ### Rule 8 — Logframe Linkage
 Extract the PRIMARY indicator that the main result statement reports against. If multiple indicators are listed, select the one with the highest strategic prominence (usually the reach/beneficiary count indicator at Output level).
 
-### Rule 9 — Evidence Narrative
-For "evidence_narrative", write a 2–4 sentence synthesis describing HOW the result was achieved and WHAT evidence exists, drawing from the activities and M&E sections. Do not copy-paste — synthesise.
+### Rule 9 — Evidence Description
+For "evidence_description", extract and quote the most detailed evidence description directly from the document — the passage that best explains what data was collected, how it was collected, and by whom. Prefer verbatim or near-verbatim quotes over paraphrase. If multiple passages describe the evidence, combine them into a single coherent paragraph without adding or inferring anything new.
 
 ### Rule 10 — Result Statement
 The result statement should be the single clearest achievement sentence from the Executive Summary or KPI table. It must contain: (a) a number, (b) a target group, (c) a timeframe, and (d) a % achievement or comparison to target if available.
@@ -374,16 +374,20 @@ contributed to or validated the evidence in this document:
 If the document doesn't address this at all, return "Not found".
 
 ### Rule 16 — Evidence Strengthening Checks
-Read the entire document for verifiable details that strengthen the credibility of the
-evidence — e.g., whether attendance sheets are dated/stamped, whether photos contain
-GPS metadata or timestamps, whether a sampling method is documented, whether financial
-records are reconciled with bank statements, whether an auditor was independent, whether
-a partner letter is signed and on letterhead, whether a tracer survey documents its
-response rate, etc. Return a JSON array of short plain-language phrases describing each
-such detail that is EXPLICITLY confirmed in the document (e.g., "Sheets dated and
-stamped", "Photos contain GPS metadata", "Auditor independent from implementer"). Only
-include items explicitly evidenced in the text — do not guess or infer ones that aren't
-directly supported.
+For the `evidence_strengthening_checks` array, check whether each of the following items is EXPLICITLY confirmed in the document. Return ONLY items confirmed; use EXACTLY the label text shown below (copy it verbatim). Do not paraphrase.
+
+For "Attendance sheets / participant registers": "Signatures verified against ID list" | "Sheets dated and stamped" | "Cross-referenced with another source (e.g., facilitator notes)"
+For "Raw datasets or survey exports": "Sampling method documented (who you included, and how)" | "Dataset cleaned and de-duplicated" | "Original raw export retained for audit"
+For "Partner verification letters": "Letter on official partner letterhead" | "Signed by authorized partner representative" | "Letter dated within 6 months of reporting period"
+For "Photos with metadata": "Photos contain GPS metadata" | "Timestamps visible/verifiable" | "Beneficiary consent obtained for photos"
+For "Tracer survey results": "Follow-up conducted at appropriate interval (3+ months)" | "Response rate documented (target: 60%+)" | "Sampling bias / non-response acknowledged"
+For "Financial records": "Receipts/transactions dated" | "Reconciled with bank/MoMo statements" | "Audit trail intact (request → approval → payment)"
+For "Third-party audits": "Auditor independent from implementer" | "Audit report signed and dated" | "Audit recommendations addressed/disclosed"
+
+Return an empty array [] if none are confirmed or the evidence type does not match any category above.
+
+### Rule 17 — Independent Verifier
+For "independent_verifier", extract the name or role of the person or organisation that independently reviewed, verified, or validated the reported data — NOT the implementing organisation itself. Examples: "District Health Information Officer", "External MEL consultant", "Third-party auditor (KPMG)". If no independent verification is mentioned, return "Not found".
 
 ## REQUIRED JSON OUTPUT STRUCTURE
 
@@ -406,7 +410,7 @@ Return exactly this structure. Do not add or remove keys.
     "actual_achievement": "<string>"
   },
   "evidence_verification": {
-    "evidence_narrative": "<string>",
+    "evidence_description": "<string>",
     "evidence_type": "<string>",
     "internal_review": "<string>",
     "external_review": "<string>",
@@ -415,7 +419,11 @@ Return exactly this structure. Do not add or remove keys.
     "evidence_collection_date": "<YYYY/MM/DD>",
     "consent_documented": "<string>",
     "data_anonymised": "<string>",
-    "data_protection_compliant": "<string>"
+    "data_protection_compliant": "<string>",
+    "safeguarding_measures": "<string>",
+    "child_safeguarding": "<string>",
+    "secure_data_handling": "<string>",
+    "independent_verifier": "<string>"
   },
   "funder_readiness_inputs": {
     "learning_and_adaptation": "<string>",
@@ -429,6 +437,7 @@ Return exactly this structure. Do not add or remove keys.
   "extraction_metadata": {
     "implementing_org": "<string>",
     "report_prepared_by": "<string>",
+    "project_name": "<string — the name of the programme/project as stated in the document, or 'Not found'>",
     "confidence_note": "<one sentence describing extraction confidence and any gaps>"
   }
 }'''
@@ -4259,8 +4268,8 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                                     def _irc_call_api():
                                         try:
                                             _irc_api_result["resp"] = _irc_client.messages.create(
-                                                model="claude-haiku-4-5-20251001",
-                                                max_tokens=3072,
+                                                model="claude-sonnet-4-6",
+                                                max_tokens=4096,
                                                 system=INSTANT_CHECK_SYSTEM_PROMPT,
                                                 messages=_irc_msgs,
                                             )
@@ -4328,16 +4337,29 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                                     _irc_set("logframe_achievement", _ll.get("actual_achievement"))
 
                                     # --- Evidence & Verification ---
-                                    _irc_set("evidence_description", _ev3.get("evidence_narrative"))
+                                    _irc_set("evidence_description", _ev3.get("evidence_description"))
                                     _vmt = None
+                                    _ev_type_raw = _irc_to_str(_ev3.get("evidence_type",""))
                                     try:
-                                        _vmt = _irc_match_option(_irc_to_str(_ev3.get("evidence_type","")), EVIDENCE_TYPES)
-                                        if _vmt: st.session_state["evidence_type"] = _vmt; _irc_filled += 1
+                                        _vmt = _irc_match_option(_ev_type_raw, EVIDENCE_TYPES)
+                                        if _vmt:
+                                            st.session_state["evidence_type"] = _vmt; _irc_filled += 1
+                                        elif _ev_type_raw and _ev_type_raw != "Not found":
+                                            st.session_state["evidence_type"] = "Other"
+                                            st.session_state["evidence_type_other"] = _ev_type_raw
+                                            _irc_filled += 1
                                     except Exception:
                                         pass
+                                    _ir_raw = _irc_to_str(_ev3.get("internal_review",""))
+                                    _irmt = None
                                     try:
-                                        _irmt = _irc_match_option(_irc_to_str(_ev3.get("internal_review","")), INTERNAL_REVIEW_OPTIONS)
-                                        if _irmt: st.session_state["internal_review"] = _irmt; _irc_filled += 1
+                                        _irmt = _irc_match_option(_ir_raw, INTERNAL_REVIEW_OPTIONS)
+                                        if _irmt:
+                                            st.session_state["internal_review"] = _irmt; _irc_filled += 1
+                                        elif _ir_raw and _ir_raw != "Not found":
+                                            st.session_state["internal_review"] = "Other"
+                                            st.session_state["internal_review_other"] = _ir_raw
+                                            _irc_filled += 1
                                     except Exception:
                                         pass
                                     try:
@@ -4353,7 +4375,9 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                                             if _pdd: st.session_state[_skk] = _pdd; _irc_filled += 1
                                         except Exception:
                                             pass
-                                    _ver3 = _em.get("implementing_org") or _em.get("report_prepared_by","")
+                                    _ver3 = _irc_to_str(_ev3.get("independent_verifier",""))
+                                    if not _ver3 or _ver3 == "Not found":
+                                        _ver3 = ""
                                     _irc_set("verifier", _ver3)
 
                                     # --- Sector ---
@@ -4377,6 +4401,11 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                                             _don_mt = _irc_match_option(_donor_raw, ["USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "EU / EuropeAid"])
                                             if _don_mt:
                                                 st.session_state["donor_selected"] = _don_mt; _irc_filled += 1
+                                                try:
+                                                    _df_mt = _irc_match_option(_don_mt, list(DONOR_PROFILES.keys()))
+                                                    if _df_mt: st.session_state["donor_framework"] = _df_mt
+                                                except Exception:
+                                                    pass
                                             else:
                                                 st.session_state["donor_selected"] = "Other"
                                                 st.session_state["donor_other"] = _donor_raw
@@ -4431,6 +4460,28 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                                             if _law_mt: st.session_state["gov_compliance_law_status"] = _law_mt; _irc_filled += 1
                                     except Exception:
                                         pass
+                                    try:
+                                        _sfg_raw = _irc_to_str(_ev3.get("safeguarding_measures",""))
+                                        if _sfg_raw and _sfg_raw != "Not found":
+                                            _sfg_mt = _irc_match_option(_sfg_raw, list(SAFEGUARDING_CHECKLIST_MAP.keys()))
+                                            if _sfg_mt: st.session_state["gov_safeguarding_status"] = _sfg_mt; _irc_filled += 1
+                                    except Exception:
+                                        pass
+                                    try:
+                                        _csg_raw = _irc_to_str(_ev3.get("child_safeguarding",""))
+                                        if _csg_raw and _csg_raw != "Not found":
+                                            _csg_mt = _irc_match_option(_csg_raw, list(CHILD_SAFEGUARDING_CHECKLIST_MAP.keys()))
+                                            if _csg_mt: st.session_state["gov_child_safeguarding_status"] = _csg_mt; _irc_filled += 1
+                                    except Exception:
+                                        pass
+                                    try:
+                                        _sec_raw2 = _irc_to_str(_ev3.get("secure_data_handling",""))
+                                        if _sec_raw2 and _sec_raw2 != "Not found":
+                                            _sec_mt2 = _irc_match_option(_sec_raw2, list(SECURE_HANDLING_CHECKLIST_MAP.keys()))
+                                            if _sec_mt2: st.session_state["gov_secure_handling_status"] = _sec_mt2; _irc_filled += 1
+                                    except Exception:
+                                        pass
+                                    _irc_set("project_name", _em.get("project_name"))
 
                                     # --- Donor Readiness inputs (v3.5) ---
                                     _fri = _irc_data.get("funder_readiness_inputs", {})
