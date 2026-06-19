@@ -1038,20 +1038,6 @@ CSS = """
   --border:      rgba(27,90,32,0.15);
 }
 
-/* Dark mode card text — keep with !important */
-.is-col, .is-col li, .is-col ul, .is-col h4 {
-    color: #1B5E20 !important;
-}
-.isnot-col, .isnot-col li, .isnot-col ul, .isnot-col h4 {
-    color: #C62828 !important;
-}
-.what-we-check {
-    background: #F1F8E9 !important;
-}
-.what-we-check, .what-we-check li, .what-we-check ul,
-.what-we-check h4, .what-we-check strong {
-    color: #1B5E20 !important;
-}
 
 html, body, [class*="css"] {
   font-family: 'Inter', sans-serif;
@@ -1088,7 +1074,7 @@ h1, h2, h3, h4 {
 .result-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 24px 28px;
   margin-bottom: 20px;
 }
@@ -1108,7 +1094,7 @@ h1, h2, h3, h4 {
 .verdict-banner {
   background: #1B5E20;
   color: white;
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 14px 20px;
   font-family: 'Inter', sans-serif;
   font-weight: 700;
@@ -1120,35 +1106,6 @@ h1, h2, h3, h4 {
 .verdict-banner.weak-conf  { background: #F57F17; }
 .verdict-banner.high-risk  { background: #B71C1C; }
 
-/* Progress steps row */
-.progress-steps {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 24px;
-  font-family: 'Inter', sans-serif;
-  font-size: 0.85rem;
-  color: var(--body-text);
-}
-.progress-steps .step {
-  background: #1B5E20;
-  color: white;
-  border-radius: 50%;
-  width: 26px;
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-.progress-steps .connector {
-  flex: 1;
-  height: 2px;
-  background: #CCCCCC;
-  max-width: 40px;
-}
-.progress-steps .step-label { font-weight: 500; }
 
 /* Hero section */
 .hero-block {
@@ -1167,34 +1124,6 @@ h1, h2, h3, h4 {
   font-size: 1rem;
   margin: 4px 0 14px 0;
 }
-.hero-sub {
-  font-size: 1rem;
-  color: #374151;
-  line-height: 1.6;
-  margin-bottom: 6px;
-}
-.brand-promise {
-  color: #616161;
-  font-size: 0.92rem;
-  line-height: 1.6;
-  margin-top: 6px;
-  margin-bottom: 0;
-}
-
-/* IS / IS NOT table */
-.is-not-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin: 20px 0;
-  align-items: stretch;
-}
-.is-col, .isnot-col { padding: 16px 20px; border-radius: 10px; }
-.is-col   { background: #EDF7F1; border: 1px solid #A7D9BC; }
-.isnot-col { background: #FEF3F2; border: 1px solid #FCA5A5; }
-.is-col h4   { color: var(--brand-green); margin: 0 0 10px 0; }
-.isnot-col h4 { color: #991B1B; margin: 0 0 10px 0; }
-.is-col li, .isnot-col li { margin-bottom: 6px; font-size: 0.9rem; }
 
 /* CTA call button */
 .cta-call-btn a {
@@ -1223,7 +1152,7 @@ h1, h2, h3, h4 {
 /* GTM conversion hook card */
 .gtm-card {
   border: 1px solid #8A6500;
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 20px 24px;
   margin: 24px 0;
   background: #FFFEF7;
@@ -1250,7 +1179,7 @@ h1, h2, h3, h4 {
   background: #FFFEF7;
   border-left: 4px solid #8A6500;
   padding: 10px 16px;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 0.9rem;
   color: #212121;
   margin: 12px 0;
@@ -1263,7 +1192,7 @@ h1, h2, h3, h4 {
 /* Diagnostic state badge */
 .diagnostic-badge {
   padding: 10px 16px;
-  border-radius: 10px;
+  border-radius: 8px;
   font-weight: 700;
   font-size: 1rem;
   margin-bottom: 12px;
@@ -3446,9 +3375,9 @@ def inject_matchday_css():
     .md-ticker .mic { background:#A32D2D; color:#fff; font-size:9px; font-weight:600;
         padding:2px 6px; border-radius:4px; letter-spacing:.5px; flex-shrink:0; }
     .md-ticker .txt { line-height:1.4; }
-    .md-sb { background:#fff; border:1px solid #d3d1c7; border-radius:12px;
+    .md-sb { background:#fff; border:1px solid #d3d1c7; border-radius:8px;
         overflow:hidden; margin:0 0 16px 0; }
-    .md-sb-head { background:#2C2C2A; color:#fff; padding:8px 16px; font-size:11px;
+    .md-sb-head { background:#1B5E20; color:#fff; padding:8px 16px; font-size:11px;
         letter-spacing:1px; text-transform:uppercase; display:flex;
         justify-content:space-between; align-items:center; }
     .md-sb-live { font-size:10px; }
@@ -3459,7 +3388,7 @@ def inject_matchday_css():
     .md-stat .sub { font-size:11px; color:#888780; margin-top:6px; }
     .md-div { background:#d3d1c7; }
     .md-green { color:#1D9E75; } .md-amber { color:#BA7517; } .md-red { color:#A32D2D; }
-    .md-var { background:#1a1a18; color:#fff; border-radius:12px;
+    .md-var { background:#1a1a18; color:#fff; border-radius:8px;
         padding:24px 20px; margin:16px 0; display:flex; align-items:center; gap:18px; }
     .md-var-badge { background:#A32D2D; color:#fff; font-size:11px; font-weight:700;
         padding:6px 10px; border-radius:6px; letter-spacing:1.5px; flex-shrink:0; }
@@ -3477,18 +3406,18 @@ def inject_matchday_css():
         color:#666; font-size:12px; font-weight:700; display:flex;
         align-items:center; justify-content:center; }
     .md-pstage .lbl { font-size:10px; color:#555; text-align:center; letter-spacing:.3px; }
-    .md-pstage.done .dot { background:#1D9E75; color:#fff; }
-    .md-pstage.done .lbl { color:#1D9E75; }
-    .md-pstage.active .dot { background:#FAC775; color:#1a1a18; }
-    .md-pstage.active .lbl { color:#FAC775; font-weight:600; }
+    .md-pstage.done .dot { background:#1B5E20; color:#fff; }
+    .md-pstage.done .lbl { color:#1B5E20; }
+    .md-pstage.active .dot { background:#8A6500; color:#fff; }
+    .md-pstage.active .lbl { color:#8A6500; font-weight:600; }
     .md-pstage:hover .lbl { text-decoration: underline dotted; }
-    .md-fulltime { background:#2C2C2A; color:#fff; border-radius:12px;
+    .md-fulltime { background:#2C2C2A; color:#fff; border-radius:8px;
         padding:20px 20px 16px; margin:12px 0; text-align:center; }
     .md-fulltime .whistle { font-size:10px; letter-spacing:1.5px; text-transform:uppercase;
         color:#888780; margin-bottom:8px; }
-    .md-fulltime h3 { margin:0 0 8px; font-size:1.3rem; color:#FAC775; }
+    .md-fulltime h3 { margin:0 0 8px; font-size:1.3rem; color:#8A6500; }
     .md-fulltime p { margin:0; font-size:0.85rem; color:#aaa8a0; line-height:1.5; }
-    .md-card { background:#f9f8f5; border:1px solid #e0ded8; border-radius:10px;
+    .md-card { background:#f9f8f5; border:1px solid #e0ded8; border-radius:8px;
         padding:14px 16px; margin:8px 0; }
     .stage-tip { font-size:10px; color:#aaa8a0; text-align:center;
         margin-top:4px; padding:0 2px; line-height:1.3; }
@@ -3538,7 +3467,7 @@ def render_scoreboard(confidence=None, clarity=None, verified=False):
     conf_cls = _score_class(confidence, verified)
     clar_cls = _score_class(clarity, verified)
     status = "● final" if verified else "● provisional"
-    status_color = "#9FE1CB" if verified else "#FAC775"
+    status_color = "#A5D6A7" if verified else "#FFD54F"
     st.markdown(f"""
     <div class="md-sb">
       <div class="md-sb-head"><span>Match stats</span>
@@ -3733,7 +3662,7 @@ def render_screen_0():
         unsafe_allow_html=True,
     )
 
-    with st.expander("📁 Resume a previous session"):
+    with st.expander("Resume a previous session"):
         uploaded_json = st.file_uploader(
             "Upload a previously saved inputs JSON",
             type=["json"],
@@ -3872,7 +3801,7 @@ def render_screen_1():
                     key="warn_download_btn",
                 )
 
-    with st.expander("ℹ️ How this works — new here? Start here.", expanded=False):
+    with st.expander("How this works — new here? Start here.", expanded=False):
         st.markdown(
             """
 **Fill in 4 short sections about your result → click Run Check → get your scores.**
@@ -3972,9 +3901,8 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
     )
 
     if _cur_tab == 0:
-        render_commentary("enter")
         st.caption("A clear result is the first thing a donor checks. Define who benefited, what changed, where, and when.")
-        with st.expander("📋 Submission context — sector, donor, project", expanded=not _has_prefill):
+        with st.expander("Submission context — sector, donor, project", expanded=not _has_prefill):
             st.selectbox(
                 "Sector (optional — helps tailor examples)",
                 key="sector",
@@ -4042,7 +3970,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             )
         # --- END IRC fill summary banner ---
 
-        with st.expander("📦 Submission Package Completeness Check (Recommended)", expanded=st.session_state.get("_irc_used", False)):
+        with st.expander("Submission Checklist (Recommended)", expanded=st.session_state.get("_irc_used", False)):
             st.caption(
                 "Most donor rejections happen because something was missing from the submission package "
                 "— not because the work was bad. Confirm what your donor expects."
@@ -4570,7 +4498,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         # --- END v3.3 ---
 
     elif _cur_tab == 1:
-        render_commentary("logframe")
         for slot in range(1, active + 1):
             if active > 1:
                 st.markdown(f"---\n#### Result {slot}")
@@ -4620,7 +4547,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         # --- END v3.3 ---
 
     elif _cur_tab == 2:
-        render_commentary("evidence")
         st.caption("This is where most donor rejections start. Weak or unverified evidence is caught here, not by your donor.")
         for slot in range(1, active + 1):
             if active > 1:
@@ -4655,7 +4581,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         # --- END v3.3 ---
 
     elif _cur_tab == 3:
-        render_commentary("review")
         st.caption("Your last look before it leaves your hands. Fix flagged items now while it's cheap to fix.")
 
         _REQUIRED_FIELDS_B = [
@@ -4704,7 +4629,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             pass
         # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
-        with st.expander("ℹ️ How scoring works"):
+        with st.expander("How scoring works"):
             st.markdown("""
 **Confidence Score (0–5.0)** — measures how credible and traceable your evidence is.
 - **Directness** (0–2.0): target 1.5+ — how directly the evidence links to the result
@@ -4846,7 +4771,7 @@ A **content quality penalty** (×0.5 to ×1.0) applies when the result statement
 
 def render_how_scoring_works_panel() -> None:
     """Render a reference panel explaining all eight scoring criteria."""
-    with st.expander("ℹ️ How scoring works", expanded=False):
+    with st.expander("How scoring works", expanded=False):
         st.caption(
             "Confidence and Clarity are each built from rule-based sub-criteria. "
             "No AI scoring is used — every score below follows a fixed rubric."
@@ -4954,7 +4879,7 @@ def _render_review_handoff(submission: dict, ev: dict, card_idx: int):
     slot = card_idx + 1
     s = _slot_suffix(slot)
 
-    with st.expander("📝 Review & sign-off", expanded=False):
+    with st.expander("Review & sign-off", expanded=False):
         st.caption(
             "Optional — record a reviewer's decision before handing this result back "
             "to the field officer or passing it up the chain. No accounts or logins: "
@@ -5081,7 +5006,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         _top = fixes[0]
         _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
         st.markdown(
-            f"<div style='background:#FFF9C4;border-left:4px solid #F57F17;border-radius:6px;"
+            f"<div style='background:#FFF9C4;border-left:4px solid #F57F17;border-radius:8px;"
             f"padding:10px 14px;margin:8px 0;font-size:0.9rem;{_pca}'>"
             f"🎯 <strong>Biggest single fix:</strong> {_top['message']} "
             f"<em>({_top['score_impact']})</em></div>",
@@ -5204,12 +5129,12 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         rs = conf_comp.get("recency_score", 0)
         _dir_rationale = conf_comp.get("direct_rationale") or _evaluator.get_score_rationale("directness", dl, ds, 2.0)
         _verify_rationale = conf_comp.get("verify_rationale") or _evaluator.get_score_rationale("verification", vl, vs, 2.0)
-        st.metric("Directness", f"{ds}/2.0", help=_dir_rationale)
-        st.metric("Verification", f"{vs}/2.0", help=_verify_rationale)
-        st.metric("Recency", f"{rs}/1.0",
+        st.metric("Directness (max 2.0)", f"{ds:.1f}", help=_dir_rationale)
+        st.metric("Verification (max 2.0)", f"{vs:.1f}", help=_verify_rationale)
+        st.metric("Recency (max 1.0)", f"{rs:.1f}",
                   help=_evaluator.get_score_rationale("recency", rl, rs, 1.0))
         bv_bonus = conf_comp.get("bv_bonus", 0.0)
-        st.metric("Beneficiary Voice Bonus", f"+{bv_bonus}/0.5",
+        st.metric("Beneficiary Voice Bonus", f"+{bv_bonus:.1f}",
                   help=BENEFICIARY_VOICE_TOOLTIP)
         _render_subscore_chart([
             ("Directness", ds, 2.0, _dir_rationale),
@@ -5231,15 +5156,15 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         def_tip    = _CLARITY_TIPS["definition_qualitative"] if is_qual else _CLARITY_TIPS["definition"]
         meas_label = "Sourcing & Triangulation" if is_qual else "Measurement"
         meas_tip   = _CLARITY_TIPS["measurement_qualitative"] if is_qual else _CLARITY_TIPS["measurement"]
-        st.metric(def_label, f"{def_s}/1.25",
+        st.metric(f"{def_label} (max 1.25)", f"{def_s:.2f}",
                   help=f"{def_tip}\n\n{TOOLTIP_DEFINITION}")
-        st.metric(meas_label, f"{meas_s}/1.25",
+        st.metric(f"{meas_label} (max 1.25)", f"{meas_s:.2f}",
                   help=f"{meas_tip}\n\n{TOOLTIP_MEASUREMENT}")
-        st.metric("Integrity", f"{integ}/1.0",
+        st.metric("Integrity (max 1.0)", f"{integ:.2f}",
                   help=f"{_CLARITY_TIPS['integrity']}\n\n{TOOLTIP_INTEGRITY}")
-        st.metric("Scope", f"{scope}/0.75",
+        st.metric("Scope (max 0.75)", f"{scope:.2f}",
                   help=f"{_CLARITY_TIPS['scope']}\n\n{TOOLTIP_SCOPE}")
-        st.metric("Governance", f"{gov}/0.75",
+        st.metric("Governance (max 0.75)", f"{gov:.2f}",
                   help=f"{_CLARITY_TIPS['governance']}\n\n{TOOLTIP_GOVERNANCE}")
         _render_subscore_chart([
             (def_label, def_s, 1.25, def_tip),
@@ -5437,11 +5362,11 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             level = "low" if (raw_score / max_val) < 0.6 else "high"
             st.markdown(f"**{dim}:** {donor_map[dim][level]}")
 
-    with st.expander("📋 Evidence statement for your report"):
+    with st.expander("Evidence statement for your report"):
         st.code(_generate_evidence_statement(submission), language=None)
         st.caption("Edit this to match your exact context before pasting into your narrative report.")
 
-    with st.expander("📱 Share this result (WhatsApp / email)"):
+    with st.expander("Share this result"):
         def _share_icon(s):
             return "✅" if s >= 4.0 else "⚠️" if s >= 3.0 else "🔴"
         _tf = fixes[0]["message"] if fixes else "No major gaps — ready to refine."
@@ -5600,7 +5525,7 @@ def render_screen_2():
     # --- Stage 2 Engagement Card ---
     st.markdown("---")
     with st.container(border=True):
-        st.markdown("#### 📋 Want someone to look at this with you?")
+        st.markdown("#### Want someone to look at this with you?")
         st.info(
             "You've run your first check. If you want to go deeper — working through "
             "the gaps together, aligning this result with your specific donor's requirements, "
@@ -7795,7 +7720,7 @@ def _build_portfolio_verification_summary_html(results_df, warnings: list, times
 
 def main():
     st.set_page_config(
-        page_title="Impact-Receipts",
+        page_title="Impact Integrity Diagnostic",
         page_icon="",
         layout="centered",
         initial_sidebar_state="collapsed",
