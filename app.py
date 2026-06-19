@@ -5451,6 +5451,37 @@ def render_screen_2():
     )
 
     if evs:
+        _bv_conf = evs[0].get("confidence_score", 0)
+        _bv_clar = evs[0].get("clarity_score", 0)
+        _bv_fixes = evs[0].get("fixes", [])
+        if _bv_conf >= 3.5 and _bv_clar >= 3.5:
+            _bv_sym, _bv_msg, _bv_bg, _bv_border = (
+                "✓", "This result is ready to submit.",
+                "#EDF7F1", "#1B5E20"
+            )
+        elif _bv_conf >= 2.5 or _bv_clar >= 2.5:
+            _bv_sym, _bv_msg, _bv_bg, _bv_border = (
+                "⚠", "Almost ready — fix the top issue before submitting.",
+                "#FFFEF7", "#8A6500"
+            )
+        else:
+            _top_fix_msg = (
+                _bv_fixes[0].get("message", "review the flagged issues")
+                if _bv_fixes else "review the flagged issues"
+            )
+            _bv_sym, _bv_msg, _bv_bg, _bv_border = (
+                "✗", f"Not ready — {_top_fix_msg.rstrip('.')} before submitting.",
+                "#FEF3F2", "#B71C1C"
+            )
+        st.markdown(
+            f'<div style="background:{_bv_bg};border-left:4px solid {_bv_border};'
+            f'border-radius:8px;padding:14px 20px;margin:0 0 16px 0;'
+            f'font-size:1.05rem;font-weight:700;color:{_bv_border};">'
+            f'{_bv_sym} {_bv_msg}</div>',
+            unsafe_allow_html=True,
+        )
+
+    if evs:
         _top_diag = evs[0].get("diagnostic_state", "")
         if _top_diag in ("FUNDAMENTALLY WEAK", "UNDEREVIDENCED", "MISLEADING"):
             _wa_review = "https://wa.me/233503648195?text=" + urllib.parse.quote(
