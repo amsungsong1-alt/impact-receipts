@@ -1756,10 +1756,12 @@ def _render_paywall(irc_context: bool = False):
     """Show upgrade/payment options. irc_context=True suppresses the free-checks header."""
     email = st.session_state.get("user_email", "")
     if not irc_context:
-        st.error(f"🔒 You've used all {FREE_CHECKS_LIMIT} free checks.")
+        st.markdown("### Your 3 free checks are done — here's what you unlock next:")
         st.markdown(
-            "Upgrade to run more checks and unlock the Instant Report Check "
-            "(AI-powered auto-fill from uploaded documents)."
+            "- **More confidence checks** — keep scoring results as you prepare your report\n"
+            "- **⚡ Instant Report Check** — upload your whole report and auto-fill the form in seconds\n"
+            "- **Downloadable reports** (HTML, PDF) — share your scores with your supervisor\n\n"
+            f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited*"
         )
     _c1, _c2 = st.columns(2)
     with _c1:
@@ -3681,6 +3683,16 @@ def render_screen_0():
     if st.button("📊 Portfolio Dashboard — score my whole logframe", use_container_width=True, key="cta_portfolio"):
         _go_to_screen(3)
 
+    st.markdown(
+        '<p style="font-size:0.85rem;color:#374151;margin:4px 0 12px 0;">'
+        '📄 <strong>Already have a draft report?</strong> '
+        'Use <strong>⚡ Instant Report Check</strong> inside the form to upload it — '
+        'AI pre-fills all fields in seconds. '
+        '<em>(Paid feature — included with any check purchase.)</em>'
+        '</p>',
+        unsafe_allow_html=True,
+    )
+
     st.caption("No data to hand? Try a pre-filled Ghana health example:")
     if st.button("🚀 Try with a sample result →", key="cta_demo",
                  help="Loads a realistic ANC result from Ashanti Region — runs in seconds"):
@@ -4531,6 +4543,17 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             _ss_str("geographic_scope").strip(),
         ])
         if _t1_done:
+            try:
+                _q_ev = _evaluator.evaluate_submission(_build_submission_from_session(1))
+                _q_clar = _q_ev.get("clarity_score", 0)
+                if _q_clar >= 4.0:
+                    st.success(f"✓ Result statement looks strong ({_q_clar:.1f}/5.0 Clarity) — keep going.")
+                elif _q_clar >= 2.5:
+                    st.info(f"Result statement scores {_q_clar:.1f}/5.0 on Clarity — it will improve as you add evidence.")
+                else:
+                    st.warning(f"Result statement scores {_q_clar:.1f}/5.0 on Clarity — consider sharpening it before proceeding.")
+            except Exception:
+                pass
             _nb1, _pb1 = st.columns([3, 1])
             with _nb1:
                 if st.button("Next: Logframe Linkage →", key="tab1_next_btn", type="primary", use_container_width=True):
@@ -5470,13 +5493,31 @@ def render_screen_2():
         unsafe_allow_html=True,
     )
 
-    _nav_c1, _nav_c2 = st.columns(2)
+    if evs:
+        _top_diag = evs[0].get("diagnostic_state", "")
+        if _top_diag in ("FUNDAMENTALLY WEAK", "UNDEREVIDENCED", "MISLEADING"):
+            _wa_review = "https://wa.me/233503648195?text=" + urllib.parse.quote(
+                "Hi, I've just run an Impact Integrity Diagnostic check and would like "
+                "a deeper review before submission. Can we talk?"
+            )
+            st.info(
+                f"📱 **Struggling with these gaps?** "
+                f"[Book a free first review with the founder on WhatsApp]({_wa_review}) "
+                f"— I personally review results before submission deadlines."
+            )
+
+    _nav_c1, _nav_c2, _nav_c3 = st.columns(3)
     with _nav_c1:
-        if st.button("← Edit Submission", key="back_to_form"):
+        if st.button("← Edit this result", key="back_to_form"):
             st.session_state["evaluations"] = None
             _go_to_screen(1)
     with _nav_c2:
-        st.caption("**Next steps:** Edit & re-run · Download report below · Submit to donor")
+        if st.button("✓ Check another result →", key="check_another", type="primary", use_container_width=True):
+            _reset_all_slots()
+            st.session_state["evaluations"] = None
+            _go_to_screen(1, reset=True)
+    with _nav_c3:
+        st.caption("Download your report below · Submit to donor")
 
     for i, (sub, ev) in enumerate(zip(subs, evs)):
         if n > 1:
