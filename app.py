@@ -1685,11 +1685,12 @@ def _render_paywall(irc_context: bool = False):
     """Show upgrade/payment options. irc_context=True suppresses the free-checks header."""
     email = st.session_state.get("user_email", "")
     if not irc_context:
-        st.markdown("### Your 3 free checks are done — here's what you unlock next:")
+        st.markdown("### You've used your 3 free checks.")
         st.markdown(
-            "- **More confidence checks** — keep scoring results as you prepare your report\n"
-            "- **⚡ Instant Report Check** — upload your whole report and auto-fill the form in seconds\n"
-            "- **Downloadable reports** (HTML, PDF) — share your scores with your supervisor\n\n"
+            "Fixed the gaps? Upgrade to re-score and see the improvement:\n\n"
+            "- **Re-score after every fix** — see exactly how much each change moves your score\n"
+            "- **⚡ Instant Report Check** — upload your draft report and auto-fill all fields in seconds\n"
+            "- **Downloadable PDF report** — shareable with your supervisor or donor\n\n"
             f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited*"
         )
     _c1, _c2 = st.columns(2)
@@ -3609,7 +3610,18 @@ def render_screen_0():
         _go_to_screen(1, reset=True)
     st.caption("First 3 checks are free. No card needed.")
 
-    if st.button("📊 Portfolio Dashboard — score my whole logframe", use_container_width=True, key="cta_portfolio"):
+    st.markdown(
+        '<div style="border:1px solid #8A6500;border-radius:8px;padding:12px 16px;'
+        'margin:12px 0;background:#FFFEF7;">'
+        '<p style="margin:0 0 4px 0;font-weight:700;color:#8A6500;font-size:0.9rem;">'
+        '&#128202; Checking a full logframe?</p>'
+        '<p style="margin:0 0 8px 0;font-size:0.82rem;color:#616161;">'
+        'Upload your logframe CSV &mdash; see which indicators are weakest across your '
+        'portfolio, with a heatmap and specific fixes per indicator.</p>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button("Score my whole logframe →", use_container_width=True, key="cta_portfolio"):
         _go_to_screen(3)
 
     st.markdown(
@@ -4491,6 +4503,35 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                     st.warning(f"Result statement scores {_q_clar:.1f}/5.0 on Clarity — consider sharpening it before proceeding.")
             except Exception:
                 pass
+            # --- Quick Confidence signal (optional evidence fields) ---
+            if active == 1:
+                with st.expander("Get a quick Confidence signal (optional — add your evidence here)", expanded=False):
+                    _qe_desc = st.text_input(
+                        "Brief evidence description",
+                        key="quick_evidence_desc",
+                        placeholder="e.g. Monthly DHIS2 data from 3 facilities, reviewed by MEL officer",
+                    )
+                    _qe_type = st.selectbox(
+                        "Evidence type",
+                        key="quick_evidence_type",
+                        options=["—"] + EVIDENCE_TYPES,
+                    )
+                    if _qe_desc.strip() and _qe_type != "—":
+                        try:
+                            _quick_sub = _build_submission_from_session(1)
+                            _quick_sub["evidence"] = [{"type": _qe_type, "description": _qe_desc,
+                                                       "recency": "", "verified_by": ""}]
+                            _quick_ev2 = _evaluator.evaluate_submission(_quick_sub)
+                            _qc = _quick_ev2.get("confidence_score", 0)
+                            if _qc >= 3.5:
+                                st.success(f"Provisional Confidence: {_qc:.1f}/5.0 ✅ — strong evidence signal.")
+                            elif _qc >= 2.0:
+                                st.info(f"Provisional Confidence: {_qc:.1f}/5.0 ⚠️ — strengthen your evidence in Tab 3.")
+                            else:
+                                st.warning(f"Provisional Confidence: {_qc:.1f}/5.0 🔴 — evidence needs significant work.")
+                            st.caption("Provisional only — complete Tabs 2–4 for your full scored report.")
+                        except Exception:
+                            pass
             _nb1, _pb1 = st.columns([3, 1])
             with _nb1:
                 if st.button("Next: Logframe Linkage →", key="tab1_next_btn", type="primary", use_container_width=True):
