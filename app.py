@@ -1256,13 +1256,14 @@ h1, h2, h3, h4 {
     from { opacity: 0.5; }
     to   { opacity: 1; }
 }
-/* Ensure pitch strip stays above Streamlit sidebar */
-[data-testid="stSidebar"] {
-    z-index: 99 !important;
-}
-/* Push sidebar content below the fixed pitch strip so it isn't hidden */
-[data-testid="stSidebar"] > div:first-child {
+/* Push sidebar user content below the fixed pitch strip */
+[data-testid="stSidebarUserContent"] {
     padding-top: 88px !important;
+}
+/* Keep sidebar collapse/expand toggle above pitch strip */
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="stSidebarCollapseButton"] {
+    z-index: 9999999 !important;
 }
 </style>
 """
@@ -3789,7 +3790,7 @@ def render_screen_1():
                         doScroll();
                         done = true;
                         try { obs.disconnect(); } catch(e) {}
-                    }, 120);
+                    }, 350);
                 }
                 try {
                     var obs = new MutationObserver(onMutation);
