@@ -5380,14 +5380,23 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             return "✅" if s >= 4.0 else "⚠️" if s >= 3.0 else "🔴"
         _tf = fixes[0]["message"] if fixes else "No major gaps — ready to refine."
         _wa_text = (
-            f"📊 Impact-Receipts Pre-Submission Check\n"
+            f"📊 Impact Integrity Diagnostic — Pre-Submission Check\n"
             f"Confidence: {conf_score}/5.0 {_share_icon(conf_score)}  ·  "
             f"Clarity: {clar_score}/5.0 {_share_icon(clar_score)}\n"
             f"Top fix: {_tf}\n"
-            f"Verdict: {verdict}"
+            f"Verdict: {verdict}\n"
+            f"Checked with: impactintegrity.africa"
         )
+        _wa_url = "https://wa.me/?text=" + urllib.parse.quote(_wa_text)
+        st.markdown(
+            f'<a href="{_wa_url}" target="_blank" style="display:inline-block;'
+            f'background:#25D366;color:white;padding:8px 18px;border-radius:8px;'
+            f'text-decoration:none;font-weight:700;font-size:0.9rem;margin:4px 0;">'
+            f'📱 Send to WhatsApp</a>',
+            unsafe_allow_html=True,
+        )
+        st.caption("Opens WhatsApp — choose who to send to from your contacts.")
         st.code(_wa_text, language=None)
-        st.caption("Tap the copy icon above and paste into WhatsApp or your team chat.")
 
     render_fulltime(
         confidence=round(conf_score * 20),
@@ -5494,7 +5503,7 @@ def render_screen_2():
                 f"— I personally review results before submission deadlines."
             )
 
-    _nav_c1, _nav_c2, _nav_c3 = st.columns(3)
+    _nav_c1, _nav_c2, _nav_c3, _nav_c4 = st.columns(4)
     with _nav_c1:
         if st.button("← Edit this result", key="back_to_form"):
             st.session_state["evaluations"] = None
@@ -5505,7 +5514,20 @@ def render_screen_2():
             st.session_state["evaluations"] = None
             _go_to_screen(1, reset=True)
     with _nav_c3:
-        st.caption("Download your report below · Submit to donor")
+        import streamlit.components.v1 as _nav_components
+        _nav_components.html(
+            '<script>function scrollToDownloads(){'
+            'var el=window.parent.document.getElementById("downloads-anchor");'
+            'if(el)el.scrollIntoView({behavior:"smooth"});}</script>'
+            '<button onclick="scrollToDownloads()" style="'
+            'background:transparent;border:1px solid #8A6500;color:#8A6500;'
+            'padding:6px 12px;border-radius:6px;cursor:pointer;font-size:0.85rem;'
+            'font-family:Inter,sans-serif;font-weight:600;width:100%;">'
+            '⬇ Download report</button>',
+            height=40,
+        )
+    with _nav_c4:
+        st.caption("Submit to donor")
 
     for i, (sub, ev) in enumerate(zip(subs, evs)):
         if n > 1:
@@ -5593,6 +5615,7 @@ def render_screen_2():
     html_report = _build_html_report(subs[0], evs[0], timestamp) if n == 1 else \
                   _build_combined_html_report(subs, evs, timestamp)
 
+    st.markdown('<div id="downloads-anchor"></div>', unsafe_allow_html=True)
     col_dl, col_json, col_add, col_fresh = st.columns([2, 1.5, 1, 1])
     with col_dl:
         st.download_button(
