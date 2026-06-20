@@ -1248,6 +1248,18 @@ h1, h2, h3, h4 {
     font-size: 0.875rem !important;
     font-weight: 600 !important;
 }
+/* Smooth navigation transitions — reduces ghost/shadow flash between tabs and screens */
+[data-testid="stMainBlockContainer"] > div {
+    animation: fadeInContent 0.12s ease-in;
+}
+@keyframes fadeInContent {
+    from { opacity: 0.5; }
+    to   { opacity: 1; }
+}
+/* Ensure pitch strip stays above Streamlit sidebar */
+[data-testid="stSidebar"] {
+    z-index: 99 !important;
+}
 </style>
 """
 
@@ -3397,7 +3409,7 @@ def inject_matchday_css():
     .md-var-text strong { font-size:1rem; }
     .md-var-text span { font-size:0.85rem; color:#aaa8a0; }
     .md-pitch { background:#1a1a18; border-radius:0; padding:10px 16px;
-        margin:0; position:fixed; top:3.75rem; left:0; right:0; z-index:9999; }
+        margin:0; position:fixed; top:3.75rem; left:0; right:0; z-index:999999; }
     .md-pitch-stages { display:flex; align-items:flex-start; justify-content:space-between;
         position:relative; max-width:730px; margin:0 auto; width:100%; }
     .md-pitch-stages::before { content:""; position:absolute; top:16px; left:10%; right:10%;
@@ -3757,7 +3769,8 @@ def render_screen_1():
         components.html(
             """<script>
             (function() {
-                function scrollTop() {
+                var attempts = 0;
+                var iv = setInterval(function() {
                     var p = window.parent;
                     try { p.scrollTo(0, 0); } catch(e) {}
                     try { p.document.documentElement.scrollTop = 0; } catch(e) {}
@@ -3766,9 +3779,9 @@ def render_screen_1():
                         var m = p.document.querySelector('[data-testid="stMain"]');
                         if (m) m.scrollTop = 0;
                     } catch(e) {}
-                }
-                scrollTop();
-                [200, 500, 1000].forEach(function(d) { setTimeout(scrollTop, d); });
+                    attempts++;
+                    if (attempts >= 10) clearInterval(iv);
+                }, 100);
             })();
             </script>""",
             height=1,
