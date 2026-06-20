@@ -1369,7 +1369,7 @@ def _reset_all_slots():
     for k in ["active_slots", "evaluations", "submissions_snapshot",
               "evaluation", "submission_snapshot", "error_message", "active_slots_run",
               "_tab1_auto_advanced", "_tab2_auto_advanced",
-              "_results_email_sent"]:
+              "_results_email_sent", "current_tab"]:
         st.session_state.pop(k, None)
 
 
@@ -5591,6 +5591,8 @@ def render_screen_2():
         if st.button("✓ Check another result →", key="check_another", type="primary", use_container_width=True):
             _reset_all_slots()
             st.session_state["evaluations"] = None
+            st.session_state["current_tab"] = 0
+            st.query_params["tab"] = "0"
             _go_to_screen(1, reset=True)
     with _nav_c3:
         st.caption("Download below · Submit to donor")
