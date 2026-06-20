@@ -1531,8 +1531,8 @@ _TUTORIAL_COPY = {
     1: {
         "title": "📝 Each field below contributes to your score.",
         "body": (
-            "Watch the **Live Score Preview** panel (Review & Submit tab) update as you type.\n"
-            "We'll show you exactly which inputs boost which scores."
+            "Watch the **Submission Summary** panel (top-left sidebar) update as you fill in each field.\n"
+            "Open **Live Score Preview** on the Review & Submit tab to see a full score breakdown before submitting."
         ),
     },
     2: {
