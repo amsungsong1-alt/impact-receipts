@@ -5484,6 +5484,24 @@ def render_screen_2():
     evs  = st.session_state.get("evaluations") or []
     subs = st.session_state.get("submissions_snapshot") or []
 
+    if evs and not st.session_state.get("_results_email_sent"):
+        _re_email = st.session_state.get("user_email", "")
+        if _re_email:
+            try:
+                from utils.email_otp import send_results_email as _sre
+                _re_ev = evs[0]
+                _sre(
+                    to_email=_re_email,
+                    conf_score=_re_ev.get("confidence_score", 0),
+                    clar_score=_re_ev.get("clarity_score", 0),
+                    top_fixes=_re_ev.get("fixes", [])[:3],
+                    result_snippet=st.session_state.get("result_statement", ""),
+                    verdict=_re_ev.get("verdict", ""),
+                )
+            except Exception:
+                pass
+        st.session_state["_results_email_sent"] = True
+
     if not evs:
         st.warning("No evaluation results found. Please go back and try again.")
         if st.button("← Edit Submission"):
@@ -6117,6 +6135,48 @@ _DONOR_TEMPLATES = {
                     {"label": "Known Data Limitations", "source": "submission.limitations_notes"},
                     {"label": "Prepared By",             "source": "session.report_prepared_by"},
                     {"label": "Status",                  "source": "session.report_status"},
+                ],
+                "required": [],
+            },
+        ],
+    },
+    "fcdo": {
+        "label": "FCDO",
+        "sections": [
+            {
+                "title": "Output / Outcome Information",
+                "fields": [
+                    {"label": "Programme Name",         "source": "session.project_name",             "required": True},
+                    {"label": "Output / Outcome Title", "source": "submission.result_statement",       "required": True},
+                    {"label": "Logframe Indicator",     "source": "submission.logframe_indicator",     "required": True},
+                    {"label": "Reporting Period",       "source": "submission.timeframe",              "required": True},
+                    {"label": "Target",                 "source": "submission.logframe_target",        "required": False},
+                    {"label": "Achievement",            "source": "submission.logframe_achievement",   "required": False},
+                    {"label": "Geographic Scope",       "source": "submission.geographic_scope",       "required": False},
+                ],
+                "required": ["Programme Name", "Output / Outcome Title", "Logframe Indicator", "Reporting Period"],
+            },
+            {
+                "title": "Evidence Quality (Bond Evidence Principles 2024)",
+                "fields": [
+                    {"label": "Confidence Score (0–5)",       "source": "evaluation.confidence_score",         "required": False},
+                    {"label": "Confidence Rating",            "source": "evaluation.confidence_label",         "required": False},
+                    {"label": "Clarity Score (0–5)",          "source": "evaluation.clarity_score",            "required": False},
+                    {"label": "Clarity Rating",               "source": "evaluation.clarity_label",            "required": False},
+                    {"label": "Beneficiary Voice",            "source": "submission.beneficiary_voice",         "required": False},
+                    {"label": "Attribution / Contribution",   "source": "submission.attribution_contribution",  "required": False},
+                ],
+                "required": [],
+            },
+            {
+                "title": "VfM & Learning",
+                "fields": [
+                    {"label": "What the team learned",    "source": "submission.learning_notes",    "required": False},
+                    {"label": "Limitations of this data", "source": "submission.limitations_notes", "required": False},
+                    {"label": "Internal Review Level",    "source": "submission.internal_review",   "required": False},
+                    {"label": "External Review Level",    "source": "submission.external_review",   "required": False},
+                    {"label": "Prepared By",              "source": "session.report_prepared_by",   "required": False},
+                    {"label": "Status",                   "source": "session.report_status",        "required": False},
                 ],
                 "required": [],
             },
