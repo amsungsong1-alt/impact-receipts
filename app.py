@@ -1260,6 +1260,10 @@ h1, h2, h3, h4 {
 [data-testid="stSidebar"] {
     z-index: 99 !important;
 }
+/* Push sidebar content below the fixed pitch strip so it isn't hidden */
+[data-testid="stSidebar"] > div:first-child {
+    padding-top: 88px !important;
+}
 </style>
 """
 
@@ -3769,19 +3773,36 @@ def render_screen_1():
         components.html(
             """<script>
             (function() {
-                var attempts = 0;
-                var iv = setInterval(function() {
-                    var p = window.parent;
-                    try { p.scrollTo(0, 0); } catch(e) {}
+                var p = window.parent;
+                var done = false;
+                function doScroll() {
+                    if (done) return;
+                    try { p.scrollTo(0,0); } catch(e) {}
                     try { p.document.documentElement.scrollTop = 0; } catch(e) {}
                     try { p.document.body.scrollTop = 0; } catch(e) {}
-                    try {
-                        var m = p.document.querySelector('[data-testid="stMain"]');
-                        if (m) m.scrollTop = 0;
-                    } catch(e) {}
-                    attempts++;
-                    if (attempts >= 10) clearInterval(iv);
-                }, 100);
+                    try { var m=p.document.querySelector('[data-testid="stMain"]'); if(m) m.scrollTop=0; } catch(e) {}
+                }
+                var timer = null;
+                function onMutation() {
+                    clearTimeout(timer);
+                    timer = setTimeout(function() {
+                        doScroll();
+                        done = true;
+                        try { obs.disconnect(); } catch(e) {}
+                    }, 120);
+                }
+                try {
+                    var obs = new MutationObserver(onMutation);
+                    obs.observe(p.document.body, {childList:true, subtree:true});
+                    doScroll();
+                    setTimeout(function() {
+                        doScroll();
+                        done = true;
+                        try { obs.disconnect(); } catch(e) {}
+                    }, 2500);
+                } catch(e) {
+                    var n=0, iv=setInterval(function(){ doScroll(); if(++n>=15) clearInterval(iv); },100);
+                }
             })();
             </script>""",
             height=1,
