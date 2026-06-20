@@ -1368,7 +1368,8 @@ def _reset_all_slots():
             st.session_state.pop(f"{k}{s}", None)
     for k in ["active_slots", "evaluations", "submissions_snapshot",
               "evaluation", "submission_snapshot", "error_message", "active_slots_run",
-              "_tab1_auto_advanced", "_tab2_auto_advanced"]:
+              "_tab1_auto_advanced", "_tab2_auto_advanced",
+              "_results_email_sent"]:
         st.session_state.pop(k, None)
 
 
@@ -4505,16 +4506,29 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 pass
             # --- Quick Confidence signal (optional evidence fields) ---
             if active == 1:
-                with st.expander("Get a quick Confidence signal (optional — add your evidence here)", expanded=False):
+                # Pre-fill from IRC-extracted evidence if available
+                _irc_ev_desc = _ss_str("evidence_description").strip()
+                _irc_ev_type = st.session_state.get("evidence_type", "")
+                _quick_has_irc = bool(_irc_ev_desc and _irc_ev_type and _irc_ev_type != "—")
+                _expander_label = (
+                    "Quick Confidence signal — pre-filled from your uploaded report ✅"
+                    if _quick_has_irc else
+                    "Get a quick Confidence signal (optional — add your evidence here)"
+                )
+                with st.expander(_expander_label, expanded=_quick_has_irc):
                     _qe_desc = st.text_input(
                         "Brief evidence description",
                         key="quick_evidence_desc",
+                        value=_irc_ev_desc,
                         placeholder="e.g. Monthly DHIS2 data from 3 facilities, reviewed by MEL officer",
                     )
+                    _default_type_idx = (EVIDENCE_TYPES.index(_irc_ev_type) + 1
+                                         if _irc_ev_type in EVIDENCE_TYPES else 0)
                     _qe_type = st.selectbox(
                         "Evidence type",
                         key="quick_evidence_type",
                         options=["—"] + EVIDENCE_TYPES,
+                        index=_default_type_idx,
                     )
                     if _qe_desc.strip() and _qe_type != "—":
                         try:
@@ -5490,7 +5504,7 @@ def render_screen_2():
             try:
                 from utils.email_otp import send_results_email as _sre
                 _re_ev = evs[0]
-                _sre(
+                _ok_re, _err_re = _sre(
                     to_email=_re_email,
                     conf_score=_re_ev.get("confidence_score", 0),
                     clar_score=_re_ev.get("clarity_score", 0),
@@ -5498,8 +5512,12 @@ def render_screen_2():
                     result_snippet=st.session_state.get("result_statement", ""),
                     verdict=_re_ev.get("verdict", ""),
                 )
-            except Exception:
-                pass
+                if not _ok_re:
+                    import logging
+                    logging.warning(f"Results email failed: {_err_re}")
+            except Exception as _re_exc:
+                import logging
+                logging.warning(f"Results email exception: {_re_exc}")
         st.session_state["_results_email_sent"] = True
 
     if not evs:
@@ -6144,39 +6162,39 @@ _DONOR_TEMPLATES = {
         "label": "FCDO",
         "sections": [
             {
-                "title": "Output / Outcome Information",
+                "heading": "Output / Outcome Information",
                 "fields": [
-                    {"label": "Programme Name",         "source": "session.project_name",             "required": True},
-                    {"label": "Output / Outcome Title", "source": "submission.result_statement",       "required": True},
-                    {"label": "Logframe Indicator",     "source": "submission.logframe_indicator",     "required": True},
-                    {"label": "Reporting Period",       "source": "submission.timeframe",              "required": True},
-                    {"label": "Target",                 "source": "submission.logframe_target",        "required": False},
-                    {"label": "Achievement",            "source": "submission.logframe_achievement",   "required": False},
-                    {"label": "Geographic Scope",       "source": "submission.geographic_scope",       "required": False},
+                    {"label": "Programme Name",         "source": "session.project_name"},
+                    {"label": "Output / Outcome Title", "source": "submission.result_statement"},
+                    {"label": "Logframe Indicator",     "source": "submission.logframe_indicator"},
+                    {"label": "Reporting Period",       "source": "submission.timeframe"},
+                    {"label": "Target",                 "source": "submission.logframe_target"},
+                    {"label": "Achievement",            "source": "submission.logframe_achievement"},
+                    {"label": "Geographic Scope",       "source": "submission.geographic_scope"},
                 ],
                 "required": ["Programme Name", "Output / Outcome Title", "Logframe Indicator", "Reporting Period"],
             },
             {
-                "title": "Evidence Quality (Bond Evidence Principles 2024)",
+                "heading": "Evidence Quality (Bond Evidence Principles 2024)",
                 "fields": [
-                    {"label": "Confidence Score (0–5)",       "source": "evaluation.confidence_score",         "required": False},
-                    {"label": "Confidence Rating",            "source": "evaluation.confidence_label",         "required": False},
-                    {"label": "Clarity Score (0–5)",          "source": "evaluation.clarity_score",            "required": False},
-                    {"label": "Clarity Rating",               "source": "evaluation.clarity_label",            "required": False},
-                    {"label": "Beneficiary Voice",            "source": "submission.beneficiary_voice",         "required": False},
-                    {"label": "Attribution / Contribution",   "source": "submission.attribution_contribution",  "required": False},
+                    {"label": "Confidence Score (0–5)",     "source": "evaluation.confidence_score"},
+                    {"label": "Confidence Rating",          "source": "evaluation.confidence_label"},
+                    {"label": "Clarity Score (0–5)",        "source": "evaluation.clarity_score"},
+                    {"label": "Clarity Rating",             "source": "evaluation.clarity_label"},
+                    {"label": "Beneficiary Voice",          "source": "submission.beneficiary_voice"},
+                    {"label": "Attribution / Contribution", "source": "submission.attribution_contribution"},
                 ],
                 "required": [],
             },
             {
-                "title": "VfM & Learning",
+                "heading": "VfM & Learning",
                 "fields": [
-                    {"label": "What the team learned",    "source": "submission.learning_notes",    "required": False},
-                    {"label": "Limitations of this data", "source": "submission.limitations_notes", "required": False},
-                    {"label": "Internal Review Level",    "source": "submission.internal_review",   "required": False},
-                    {"label": "External Review Level",    "source": "submission.external_review",   "required": False},
-                    {"label": "Prepared By",              "source": "session.report_prepared_by",   "required": False},
-                    {"label": "Status",                   "source": "session.report_status",        "required": False},
+                    {"label": "What the team learned",    "source": "submission.learning_notes"},
+                    {"label": "Limitations of this data", "source": "submission.limitations_notes"},
+                    {"label": "Internal Review Level",    "source": "submission.internal_review"},
+                    {"label": "External Review Level",    "source": "submission.external_review"},
+                    {"label": "Prepared By",              "source": "session.report_prepared_by"},
+                    {"label": "Status",                   "source": "session.report_status"},
                 ],
                 "required": [],
             },
