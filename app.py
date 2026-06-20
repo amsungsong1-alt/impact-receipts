@@ -5512,13 +5512,15 @@ def render_screen_2():
                     result_snippet=st.session_state.get("result_statement", ""),
                     verdict=_re_ev.get("verdict", ""),
                 )
-                if not _ok_re:
-                    import logging
-                    logging.warning(f"Results email failed: {_err_re}")
+                if _ok_re:
+                    st.toast(f"Results emailed to {_re_email}", icon="📧")
+                    st.session_state["_results_email_sent"] = True
+                else:
+                    st.caption(f"📧 Results email could not send: {_err_re}")
             except Exception as _re_exc:
-                import logging
-                logging.warning(f"Results email exception: {_re_exc}")
-        st.session_state["_results_email_sent"] = True
+                st.caption(f"📧 Results email error: {_re_exc}")
+        else:
+            st.session_state["_results_email_sent"] = True
 
     if not evs:
         st.warning("No evaluation results found. Please go back and try again.")
