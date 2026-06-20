@@ -5503,7 +5503,7 @@ def render_screen_2():
                 f"— I personally review results before submission deadlines."
             )
 
-    _nav_c1, _nav_c2, _nav_c3, _nav_c4 = st.columns(4)
+    _nav_c1, _nav_c2, _nav_c3 = st.columns(3)
     with _nav_c1:
         if st.button("← Edit this result", key="back_to_form"):
             st.session_state["evaluations"] = None
@@ -5514,20 +5514,7 @@ def render_screen_2():
             st.session_state["evaluations"] = None
             _go_to_screen(1, reset=True)
     with _nav_c3:
-        import streamlit.components.v1 as _nav_components
-        _nav_components.html(
-            '<script>function scrollToDownloads(){'
-            'var el=window.parent.document.getElementById("downloads-anchor");'
-            'if(el)el.scrollIntoView({behavior:"smooth"});}</script>'
-            '<button onclick="scrollToDownloads()" style="'
-            'background:transparent;border:1px solid #8A6500;color:#8A6500;'
-            'padding:6px 12px;border-radius:6px;cursor:pointer;font-size:0.85rem;'
-            'font-family:Inter,sans-serif;font-weight:600;width:100%;">'
-            '⬇ Download report</button>',
-            height=40,
-        )
-    with _nav_c4:
-        st.caption("Submit to donor")
+        st.caption("Download below · Submit to donor")
 
     for i, (sub, ev) in enumerate(zip(subs, evs)):
         if n > 1:
@@ -5615,28 +5602,35 @@ def render_screen_2():
     html_report = _build_html_report(subs[0], evs[0], timestamp) if n == 1 else \
                   _build_combined_html_report(subs, evs, timestamp)
 
-    st.markdown('<div id="downloads-anchor"></div>', unsafe_allow_html=True)
-    col_dl, col_json, col_add, col_fresh = st.columns([2, 1.5, 1, 1])
-    with col_dl:
+    # --- Primary download — visible immediately after result cards ---
+    _pdf_primary = _html_to_pdf_bytes(html_report)
+    if _pdf_primary:
         st.download_button(
-            label="⬇️ Download HTML Report",
+            "📄 Download your report (PDF)",
+            data=_pdf_primary,
+            file_name=f"impact_receipts_{timestamp}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            type="primary",
+            key="pdf_primary_btn",
+        )
+    elif html_report:
+        st.download_button(
+            "⬇️ Download your report (HTML)",
             data=html_report,
             file_name=f"impact_receipts_{timestamp}.html",
             mime="text/html",
             use_container_width=True,
+            type="primary",
+            key="html_primary_btn",
         )
-        if st.session_state.get("lite_mode", False):
-            st.caption("Low-bandwidth mode: report downloads as a smaller, self-contained file — readable offline.")
-        _pdf_bytes = _html_to_pdf_bytes(html_report)
+
+    # --- Secondary / additional reports ---
+    st.caption("Additional reports:")
+    col_dl, col_json, col_add, col_fresh = st.columns([2, 1.5, 1, 1])
+    with col_dl:
+        _pdf_bytes = _pdf_primary  # reuse already-computed bytes
         if _pdf_bytes:
-            st.download_button(
-                label="📄 Download PDF Report",
-                data=_pdf_bytes,
-                file_name=f"impact_receipts_{timestamp}.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-                key="pdf_download_btn",
-            )
             with st.expander("Report handoff details"):
                 st.text_input("Prepared by (your name)", key="report_prepared_by")
                 st.selectbox("Status", _REPORT_STATUS_OPTIONS, key="report_status")
