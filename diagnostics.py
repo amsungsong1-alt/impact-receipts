@@ -469,7 +469,7 @@ def build_donor_crosswalk_html(profile_key: str) -> str:
 
     return (
         "<table style='width:100%;font-size:0.8rem;'>"
-        f"<tr><th>Impact-Receipts sub-score</th>{header_cells}</tr>"
+        f"<tr><th>Impact Integrity sub-score</th>{header_cells}</tr>"
         + "".join(rows_html)
         + "</table>"
     )
