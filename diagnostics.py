@@ -54,7 +54,7 @@ _READINESS_STYLE = {
 # Shown under every readiness banner — keeps the headline from reading as a
 # guarantee of donor approval.
 _LIMITS_DISCLAIMER = (
-    "This is improvement guidance, not a guarantee of approval. Impact-Receipts "
+    "This is improvement guidance, not a guarantee of approval. Impact Integrity Diagnostic "
     "checks the evidence you entered against what donor reviewers typically look "
     "for — completeness, verifiability, clarity, and data-protection flags. It "
     "does not see your underlying data collection, judge your programme, or "
