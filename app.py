@@ -5385,7 +5385,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             f"Clarity: {clar_score}/5.0 {_share_icon(clar_score)}\n"
             f"Top fix: {_tf}\n"
             f"Verdict: {verdict}\n"
-            f"Checked with: impactintegrity.africa"
+            f"Checked with: https://impact-integrity-diagnostic.streamlit.app/"
         )
         _wa_url = "https://wa.me/?text=" + urllib.parse.quote(_wa_text)
         st.markdown(
