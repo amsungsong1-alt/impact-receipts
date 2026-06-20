@@ -5524,7 +5524,7 @@ def render_screen_2():
 
     with st.expander("📚 Methodology & Citations", expanded=False):
         st.markdown("""
-**Impact-Receipts v3.0 scoring methodology is anchored in:**
+**Impact Integrity Diagnostic v3.0 scoring methodology is anchored in:**
 
 - **Data Quality Standards** — adapted from USAID ADS 201.3.5.7, OECD-DAC 2019 evaluation criteria, and FCDO DQA guidance. Used for all Confidence and Clarity sub-scores.
 

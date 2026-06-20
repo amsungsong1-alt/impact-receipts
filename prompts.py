@@ -334,7 +334,7 @@ FCDO_CITATION = (
 
 # Updated methodology stack display string
 METHODOLOGY_STACK = (
-    "Impact-Receipts v3.0 dual-axis scoring "
+    "Impact Integrity Diagnostic v3.0 dual-axis scoring "
     "(USAID ADS 201.3.5.7 / OECD-DAC 2019 / Bond Evidence Principles 2024 / "
     "FCDO Evaluation Policy January 2025 / World Bank IEG 2025)"
 )
