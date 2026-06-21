@@ -4692,6 +4692,10 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             pass
         # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
+        # Live score breakdown with per-axis fix buttons
+        for _lsp_slot in range(1, active + 1):
+            _render_live_score_preview(_lsp_slot)
+
         st.divider()
 
         # Consent checkbox for example library
