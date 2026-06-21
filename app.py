@@ -232,6 +232,30 @@ _EV_QUALITY_CHECKS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
+# Provenance questions most relevant per evidence type — show only these (not all 6).
+# Keys must match the provenance_* session state keys used in _render_tab3_slot().
+_PROVENANCE_FOR_EV_TYPE: dict[str, list[str]] = {
+    "Attendance sheets / participant registers": ["double_counting_checked", "collector_independent"],
+    "Raw datasets or survey exports":           ["sampling_documented", "double_counting_checked", "collection_tool_named"],
+    "Partner verification letters":             ["auditor_traceable"],
+    "Photos with metadata":                     ["collector_independent", "auditor_traceable"],
+    "Tracer survey results":                    ["sampling_documented", "recall_period_ok", "collector_independent"],
+    "Financial records":                        ["double_counting_checked", "auditor_traceable"],
+    "Third-party audits":                       ["collector_independent", "auditor_traceable"],
+}
+# Fall-back (no evidence type selected or unlisted): show all 5
+_PROVENANCE_ALL = ["sampling_documented", "double_counting_checked", "collection_tool_named",
+                   "collector_independent", "recall_period_ok"]
+
+# Human-readable labels for provenance keys
+_PROVENANCE_LABELS = {
+    "sampling_documented":     "Sampling or selection method documented",
+    "double_counting_checked": "Checked for double-counting across activities or periods",
+    "collection_tool_named":   "Data-collection tool/method identified (e.g. KoboToolbox, paper form, admin records)",
+    "collector_independent":   "Data collected by someone independent of those reporting the result (enumerator-bias risk)",
+    "recall_period_ok":        "Recall-period risk assessed (data collected close to the event, or recall bias mitigated)",
+}
+
 # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 PII_EVIDENCE_TYPES = [
     "Attendance sheets / participant registers",
@@ -2855,7 +2879,44 @@ def _render_tab3_slot(slot: int):
         if ev_type == "Other":
             st.text_input("Specify evidence type", key=f"evidence_type_other{s}")
 
-    with st.expander("✅ Verification & Reporting Period", expanded=True):
+    # Who verified this — core field, shown before the verification detail expander
+    _irc_widget(
+        st.text_input, "Who verified this?", f"verifier{s}", default="",
+        placeholder=_ph.get("verifier", "e.g., District Agriculture Officer, partner org M&E lead, external evaluator"),
+        help="The person or organization that confirmed the data is accurate.",
+    )
+
+    # Reporting Period — 3-column inline row (no stacked Today buttons)
+    st.markdown("**Reporting Period**")
+    st.caption("The period this submission covers. Evidence outside this range is flagged.")
+    _rp_col1, _rp_col2, _rp_col3 = st.columns(3)
+    with _rp_col1:
+        _irc_widget(st.date_input, "Period start", f"reporting_start{s}", default=date.today())
+    with _rp_col2:
+        _irc_widget(st.date_input, "Period end",   f"reporting_end{s}",   default=date.today())
+    with _rp_col3:
+        _irc_widget(st.date_input, "Evidence collected", f"evidence_date{s}", default=date.today())
+    _ed   = st.session_state.get(f"evidence_date{s}")
+    _rp_s = st.session_state.get(f"reporting_start{s}")
+    _rp_e = st.session_state.get(f"reporting_end{s}")
+    if _ed and hasattr(_evaluator, "get_recency_diagnostic"):
+        _rec_diag = _evaluator.get_recency_diagnostic(_ed)
+        if "0.4/1.0" in _rec_diag or "0.2/1.0" in _rec_diag:
+            st.warning(_rec_diag)
+        elif "0.6/1.0" in _rec_diag:
+            st.info(_rec_diag)
+        else:
+            st.success(_rec_diag)
+    if _ed and _rp_s and _rp_e and hasattr(_evaluator, "validate_reporting_period"):
+        _, _rp_msg, _rp_sev = _evaluator.validate_reporting_period(_ed, _rp_s, _rp_e)
+        if _rp_sev == "ERROR":
+            st.error(_rp_msg)
+        elif _rp_sev == "WARNING":
+            st.warning(_rp_msg)
+        elif _rp_msg:
+            st.success(_rp_msg)
+
+    with st.expander("✅ Verification", expanded=True):
         int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
         _irc_widget(
             st.selectbox, "Internal review", f"internal_review{s}", default=INTERNAL_REVIEW_OPTIONS[0],
@@ -2870,7 +2931,6 @@ def _render_tab3_slot(slot: int):
         if int_rev == "Other":
             st.text_input("Specify internal reviewer", key=f"internal_review_other{s}")
 
-        ext_rev = st.session_state.get(f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0])
         _irc_widget(
             st.selectbox, "External review", f"external_review{s}", default=EXTERNAL_REVIEW_OPTIONS[0],
             options=EXTERNAL_REVIEW_OPTIONS,
@@ -2886,45 +2946,30 @@ def _render_tab3_slot(slot: int):
         if ext_rev == "Other":
             st.text_input("Specify external reviewer", key=f"external_review_other{s}")
 
+        # Provenance — smart-filtered by evidence type
+        _ev_type_prov = st.session_state.get(f"evidence_type{s}", "")
+        _prov_keys = _PROVENANCE_FOR_EV_TYPE.get(_ev_type_prov, _PROVENANCE_ALL)
+        _prov_key_map = {
+            "sampling_documented":     f"provenance_sampling{s}",
+            "double_counting_checked": f"provenance_dedup{s}",
+            "collection_tool_named":   f"provenance_tool{s}",
+            "collector_independent":   f"provenance_independence{s}",
+            "recall_period_ok":        f"provenance_recall{s}",
+        }
+        if _prov_keys:
+            st.markdown("**Data Collection & Provenance**")
+            st.caption("Answer 'Not applicable' where it honestly doesn't apply — that's neutral.")
+            for _pk in _prov_keys:
+                _pk_ss = _prov_key_map.get(_pk)
+                if _pk_ss:
+                    _irc_widget(
+                        st.selectbox, _PROVENANCE_LABELS[_pk],
+                        _pk_ss, default=PROVENANCE_YES_NO_NA_OPTIONS[0],
+                        options=PROVENANCE_YES_NO_NA_OPTIONS,
+                    )
         _irc_widget(
-            st.text_input, "Who verified this?", f"verifier{s}", default="",
-            placeholder=_ph.get("verifier", "e.g., District Agriculture Officer, partner org M&E lead, external evaluator"),
-            help="The person or organization that confirmed the data is accurate.",
-        )
-
-        st.markdown("#### Data Collection & Provenance")
-        st.caption(
-            "These adjust your Verification score. Answer 'Not applicable' where it honestly "
-            "doesn't apply — that's neutral. Unanswered items are treated as 'No'."
-        )
-        _irc_widget(
-            st.selectbox, "Sampling or selection method documented (who you included, and how)",
-            f"provenance_sampling{s}", default=PROVENANCE_YES_NO_NA_OPTIONS[0],
-            options=PROVENANCE_YES_NO_NA_OPTIONS,
-        )
-        _irc_widget(
-            st.selectbox, "Checked for double-counting (no beneficiary or result counted twice "
-            "across activities or periods)", f"provenance_dedup{s}", default=PROVENANCE_YES_NO_NA_OPTIONS[0],
-            options=PROVENANCE_YES_NO_NA_OPTIONS,
-        )
-        _irc_widget(
-            st.selectbox, "Data-collection tool/method identified (e.g. KoboToolbox, paper form, "
-            "admin records)", f"provenance_tool{s}", default=PROVENANCE_YES_NO_NA_OPTIONS[0],
-            options=PROVENANCE_YES_NO_NA_OPTIONS,
-        )
-        _irc_widget(
-            st.selectbox, "Data collected by someone independent of those reporting the result "
-            "(enumerator-bias risk)", f"provenance_independence{s}", default=PROVENANCE_YES_NO_NA_OPTIONS[0],
-            options=PROVENANCE_YES_NO_NA_OPTIONS,
-        )
-        _irc_widget(
-            st.selectbox, "Recall-period risk assessed (data collected close to the event, or "
-            "recall bias mitigated)", f"provenance_recall{s}", default=PROVENANCE_YES_NO_NA_OPTIONS[0],
-            options=PROVENANCE_YES_NO_NA_OPTIONS,
-        )
-        _irc_widget(
-            st.selectbox, "Could an external auditor retrieve the original records referenced "
-            "above?", f"provenance_traceability{s}", default=TRACEABILITY_OPTIONS[0],
+            st.selectbox, "Could an external auditor retrieve the original records?",
+            f"provenance_traceability{s}", default=TRACEABILITY_OPTIONS[0],
             options=TRACEABILITY_OPTIONS,
             help="E.g. raw survey exports, signed registers, payment records.",
         )
@@ -2937,89 +2982,20 @@ def _render_tab3_slot(slot: int):
             "auditor_traceable":       st.session_state.get(f"provenance_traceability{s}", TRACEABILITY_OPTIONS[0]),
         }
 
-        st.markdown("#### Reporting Period")
-        st.caption("The period this submission covers. Evidence dates outside this range trigger a flag.")
-        _rp_c1, _rp_t1 = st.columns([5, 1])
-        with _rp_c1:
-            _irc_widget(
-                st.date_input, "Reporting period start", f"reporting_start{s}", default=date.today(),
-                help="When does the period this report covers begin?")
-        with _rp_t1:
-            st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
-            if st.button("Today", key=f"today_rp_start{s}"):
-                st.session_state[f"reporting_start{s}"] = date.today()
-                st.rerun()
-        _rp_s_val = st.session_state.get(f"reporting_start{s}")
-        if _rp_s_val and _rp_s_val > date.today():
-            st.caption("⚠ This date is in the future.")
-
-        _rp_c2, _rp_t2 = st.columns([5, 1])
-        with _rp_c2:
-            _irc_widget(
-                st.date_input, "Reporting period end", f"reporting_end{s}", default=date.today(),
-                help="When does the period this report covers end?")
-        with _rp_t2:
-            st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
-            if st.button("Today", key=f"today_rp_end{s}"):
-                st.session_state[f"reporting_end{s}"] = date.today()
-                st.rerun()
-        _rp_e_val = st.session_state.get(f"reporting_end{s}")
-        if _rp_e_val and _rp_e_val > date.today():
-            st.caption("⚠ This date is in the future.")
-
-        _ev_c, _ev_t = st.columns([5, 1])
-        with _ev_c:
-            _irc_widget(
-                st.date_input, "When was this evidence collected?", f"evidence_date{s}", default=date.today(),
-                help="When was the data collected? Use the most recent date if multiple sources.",
-            )
-        with _ev_t:
-            st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
-            if st.button("Today", key=f"today_ev_date{s}"):
-                st.session_state[f"evidence_date{s}"] = date.today()
-                st.rerun()
-        _ed = st.session_state.get(f"evidence_date{s}")
-        if _ed and _ed > date.today():
-            st.caption("⚠ This date is in the future.")
-        if _ed and hasattr(_evaluator, "get_recency_diagnostic"):
-            _rec_diag = _evaluator.get_recency_diagnostic(_ed)
-            if "0.4/1.0" in _rec_diag or "0.2/1.0" in _rec_diag:
-                st.warning(_rec_diag)
-            elif "0.6/1.0" in _rec_diag:
-                st.info(_rec_diag)
-            else:
-                st.success(_rec_diag)
-        _rp_s = st.session_state.get(f"reporting_start{s}")
-        _rp_e = st.session_state.get(f"reporting_end{s}")
-        if _ed and _rp_s and _rp_e and hasattr(_evaluator, "validate_reporting_period"):
-            _, _rp_msg, _rp_sev = _evaluator.validate_reporting_period(_ed, _rp_s, _rp_e)
-            if _rp_sev == "ERROR":
-                st.error(_rp_msg)
-            elif _rp_sev == "WARNING":
-                st.warning(_rp_msg)
-            elif _rp_msg:
-                st.success(_rp_msg)
-
-    st.markdown("#### Beneficiary Voice")
-    st.caption(
-        "Did the beneficiaries contribute to or validate this evidence?"
-    )
+    # Beneficiary Voice — promoted to its own section immediately after evidence checks
+    st.markdown("### Beneficiary Voice")
+    st.caption("Did the people this programme serves contribute to or validate this evidence?")
     st.selectbox(
         "How were beneficiary voices captured?",
         key=f"beneficiary_voice{s}",
         options=_BV_OPTIONS,
-        help=(
-            "Bond Evidence Principle 1 (2024 refresh): Voice & Inclusion. "
-            "The strongest evidence includes beneficiary perspectives, not just provider reports."
-        ),
+        help="The strongest evidence includes beneficiary perspectives, not just provider reports.",
     )
     _bv_val = st.session_state.get(f"beneficiary_voice{s}", "")
     _bv_score = (_evaluator.compute_beneficiary_voice_bonus(_bv_val)
                  if hasattr(_evaluator, "compute_beneficiary_voice_bonus") else 0.0)
-    # --- UX: CONDITIONAL FIELDS (v3.2) ---
     if _bv_val and _bv_val not in ("No beneficiary voice captured", "Choose an option..."):
-        st.caption(f"Beneficiary Voice bonus: **+{_bv_score}/0.5** (Bond Evidence Principles 2024)")
-    # --- END UX: CONDITIONAL FIELDS (v3.2) ---
+        st.caption(f"Beneficiary Voice bonus: **+{_bv_score}/0.5**")
 
     # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
     _ev_type_now = st.session_state.get(f"evidence_type{s}", "")
@@ -3027,10 +3003,13 @@ def _render_tab3_slot(slot: int):
     _safeguarding_triggered = _ev_type_now in SAFEGUARDING_EVIDENCE_TYPES
     _minors_triggered = _minors_possibly_involved(slot)
     st.divider()
-    with st.expander("🛡️ Compliance & Data Governance", expanded=_pii_triggered or _safeguarding_triggered or _minors_triggered or st.session_state.get("_irc_used", False)):
+    with st.expander(
+        "🛡️ Compliance & Data Governance",
+        expanded=_pii_triggered or _safeguarding_triggered or _minors_triggered,
+    ):
         st.caption(
-            "Handling beneficiary data in your M&E? This flags where you may be exposed "
-            "under Ghana's Act 843 / Nigeria's NDPA."
+            "Required if your evidence involves personal data. "
+            "Flags exposure under Ghana's Act 843 / Nigeria's NDPA."
         )
         st.subheader("🛡️ Compliance & Ethics Check")
         st.caption("*Ensure your evidence is not just credible — but legally safe and safe for the people in it.*")
@@ -5499,26 +5478,53 @@ def render_screen_2():
             unsafe_allow_html=True,
         )
 
-    _nav_c1, _nav_c2, _nav_c3 = st.columns(3)
-    with _nav_c1:
-        if st.button("← Edit this result", key="back_to_form"):
-            st.session_state["evaluations"] = None
-            _go_to_screen(1)
-    with _nav_c2:
-        if st.button("✓ Check another result →", key="check_another", type="primary", use_container_width=True):
-            _reset_all_slots()
-            st.session_state["evaluations"] = None
-            st.session_state["current_tab"] = 0
-            st.query_params["tab"] = "0"
-            _go_to_screen(1, reset=True)
-    with _nav_c3:
-        st.caption("Download below · Submit to donor")
+    # Primary download — shown immediately after snapshot, BEFORE detail cards
+    timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
+    html_report = _build_html_report(subs[0], evs[0], timestamp) if n == 1 else \
+                  _build_combined_html_report(subs, evs, timestamp)
+    _pdf_primary = _html_to_pdf_bytes(html_report)
+    if _pdf_primary:
+        st.download_button(
+            "📄 Download your report (PDF)",
+            data=_pdf_primary,
+            file_name=f"impact_receipts_{timestamp}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            type="primary",
+            key="pdf_primary_btn",
+        )
+    elif html_report:
+        st.download_button(
+            "⬇️ Download your report (HTML)",
+            data=html_report,
+            file_name=f"impact_receipts_{timestamp}.html",
+            mime="text/html",
+            use_container_width=True,
+            type="primary",
+            key="html_primary_btn",
+        )
+
+    st.divider()
 
     for i, (sub, ev) in enumerate(zip(subs, evs)):
         if n > 1:
             st.markdown(f"### Result {i + 1}")
         _render_result_card(sub, ev, card_idx=i,
                             donor=st.session_state.get("donor_selected", ""))
+
+    # Suggested fixes — inline list, not expander
+    _all_fixes = []
+    for _ev in evs:
+        _all_fixes.extend(_ev.get("fixes", []))
+    if _all_fixes:
+        st.markdown("### Suggested fixes")
+        for _fix in _all_fixes[:5]:
+            _fix_msg    = _fix.get("message", "")
+            _fix_impact = _fix.get("score_impact", "")
+            if _fix_impact:
+                st.markdown(f"- {_fix_msg} *({_fix_impact})*")
+            else:
+                st.markdown(f"- {_fix_msg}")
 
     with st.expander("📚 Methodology & Citations", expanded=False):
         st.markdown("""
@@ -5542,93 +5548,72 @@ def render_screen_2():
             unsafe_allow_html=True,
         )
 
-    st.markdown(
-        """
-        <div class="gtm-card">
-          <p><strong>Want me to run this check with you?</strong></p>
-          <p class="gtm-sub">I personally review results for MEL professionals before their
-          submissions. 20 minutes, free for the first session.</p>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <div class="gtm-btn-gold">
-              <a href="https://wa.me/233503648195" target="_blank">Book a Free Pilot with the Founder</a>
-            </div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # LinkedIn — modern share-offsite endpoint opens the share dialog correctly
-    app_url = "https://impact-integrity-diagnostic.streamlit.app"
-    li_url  = f"https://www.linkedin.com/sharing/share-offsite/?url={urllib.parse.quote(app_url, safe='')}"
-    st.markdown(
-        f"Found this useful? "
-        f"<a href='{li_url}' target='_blank'>Share Impact-Receipts on LinkedIn</a>"
-        f" with a MEL colleague.",
-        unsafe_allow_html=True,
-    )
-
-
-    # --- Stage 2 Engagement Card ---
     st.divider()
-    with st.container(border=True):
-        st.markdown("#### Want someone to look at this with you?")
-        st.info(
-            "You've run your first check. If you want to go deeper — working through "
-            "the gaps together, aligning this result with your specific donor's requirements, "
-            "and making it submission-ready — reach out for a free conversation. "
-            "I personally review results for MEL teams before their submission deadline."
-        )
-        _s2_wa_url = "https://wa.me/233503648195?text=" + urllib.parse.quote(
-            "Hi, I've just run an Impact Integrity Diagnostic check and would like "
-            "a deeper review of my result before submission. Can we talk?"
-        )
+
+    # Navigation buttons — after content, before secondary downloads
+    _nav_c1, _nav_c2, _nav_c3 = st.columns(3)
+    with _nav_c1:
+        if st.button("← Edit this result", key="back_to_form"):
+            st.session_state["evaluations"] = None
+            _go_to_screen(1)
+    with _nav_c2:
+        if st.button("✓ Check another result →", key="check_another", type="primary", use_container_width=True):
+            _reset_all_slots()
+            st.session_state["evaluations"] = None
+            st.session_state["current_tab"] = 0
+            st.query_params["tab"] = "0"
+            _go_to_screen(1, reset=True)
+    with _nav_c3:
+        app_url = "https://impact-integrity-diagnostic.streamlit.app"
+        li_url  = f"https://www.linkedin.com/sharing/share-offsite/?url={urllib.parse.quote(app_url, safe='')}"
         st.markdown(
-            f'<a href="{_s2_wa_url}" target="_blank" style="display:inline-block;'
-            f'background:#1B5E20;color:white;padding:8px 18px;border-radius:8px;'
-            f'text-decoration:none;font-weight:700;font-size:0.85rem;'
-            f'text-align:center;width:100%;box-sizing:border-box;">'
-            f'📱 Book a free first review with the founder on WhatsApp</a>',
+            f"<a href='{li_url}' target='_blank' style='font-size:0.85rem;'>Share on LinkedIn</a>",
             unsafe_allow_html=True,
         )
-        st.caption("Tip: download your report below and share it before the call.")
-    # --- End Stage 2 Card ---
+
+    # Stage 2 Engagement Card — shown only for weak results
+    if evs and evs[0].get("diagnostic_state", "") in ("FUNDAMENTALLY WEAK", "UNDEREVIDENCED"):
+        st.divider()
+        with st.container(border=True):
+            st.markdown("#### Want someone to look at this with you?")
+            _s2_wa_url = "https://wa.me/233503648195?text=" + urllib.parse.quote(
+                "Hi, I've just run an Impact Integrity Diagnostic check and would like "
+                "a deeper review of my result before submission. Can we talk?"
+            )
+            st.markdown(
+                f'<a href="{_s2_wa_url}" target="_blank" style="display:inline-block;'
+                f'background:#1B5E20;color:white;padding:8px 18px;border-radius:8px;'
+                f'text-decoration:none;font-weight:700;font-size:0.85rem;'
+                f'text-align:center;width:100%;box-sizing:border-box;">'
+                f'📱 Book a free first review with the founder on WhatsApp</a>',
+                unsafe_allow_html=True,
+            )
+            st.caption("Download your report below and share it before the call.")
 
     _render_tutorial(3)
 
-    timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
-    html_report = _build_html_report(subs[0], evs[0], timestamp) if n == 1 else \
-                  _build_combined_html_report(subs, evs, timestamp)
-
-    # --- Primary download — visible immediately after result cards ---
-    _pdf_primary = _html_to_pdf_bytes(html_report)
-    if _pdf_primary:
+    # Secondary / additional exports — simplified 2-button row + advanced expander
+    _sec_col1, _sec_col2 = st.columns(2)
+    with _sec_col1:
         st.download_button(
-            "📄 Download your report (PDF)",
-            data=_pdf_primary,
-            file_name=f"impact_receipts_{timestamp}.pdf",
-            mime="application/pdf",
+            label="💾 Save Inputs (JSON)",
+            data=_build_inputs_json(timestamp),
+            file_name=f"impact-receipts-inputs-{timestamp}.json",
+            mime="application/json",
             use_container_width=True,
-            type="primary",
-            key="pdf_primary_btn",
+            help="Save your form inputs as JSON so you can reload them later for iteration.",
         )
-    elif html_report:
-        st.download_button(
-            "⬇️ Download your report (HTML)",
-            data=html_report,
-            file_name=f"impact_receipts_{timestamp}.html",
-            mime="text/html",
-            use_container_width=True,
-            type="primary",
-            key="html_primary_btn",
-        )
+    with _sec_col2:
+        if n < 3:
+            if st.button("＋ Add Another Result", use_container_width=True):
+                st.session_state["active_slots"] = n + 1
+                st.session_state["evaluations"]  = None
+                st.session_state["submissions_snapshot"] = None
+                st.session_state["screen"] = 1
+                st.rerun()
 
-    # --- Secondary / additional reports ---
-    st.caption("Additional reports:")
-    col_dl, col_json, col_add, col_fresh = st.columns([2, 1.5, 1, 1])
-    with col_dl:
-        _pdf_bytes = _pdf_primary  # reuse already-computed bytes
-        if _pdf_bytes:
+    with st.expander("Advanced exports (verification summary, donor templates)"):
+        if _pdf_primary:
             with st.expander("Report handoff details"):
                 st.text_input("Prepared by (your name)", key="report_prepared_by")
                 st.selectbox("Status", _REPORT_STATUS_OPTIONS, key="report_status")
@@ -5644,8 +5629,6 @@ def render_screen_2():
                     use_container_width=True,
                     key="verification_summary_pdf_btn",
                 )
-
-            st.markdown(f"##### {_DONOR_TEMPLATE_COPY['section_header']}")
             if _HAS_DOCX:
                 _donor_key = st.selectbox(
                     _DONOR_TEMPLATE_COPY["selector_label"],
@@ -5655,21 +5638,12 @@ def render_screen_2():
                 )
                 _template = _DONOR_TEMPLATES[_donor_key]
                 _field_rows = _donor_template_field_rows(_template, subs[0], evs[0])
-
-                with st.expander(f"{_DONOR_TEMPLATE_COPY['preview_label']} — {_template['label']}"):
-                    import pandas as pd
-                    st.dataframe(
-                        pd.DataFrame(_field_rows)[["Section", "Template field", "Diagnostic source", "Value"]],
-                        use_container_width=True, hide_index=True,
-                    )
-
                 _missing_required = [r["Template field"] for r in _field_rows if r["required"] and not r["provided"]]
                 if _missing_required:
                     st.warning(
                         _DONOR_TEMPLATE_COPY["missing_required_intro"] + "\n"
                         + "\n".join(f"- {m}" for m in _missing_required)
                     )
-
                 st.download_button(
                     label=f"📄 Download {_template['label']} Template (DOCX)",
                     data=_build_donor_template_docx(_template, subs[0], evs[0], timestamp),
@@ -5682,40 +5656,6 @@ def render_screen_2():
                 st.caption(_DONOR_TEMPLATE_COPY["no_docx"])
         else:
             st.caption("PDF: install xhtml2pdf to enable one-click PDF download.")
-    with col_json:
-        st.download_button(
-            label="Save Inputs (JSON)",
-            data=_build_inputs_json(timestamp),
-            file_name=f"impact-receipts-inputs-{timestamp}.json",
-            mime="application/json",
-            use_container_width=True,
-            help="Save your form inputs as JSON so you can reload them later for iteration.",
-        )
-    with col_add:
-        if n < 3:
-            if st.button("＋ Add Another Result", use_container_width=True):
-                st.session_state["active_slots"] = n + 1
-                st.session_state["evaluations"]  = None
-                st.session_state["submissions_snapshot"] = None
-                st.session_state["screen"] = 1
-                st.rerun()
-    with col_fresh:
-        if st.button("Check Another Result", use_container_width=True):
-            _clear_draft()
-            _go_to_screen(1, reset=True)
-
-    _all_fixes = []
-    for _ev in evs:
-        _all_fixes.extend(_ev.get("fixes", []))
-    if _all_fixes:
-        with st.expander("💡 Suggested fixes to improve your submission", expanded=True):
-            for _fix in _all_fixes[:5]:
-                _fix_msg    = _fix.get("message", "")
-                _fix_impact = _fix.get("score_impact", "")
-                if _fix_impact:
-                    st.markdown(f"- {_fix_msg} *({_fix_impact})*")
-                else:
-                    st.markdown(f"- {_fix_msg}")
 
     _render_tagline_footer()
 
