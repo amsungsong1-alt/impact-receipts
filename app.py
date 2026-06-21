@@ -2676,7 +2676,7 @@ def _render_tab1_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
     _render_fix_notes(slot, 0)
     _irc_widget(
-        st.text_area, "Result statement", f"result_statement{s}", default="",
+        st.text_area, "Result statement *", f"result_statement{s}", default="",
         placeholder=_ph["result"],
         height=100,
         help="What did your project achieve? Include the action verb, number, target group, location, and timeframe.",
@@ -2687,17 +2687,17 @@ def _render_tab1_slot(slot: int):
     elif _rs and not any(c.isdigit() for c in _rs):
         st.caption("Tip: Add a number (e.g., '500 farmers trained') — quantified claims score higher.")
     _irc_widget(
-        st.text_input, "Target group", f"target_group{s}", default="",
+        st.text_input, "Target group *", f"target_group{s}", default="",
         placeholder=_ph["target_group"],
         help="Who specifically? Age, gender, role, geography. Avoid 'beneficiaries' alone.",
     )
     _irc_widget(
-        st.text_input, "Timeframe", f"timeframe{s}", default="",
+        st.text_input, "Timeframe *", f"timeframe{s}", default="",
         placeholder="e.g., January - June 2025",
         help="Specific dates or quarters. 'January–June 2025' is stronger than 'In 2025'.",
     )
     _irc_widget(
-        st.text_input, "Geographic scope", f"geographic_scope{s}", default="",
+        st.text_input, "Geographic scope *", f"geographic_scope{s}", default="",
         placeholder=_ph["geographic_scope"],
         help="Districts, regions, or specific sites. 'Volta Region' beats 'rural areas'.",
     )
@@ -2738,36 +2738,48 @@ def _render_tab2_slot(slot: int):
         "rejected 3 times in 2024 because results weren't tied to logframe indicators. "
         "40+ hours of rework. We don't want that to happen to you."
     )
-    _irc_widget(
-        st.text_input,
-        "Logframe indicator this result reports against",
-        f"logframe_indicator{s}", default="",
-        placeholder=_ph.get("logframe_indicator", "e.g., Indicator 1.2: Number of [target group] achieving [outcome]"),
-        help=(
-            "Copy the exact indicator name and code from your approved Technical Proposal or logframe. "
-            "If you cannot quote it, your donor cannot match your result to your commitment."
-        ),
+
+    # Show result statement as read-only reference so user can reconcile without scrolling back
+    _rs_ref = st.session_state.get(f"result_statement{s}", "").strip()
+    if _rs_ref:
+        st.info(f"**Your result:** {_rs_ref}")
+
+    _fill_later = st.checkbox(
+        "I don't have my logframe to hand — I'll fill this later",
+        key=f"logframe_fill_later{s}",
+        help="Tick this to continue without logframe data. You can return to complete it before scoring.",
     )
-    _irc_widget(
-        st.text_input,
-        "Original target for this indicator (from logframe)",
-        f"logframe_target{s}", default="",
-        placeholder=_ph.get("logframe_target", "e.g., 250 youth trained by Q4 2025"),
-        help=(
-            "The target as approved in the original Technical Proposal. Donors compare achievements "
-            "against approved targets — not revised internal targets."
-        ),
-    )
-    _irc_widget(
-        st.text_input,
-        "Actual achievement (must match your result statement)",
-        f"logframe_achievement{s}", default="",
-        placeholder=_ph.get("logframe_achievement", "e.g., [Actual number] by [date] — [%] of original target"),
-        help=(
-            "The actual delivered number, ideally with % achievement vs original target. "
-            "Must reconcile with your result statement above."
-        ),
-    )
+    if not _fill_later:
+        _irc_widget(
+            st.text_input,
+            "Logframe indicator",
+            f"logframe_indicator{s}", default="",
+            placeholder=_ph.get("logframe_indicator", "e.g., Indicator 1.2: Number of [target group] achieving [outcome]"),
+            help=(
+                "Copy the exact indicator name and code from your approved Technical Proposal or logframe. "
+                "If you cannot quote it, your donor cannot match your result to your commitment."
+            ),
+        )
+        _irc_widget(
+            st.text_input,
+            "Approved target",
+            f"logframe_target{s}", default="",
+            placeholder=_ph.get("logframe_target", "e.g., 250 youth trained by Q4 2025"),
+            help=(
+                "The target as approved in the original Technical Proposal. Donors compare achievements "
+                "against approved targets — not revised internal targets."
+            ),
+        )
+        _irc_widget(
+            st.text_input,
+            "Actual achievement",
+            f"logframe_achievement{s}", default="",
+            placeholder=_ph.get("logframe_achievement", "e.g., [Actual number] by [date] — [%] of original target"),
+            help=(
+                "The actual delivered number, ideally with % achievement vs original target. "
+                "Must reconcile with your result statement above."
+            ),
+        )
 
 
 def _render_tab3_slot(slot: int):
@@ -3591,35 +3603,11 @@ def render_screen_0():
         if not st.session_state.get("has_seen_tutorial"):
             st.session_state["tutorial_step"] = 1
         _go_to_screen(1, reset=True)
-    st.caption("First 3 checks are free. No card needed.")
+    st.caption("Takes 4 minutes · First 3 checks are free.")
 
-    st.markdown(
-        '<div style="border:1px solid #8A6500;border-radius:8px;padding:12px 16px;'
-        'margin:12px 0;background:#FFFEF7;">'
-        '<p style="margin:0 0 4px 0;font-weight:700;color:#8A6500;font-size:0.9rem;">'
-        '&#128202; Checking a full logframe?</p>'
-        '<p style="margin:0 0 8px 0;font-size:0.82rem;color:#616161;">'
-        'Upload your logframe CSV &mdash; see which indicators are weakest across your '
-        'portfolio, with a heatmap and specific fixes per indicator.</p>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-    if st.button("Score my whole logframe →", use_container_width=True, key="cta_portfolio"):
-        _go_to_screen(3)
-
-    st.markdown(
-        '<p style="font-size:0.85rem;color:#374151;margin:4px 0 12px 0;">'
-        '📄 <strong>Already have a draft report?</strong> '
-        'Use <strong>⚡ Instant Report Check</strong> inside the form to upload it — '
-        'AI pre-fills all fields in seconds. '
-        '<em>(Paid feature — included with any check purchase.)</em>'
-        '</p>',
-        unsafe_allow_html=True,
-    )
-
-    st.caption("No data to hand? Try a pre-filled Ghana health example:")
     if st.button("🚀 Try with a sample result →", key="cta_demo",
-                 help="Loads a realistic ANC result from Ashanti Region — runs in seconds"):
+                 help="Loads a realistic ANC result from Ashanti Region — runs in seconds",
+                 use_container_width=True):
         _reset_all_slots()
         for _k, _v in _DEMO_SUBMISSION.items():
             st.session_state[_k] = _v
@@ -3630,34 +3618,10 @@ def render_screen_0():
         st.query_params["demo"] = "1"
         _go_to_screen(1)
 
-    st.markdown(
-        """
-        <div style="border-radius:8px; background:#F1F8E9; border-left:3px solid #1B5E20;
-                    padding:10px 16px; margin:14px 0; font-size:0.85rem; color:#374151;">
-          <strong style="color:#1B5E20;">🔒 Your data stays in your browser.</strong>
-          We never store your result statements, evidence, or uploaded documents on our servers.
-          Your session ends when you close the tab — nothing is kept.<br>
-          <strong style="color:#1B5E20;">&#10003; This is a self-check, not an audit.</strong>
-          It helps you improve your result before submission.
-          It doesn't judge your work or report anything to your donor.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    if st.button("Score my whole logframe →", use_container_width=True, key="cta_portfolio"):
+        _go_to_screen(3)
 
-    st.markdown(
-        """
-        <div style="border-left:4px solid #8A6500; border-radius:8px; padding:14px 20px; margin:16px 0; background:transparent;">
-          <p style="margin:0; font-size:0.95rem; color:#212121;">
-            <strong>Donors now ask:</strong> What changed? How do you know? How strong is the evidence?
-            What did you learn? &mdash; <em>This check tells you before they do.</em>
-          </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    with st.expander("Resume a previous session"):
+    with st.expander("↩ Resume a previous session"):
         uploaded_json = st.file_uploader(
             "Upload a previously saved inputs JSON",
             type=["json"],
@@ -3671,57 +3635,61 @@ def render_screen_0():
             except Exception as exc:
                 st.error(f"Could not read the file: {exc}")
 
-    st.markdown(
-        """
-        <div style="border-left:3px solid #8A6500;padding:8px 12px;margin:8px 0 12px 0;
-                    background:transparent;">
-          <p style="margin:0;font-size:0.85rem;color:#212121;">
-            <strong style="color:#1B5E20;">&#128204; Real case from 2024:</strong>
-            An African consultancy&rsquo;s final donor report was rejected three times
-            for missing M&amp;E data and logframe gaps. 40+ hours of senior staff rework.
-            Impact Integrity Diagnostic catches these issues before they reach your donor.
-          </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if st.button("Score My Result Statement →", type="primary", use_container_width=True, key="cta_bottom"):
-        if not st.session_state.get("has_seen_tutorial"):
-            st.session_state["tutorial_step"] = 1
-        _go_to_screen(1, reset=True)
-
-    st.markdown(
-        """
-        <div class="gtm-card">
-          <p><strong>Want a deeper check?</strong></p>
-          <p class="gtm-sub">I personally review results for MEL teams before their submission deadline.
-          Real teams have caught logframe gaps, evidence gaps, and missing audit items
-          &mdash; before donors flagged them.</p>
-          <div class="gtm-btn-gold">
-            <a href="https://wa.me/233503648195" target="_blank">Book a free first review with the founder</a>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """
-        <div class="gold-info-box">
-          &#128172; Questions before you start? Chat with us on WhatsApp:
-          <a href="https://wa.me/233503648195">+233 50 364 8195</a>
-        </div>
-        <p style="color:#616161;font-style:italic;font-size:0.85rem;margin:8px 0 4px 0;">
-          I&rsquo;m a MEL practitioner in Accra who got tired of submitting results without a confidence check &mdash; so I built this.
-        </p>
-        <p style="color:#616161;font-size:0.85rem;margin:2px 0 8px 0;">
-          A <em>confidence check</em> = an honest answer to &ldquo;Would my donor accept this result?&rdquo;
-          &mdash; evidence strength, result clarity, logframe linkage, all checked in under 10 minutes.
-        </p>
-        """,
-        unsafe_allow_html=True,
-    )
+    with st.expander("More about this tool"):
+        st.markdown(
+            """
+            <div style="border-left:3px solid #8A6500;padding:8px 12px;margin:4px 0 12px 0;background:transparent;">
+              <p style="margin:0;font-size:0.85rem;color:#212121;">
+                <strong style="color:#1B5E20;">&#128204; Real case from 2024:</strong>
+                An African consultancy&rsquo;s final donor report was rejected three times
+                for missing M&amp;E data and logframe gaps. 40+ hours of senior staff rework.
+                Impact Integrity Diagnostic catches these issues before they reach your donor.
+              </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            """
+            <div style="border-radius:8px; background:#F1F8E9; border-left:3px solid #1B5E20;
+                        padding:10px 16px; margin:10px 0; font-size:0.85rem; color:#374151;">
+              <strong style="color:#1B5E20;">🔒 Your data stays in your browser.</strong>
+              We never store your result statements, evidence, or uploaded documents on our servers.
+              Your session ends when you close the tab &mdash; nothing is kept.<br>
+              <strong style="color:#1B5E20;">&#10003; This is a self-check, not an audit.</strong>
+              It helps you improve your result before submission.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            """
+            <div style="border-left:4px solid #8A6500; border-radius:8px; padding:12px 16px; margin:10px 0; background:transparent;">
+              <p style="margin:0; font-size:0.9rem; color:#212121;">
+                <strong>Donors now ask:</strong> What changed? How do you know? How strong is the evidence?
+                What did you learn? &mdash; <em>This check tells you before they do.</em>
+              </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            """
+            <div class="gtm-card">
+              <p><strong>Want a deeper check?</strong></p>
+              <p class="gtm-sub">I personally review results for MEL teams before their submission deadline.</p>
+              <div class="gtm-btn-gold">
+                <a href="https://wa.me/233503648195" target="_blank">Book a free first review with the founder</a>
+              </div>
+            </div>
+            <div class="gold-info-box" style="margin-top:10px;">
+              &#128172; Questions? Chat on WhatsApp: <a href="https://wa.me/233503648195">+233 50 364 8195</a>
+              &mdash; <em>MEL practitioner in Accra, built this to close a gap I kept hitting.</em>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.caption("📄 Already have a draft report? Use ⚡ Instant Report Check inside the form to upload it — AI pre-fills all fields. (Paid feature.)")
 
     _render_tagline_footer()
 
@@ -3787,7 +3755,7 @@ def render_screen_1():
         if st.button("Save", key="top_save_draft_btn", help="Save draft to disk"):
             _save_draft()
     with _sav_c3:
-        if st.button("← Home", key="top_home_btn", help="Back to landing page"):
+        if st.button("← Back to Start", key="top_home_btn", help="Back to landing page"):
             _go_to_screen(0)
             st.toast("Draft saved!", icon="💾")
 
@@ -3918,20 +3886,23 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
 
     if _cur_tab == 0:
         st.caption("A clear result is the first thing a donor checks. Define who benefited, what changed, where, and when.")
-        with st.expander("Submission context — sector, donor, project", expanded=not _has_prefill):
-            st.selectbox(
-                "Sector (optional — helps tailor examples)",
-                key="sector",
-                options=SECTOR_OPTIONS,
-                help="Select your sector to see sector-specific example placeholders in the evidence description field.",
+
+        # Sector selector always visible — gates placeholder quality for all fields below
+        st.selectbox(
+            "Sector (optional — tailors field examples)",
+            key="sector",
+            options=SECTOR_OPTIONS,
+            help="Select your sector to see sector-specific example placeholders in the evidence description field.",
+        )
+        _sector_val = st.session_state.get("sector", SECTOR_OPTIONS[0])
+        if _sector_val == "Other":
+            st.text_input(
+                "Specify your sector",
+                key="sector_other",
+                placeholder="e.g., Disaster Response, Gender Equality, Financial Inclusion",
             )
-            _sector_val = st.session_state.get("sector", SECTOR_OPTIONS[0])
-            if _sector_val == "Other":
-                st.text_input(
-                    "Specify your sector",
-                    key="sector_other",
-                    placeholder="e.g., Disaster Response, Gender Equality, Financial Inclusion",
-                )
+
+        with st.expander("Context — donor & project (optional)", expanded=not _has_prefill):
             st.selectbox(
                 "Primary donor for this submission",
                 key="donor_selected",
@@ -3985,49 +3956,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 "**＋ Add Another Result** above, then re-run the check targeting a different result."
             )
         # --- END IRC fill summary banner ---
-
-        with st.expander("Submission Checklist (Recommended)", expanded=st.session_state.get("_irc_used", False)):
-            st.caption(
-                "Most donor rejections happen because something was missing from the submission package "
-                "— not because the work was bad. Confirm what your donor expects."
-            )
-            st.selectbox(
-                "What type of submission is this for?",
-                options=[
-                    "Select submission type...",
-                    "Quarterly progress report",
-                    "Annual progress report",
-                    "Baseline report",
-                    "Mid-term review",
-                    "End-line evaluation",
-                    "Final/closeout report",
-                    "Project proposal",
-                    "Financial report",
-                    "MEL plan",
-                    "Others (Special/Ad-hoc reports)",
-                ],
-                key="submission_type",
-            )
-            _sub_type = st.session_state.get("submission_type", "")
-            _checklist_items = SUBMISSION_CHECKLIST.get(_sub_type, [])
-            if _checklist_items:
-                st.markdown(f"**Tick what your donor requires for a {_sub_type}:**")
-                _chk_cols = [_checklist_items[i::2] for i in range(2)]
-                _cl1, _cl2 = st.columns(2)
-                for _col, _chunk in zip([_cl1, _cl2], _chk_cols):
-                    with _col:
-                        for _ckey, _clabel in _chunk:
-                            st.checkbox(_clabel, key=_ckey)
-                _n_ticked = sum(st.session_state.get(k, False) for k, _ in _checklist_items)
-                _n_total  = len(_checklist_items)
-                if _n_ticked == _n_total:
-                    st.success(f"✅ All {_n_total} required items confirmed for {_sub_type}.")
-                else:
-                    st.info(f"{_n_ticked} of {_n_total} required item(s) confirmed.")
-            elif _sub_type and _sub_type not in ("Choose an option...", "Select submission type...", ""):
-                st.info("No standard checklist for this submission type.")
-            else:
-                st.caption("Select a submission type above to see the required items checklist.")
 
         col_h, col_add = st.columns([5, 1])
         with col_h:
@@ -4554,7 +4482,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                     st.query_params["tab"] = "1"
                     st.rerun()
             with _pb1:
-                if st.button("← Home", key="tab1_back_btn", use_container_width=True):
+                if st.button("← Back to Start", key="tab1_back_btn", use_container_width=True):
                     _go_to_screen(0)
         else:
             st.caption("Fill in all four fields above to continue.")
@@ -4572,10 +4500,12 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             _ss_str("logframe_target").strip(),
             _ss_str("logframe_achievement").strip(),
         ])
-        # IRC users may have logframe fields legitimately left blank (not in the
-        # source document) — don't block navigation for them; manual fill-in
-        # still requires all three fields before proceeding.
-        _t2_can_advance = _t2_done or st.session_state.get("_irc_used", False)
+        # IRC users OR users who ticked "fill later" may advance with blank logframe fields.
+        _fill_later_any = any(
+            st.session_state.get(f"logframe_fill_later{_slot_suffix(sl)}", False)
+            for sl in range(1, active + 1)
+        )
+        _t2_can_advance = _t2_done or st.session_state.get("_irc_used", False) or _fill_later_any
         if _t2_can_advance:
             if _t2_done:
                 try:
@@ -4664,6 +4594,35 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             or st.session_state.get(key, "") in (EVIDENCE_TYPES[0], "Choose an option...", "")
         ]
         _completed_b = len(_REQUIRED_FIELDS_B) - len(_missing_b)
+
+        # Auto-save status + draft download at TOP of Tab 3
+        _save_draft()
+        _t3_col_save, _t3_col_ts = st.columns([1, 2])
+        with _t3_col_ts:
+            st.caption(f"💾 Auto-saved · Last saved {st.session_state.get('_last_saved_time', '--:--')}")
+        with _t3_col_save:
+            _draft_bytes_top = st.session_state.get("_draft_bytes", b"")
+            if _draft_bytes_top:
+                st.download_button(
+                    "💾 Save Draft",
+                    data=_draft_bytes_top,
+                    file_name="impact_receipts_draft.json",
+                    mime="application/json",
+                    use_container_width=True,
+                    key="tab3_save_draft_top",
+                )
+
+        # Gate awareness — show before user invests time reviewing scores
+        if not st.session_state.get("user_email"):
+            st.info("📧 You'll enter your email below to run this check.")
+        else:
+            _email_gate_check = st.session_state.get("user_email", "")
+            _u_gate = get_user(_email_gate_check) if _email_gate_check else None
+            _checks_gate = (_u_gate or {}).get("free_checks_used", 0)
+            _paid_gate = st.session_state.get("is_paid") or is_still_paid(_u_gate)
+            if not _paid_gate and _checks_gate >= FREE_CHECKS_LIMIT:
+                st.warning("You've used your free checks — upgrade below to score this result.")
+
         st.progress(_completed_b / len(_REQUIRED_FIELDS_B),
                     text=f"Form completion: {_completed_b}/{len(_REQUIRED_FIELDS_B)} required fields")
         if _missing_b:
@@ -4698,12 +4657,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
 
         st.divider()
 
-        # Consent checkbox for example library
-        st.checkbox(
-            "📚 Allow my anonymised entries to improve extraction quality for other MEL officers. "
-            "(Act 843 / NDPA compliant — no names or organisations are stored.)",
-            key="consent_examples",
-        )
         # --- Require email before running any check ---
         if not st.session_state.get("user_email"):
             st.warning(
@@ -4712,6 +4665,13 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             )
             _render_email_gate_inline("_check")
             st.stop()
+
+        # Consent checkbox for example library — shown after email gate
+        st.checkbox(
+            "📚 Allow my anonymised entries to improve extraction quality for other MEL officers. "
+            "(Act 843 / NDPA compliant — no names or organisations are stored.)",
+            key="consent_examples",
+        )
         # --- Usage tracking ---
         _email_now = st.session_state.get("user_email", "")
         _u_now = get_user(_email_now) if _email_now else None
@@ -4772,19 +4732,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 # --- End tracking ---
                 st.session_state["screen"] = 2
                 st.rerun()
-
-        _save_draft()
-        st.caption(f"💾 Auto-saved across all tabs · Last saved {st.session_state.get('_last_saved_time', '--:--')}")
-        _draft_bytes = st.session_state.get("_draft_bytes", b"")
-        if _draft_bytes:
-            st.download_button(
-                "📥 Download Draft (JSON)",
-                data=_draft_bytes,
-                file_name="impact_receipts_draft.json",
-                mime="application/json",
-                use_container_width=True,
-                help="Download your draft to restore later via 'Resume Previous Session' on the landing page.",
-            )
 
         st.divider()
 
@@ -5551,19 +5498,6 @@ def render_screen_2():
             f'{_bv_sym} {_bv_msg}</div>',
             unsafe_allow_html=True,
         )
-
-    if evs:
-        _top_diag = evs[0].get("diagnostic_state", "")
-        if _top_diag in ("FUNDAMENTALLY WEAK", "UNDEREVIDENCED", "MISLEADING"):
-            _wa_review = "https://wa.me/233503648195?text=" + urllib.parse.quote(
-                "Hi, I've just run an Impact Integrity Diagnostic check and would like "
-                "a deeper review before submission. Can we talk?"
-            )
-            st.info(
-                f"📱 **Struggling with these gaps?** "
-                f"[Book a free first review with the founder on WhatsApp]({_wa_review}) "
-                f"— I personally review results before submission deadlines."
-            )
 
     _nav_c1, _nav_c2, _nav_c3 = st.columns(3)
     with _nav_c1:
