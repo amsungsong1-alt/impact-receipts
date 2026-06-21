@@ -243,48 +243,35 @@ def _format_evidence(evidence: list) -> str:
 # ---------------------------------------------------------------------------
 
 TOOLTIP_DIRECTNESS = (
-    "Scores how directly your evidence links programme activities to the reported result. "
-    "Anchored in World Bank IEG Process Tracing standards (2025) and 3ie Contribution Analysis."
+    "How directly your evidence links programme activities to the reported result."
 )
 
 TOOLTIP_VERIFICATION = (
-    "Scores the independence and credibility of whoever verified this result. "
-    "Anchored in USAID ADS 201.3.5.7 Data Quality Assessment — Independence criterion "
-    "and classical audit principle of verifier independence."
+    "The independence and credibility of whoever verified this result."
 )
 
 TOOLTIP_RECENCY = (
-    "Scores how recent your evidence is relative to the result timeframe. "
-    "USAID DQA requires evidence collected within 12 months for full score. "
-    "Anchored in USAID ADS 201.3.5.7 — Timeliness criterion."
+    "How recent your evidence is relative to the result timeframe."
 )
 
 TOOLTIP_DEFINITION = (
-    "Scores how precisely the result is defined. "
-    "Anchored in OECD-DAC Evaluation Criterion: Relevance (2019) — "
-    "is what was measured what was intended?"
+    "How precisely the result is defined — unit, target group, timeframe, and geography."
 )
 
 TOOLTIP_MEASUREMENT = (
-    "Scores whether the result uses a verifiable, quantifiable indicator. "
-    "Anchored in USAID ADS 201.3.5.7 — Precision criterion."
+    "Whether the result uses a verifiable, quantifiable indicator with a documented method."
 )
 
 TOOLTIP_INTEGRITY = (
-    "Scores whether the data collection process is free from manipulation risk. "
-    "Anchored in USAID ADS 201.3.5.7 — Integrity criterion and "
-    "Bond Evidence Principles (2024) — Transparency."
+    "Whether the data collection process is free from gaps and manipulation risk."
 )
 
 TOOLTIP_SCOPE = (
-    "Scores whether the result specifies who was affected, where, and under what conditions. "
-    "Anchored in OECD-DAC Evaluation Criterion: Coherence (2019)."
+    "Whether the result specifies who was affected, where, and at what scale."
 )
 
 TOOLTIP_GOVERNANCE = (
-    "Scores whether there is an accountable owner for this result and its evidence. "
-    "Anchored in classical audit principle of Traceability and "
-    "FCDO Evaluation Policy (January 2025) — accountability for evidence."
+    "Whether there is an accountable owner for this result and its evidence."
 )
 
 # ---------------------------------------------------------------------------
@@ -292,10 +279,7 @@ TOOLTIP_GOVERNANCE = (
 # ---------------------------------------------------------------------------
 
 BENEFICIARY_VOICE_TOOLTIP = (
-    "Scores whether your evidence includes the perspectives of people the programme serves. "
-    "Anchored in Bond Evidence Principles 2024 (Voice & Inclusion) and "
-    "60 Decibels Lean Data Methodology. No competitor scores this at pre-submission stage — "
-    "it is your fastest route to a higher evidence quality rating with FCDO and GIZ donors."
+    "Whether your evidence includes the perspectives of people the programme serves."
 )
 
 BENEFICIARY_VOICE_WHATTOFIX = {

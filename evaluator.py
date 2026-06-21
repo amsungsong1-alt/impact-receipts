@@ -174,9 +174,10 @@ def compute_clarity(
     coverage: str,
     sample_ok: bool,
     governance_yes_count: int,
+    measurement_denominator: int = 3,
 ) -> float:
     definition  = (definition_yes_count  / 3) * 1.25
-    measurement = (measurement_yes_count / 3) * 1.25
+    measurement = (measurement_yes_count / measurement_denominator) * 1.25
     integrity   = max(
         0,
         1.0
@@ -270,14 +271,19 @@ def _directness_signals(evidence_description: str, evidence_type: str, result_st
 
 def score_directness(evidence_description: str, evidence_type: str, result_statement: str = "") -> float:
     """
-    5-step Contribution Evidence Ladder.
+    6-step Contribution Evidence Ladder (0.0–5.0).
     Anchored in: World Bank IEG Process Tracing (2025), 3ie Contribution Analysis.
     Rewards contribution claims backed by triangulation or a
     comparison/counterfactual basis plus an explicit causal-link / theory-of-
     change statement. Flags over-attribution: an unhedged causal claim
     ("our program caused X") on evidence with none of the above.
-    Returns 1.0–5.0.
+    Returns 0.0–5.0; 0.0 only when both description and type are absent.
     """
+    ev_clean   = (evidence_description or "").strip()
+    type_clean = (evidence_type or "").strip()
+    if len(ev_clean) < 10 and not type_clean:
+        return 0.0
+
     s = _directness_signals(evidence_description, evidence_type, result_statement)
 
     if s["strong_causal_claim"] and not (s["triangulated"] or s["comparison_evidence"] or s["causal_link"]):
@@ -948,7 +954,14 @@ def _derive_clarity_params(submission: dict) -> dict:
         has_method_desc    = len(ev_desc) > 50
         has_method_keyword = any(k in desc_lower for k in _METHOD_KEYWORDS)
         has_structured     = ev_type in _STRUCTURED_EV_TYPES
-        measurement_yes    = sum([has_method_desc, has_method_keyword, has_structured])
+        # Bias controls for quantitative evidence: enumerator independence or
+        # recall-period mitigation from the provenance checklist.
+        provenance = submission.get("provenance_checklist", {}) or {}
+        has_bias_control = (
+            provenance.get("collector_independent") == "Yes"
+            or provenance.get("recall_period_ok") == "Yes"
+        )
+        measurement_yes    = sum([has_method_desc, has_method_keyword, has_structured, has_bias_control])
 
     # --- Missing data ---
     if any(k in desc_lower for k in ("significant", "majority missing", "most data missing")):
@@ -985,14 +998,15 @@ def _derive_clarity_params(submission: dict) -> dict:
     governance_yes = sum([has_owner, has_review, has_context])
 
     return {
-        "definition_yes_count":  definition_yes,
-        "measurement_yes_count": measurement_yes,
-        "missing_data":          missing_data,
-        "audit_trail":           audit_trail,
-        "coverage":              coverage,
-        "sample_ok":             sample_ok,
-        "governance_yes_count":  governance_yes,
-        "is_qualitative":        is_qualitative,
+        "definition_yes_count":   definition_yes,
+        "measurement_yes_count":  measurement_yes,
+        "measurement_denominator": 3 if is_qualitative else 4,
+        "missing_data":           missing_data,
+        "audit_trail":            audit_trail,
+        "coverage":               coverage,
+        "sample_ok":              sample_ok,
+        "governance_yes_count":   governance_yes,
+        "is_qualitative":         is_qualitative,
     }
 
 
@@ -1366,7 +1380,7 @@ def evaluate_submission(submission: dict) -> dict:
     clarity_params = _derive_clarity_params(submission)
 
     def_score_c  = round((clarity_params["definition_yes_count"]  / 3) * 1.25, 2)
-    meas_score_c = round((clarity_params["measurement_yes_count"] / 3) * 1.25, 2)
+    meas_score_c = round((clarity_params["measurement_yes_count"] / clarity_params.get("measurement_denominator", 3)) * 1.25, 2)
     miss         = clarity_params["missing_data"]
     audit        = clarity_params["audit_trail"]
     integ        = round(max(0, 1.0

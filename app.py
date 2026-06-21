@@ -193,6 +193,45 @@ QUAL_RIGOR_CHECKLIST = {
     ),
 }
 
+# Per-evidence-type quality checks rendered inline (no expander wrapper).
+_EV_QUALITY_CHECKS: dict[str, list[tuple[str, str]]] = {
+    "Attendance sheets / participant registers": [
+        ("signatures_verified", "Signatures verified against ID list"),
+        ("date_stamped",        "Sheets dated and stamped"),
+        ("cross_ref",           "Cross-referenced with another source (e.g., facilitator notes)"),
+    ],
+    "Raw datasets or survey exports": [
+        ("sample_doc",   "Sampling method documented"),
+        ("clean_data",   "Dataset cleaned and de-duplicated"),
+        ("version_ctrl", "Original raw export retained for audit"),
+    ],
+    "Partner verification letters": [
+        ("letterhead",       "Letter on official partner letterhead"),
+        ("authority_signed", "Signed by authorized partner representative"),
+        ("recent_letter",    "Letter dated within 6 months of reporting period"),
+    ],
+    "Photos with metadata": [
+        ("gps_meta",       "Photos contain GPS metadata"),
+        ("timestamp_photo","Timestamps visible/verifiable"),
+        ("consent_photo",  "Beneficiary consent obtained for photos"),
+    ],
+    "Tracer survey results": [
+        ("followup_tracer", "Follow-up conducted at appropriate interval (3+ months)"),
+        ("response_rate",   "Response rate documented (target: 60%+)"),
+        ("bias_ack",        "Sampling bias / non-response acknowledged"),
+    ],
+    "Financial records": [
+        ("receipts_dated",  "Receipts/transactions dated"),
+        ("reconciled_ev",   "Reconciled with bank/MoMo statements"),
+        ("audit_trail_ev",  "Audit trail intact (request → approval → payment)"),
+    ],
+    "Third-party audits": [
+        ("independent_ev",    "Auditor independent from implementer"),
+        ("signed_audit",      "Audit report signed and dated"),
+        ("recommendations_ev","Audit recommendations addressed/disclosed"),
+    ],
+}
+
 # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 PII_EVIDENCE_TYPES = [
     "Attendance sheets / participant registers",
@@ -1248,6 +1287,20 @@ h1, h2, h3, h4 {
     font-size: 0.875rem !important;
     font-weight: 600 !important;
 }
+/* Expander headers: lighter weight than section headings */
+details summary, .stExpander summary {
+    font-weight: 500 !important;
+    font-size: 0.9rem !important;
+}
+/* Breathing room between expander groups */
+.stExpander {
+    margin-bottom: 1.25rem !important;
+}
+/* Captions: clearly subordinate to body text */
+.stCaptionContainer p, [data-testid="stCaptionContainer"] p {
+    font-size: 0.78rem !important;
+    color: var(--muted) !important;
+}
 /* Smooth navigation transitions — reduces ghost/shadow flash between tabs and screens */
 [data-testid="stMainBlockContainer"] > div {
     animation: fadeInContent 0.12s ease-in;
@@ -2033,7 +2086,7 @@ def _render_live_score_preview(slot: int = 1):
         _disp_secure     not in ("", "Choose an option...", "Select secure handling status..."),
     ])
 
-    st.markdown("---")
+    st.divider()
     st.markdown("#### 🛡️ Governance & Compliance")
     _gc1, _gc2 = st.columns([1, 2])
     with _gc1:
@@ -2415,10 +2468,8 @@ def _render_slot_fields(slot: int):
     int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
     _int_vl = _evaluator.get_verification_level(int_rev, "No external review", "")
     _int_vs = round((_int_vl / 5) * 2.0, 1)
-    if _int_vs > 0:
-        st.caption(f"Internal review adds **{_int_vs}/2.0** to Verification score")
-    else:
-        st.caption("⚠ No internal review: Verification score starts at 0. Adding a reviewer will improve this.")
+    if _int_vs == 0:
+        st.warning("No internal review — adding a reviewer significantly strengthens Verification.")
 
     if int_rev == "Other":
         st.text_input("Specify internal reviewer", key=f"internal_review_other{s}")
@@ -2434,12 +2485,8 @@ def _render_slot_fields(slot: int):
     _full_vl = _evaluator.get_verification_level(int_rev, ext_rev, verifier_text)
     _full_vs = round((_full_vl / 5) * 2.0, 1)
     _added   = round(_full_vs - _int_vs, 1)
-    if _added > 0:
-        st.caption(f"External review adds **+{_added}** more → total Verification: **{_full_vs}/2.0**")
-    elif ext_rev == "No external review":
-        st.caption("⚠ No external review: adding independent verification can raise this score significantly.")
-    else:
-        st.caption(f"Total Verification: **{_full_vs}/2.0**")
+    if ext_rev == "No external review":
+        st.warning("No external review — independent verification raises your score significantly.")
 
     if ext_rev == "Other":
         st.text_input("Specify external reviewer", key=f"external_review_other{s}")
@@ -2639,14 +2686,6 @@ def _render_tab1_slot(slot: int):
         st.warning("Result statement is very short. Include: action verb + number + population + timeframe.")
     elif _rs and not any(c.isdigit() for c in _rs):
         st.caption("Tip: Add a number (e.g., '500 farmers trained') — quantified claims score higher.")
-    if _rs:
-        _def_count = sum([
-            bool(re.search(r'\d', _rs)),
-            bool(st.session_state.get(f"timeframe{s}", "")),
-            bool(st.session_state.get(f"target_group{s}", "")),
-        ])
-        _def_score = round((_def_count / 3) * 1.25, 2)
-        st.caption(f"Definition score contribution: **{_def_score}/1.25** (number, timeframe, target group)")
     _irc_widget(
         st.text_input, "Target group", f"target_group{s}", default="",
         placeholder=_ph["target_group"],
@@ -2744,14 +2783,6 @@ def _render_tab3_slot(slot: int):
         _ed_val = st.session_state.get(f"evidence_description{s}", "")
         if _ed_val and len(_ed_val.strip()) < 30:
             st.warning("Evidence description is brief. Specify: who collected it, how, and what it contains.")
-        if _ed_val:
-            _meas_count = sum([
-                any(kw in _ed_val.lower() for kw in ["survey", "interview", "kobo", "questionnaire", "instrument"]),
-                any(kw in _ed_val.lower() for kw in ["sample", "random", "purposive", "stratified", "n="]),
-                bool(_ed_val.strip()),
-            ])
-            _meas_score = round((_meas_count / 3) * 1.25, 2)
-            st.caption(f"Measurement score contribution: **{_meas_score}/1.25** (method, sampling, description present)")
 
         _irc_widget(
             st.selectbox, "Evidence type", f"evidence_type{s}", default=EVIDENCE_TYPES[0],
@@ -2775,52 +2806,13 @@ def _render_tab3_slot(slot: int):
             or st.session_state.get(f"qualitative_evidence{s}", False)
         )
 
-        _sub_lbl = "📝 Strengthen this evidence (optional — helps defend in donor reviews)"
-        if ev_type == "Attendance sheets / participant registers":
-            with st.expander(_sub_lbl, expanded=st.session_state.get("_irc_used", False)):
-                st.checkbox("Signatures verified against ID list", key=f"signatures_verified{s}")
-                st.checkbox("Sheets dated and stamped", key=f"date_stamped{s}")
-                st.checkbox("Cross-referenced with another source (e.g., facilitator notes)", key=f"cross_ref{s}")
-        elif ev_type == "Raw datasets or survey exports":
-            with st.expander(_sub_lbl, expanded=st.session_state.get("_irc_used", False)):
-                st.checkbox("Sampling method documented", key=f"sample_doc{s}")
-                st.checkbox("Dataset cleaned and de-duplicated", key=f"clean_data{s}")
-                st.checkbox("Original raw export retained for audit", key=f"version_ctrl{s}")
-        elif ev_type == "Partner verification letters":
-            with st.expander(_sub_lbl, expanded=st.session_state.get("_irc_used", False)):
-                st.checkbox("Letter on official partner letterhead", key=f"letterhead{s}")
-                st.checkbox("Signed by authorized partner representative", key=f"authority_signed{s}")
-                st.checkbox("Letter dated within 6 months of reporting period", key=f"recent_letter{s}")
-        elif ev_type == "Photos with metadata":
-            with st.expander(_sub_lbl, expanded=st.session_state.get("_irc_used", False)):
-                st.checkbox("Photos contain GPS metadata", key=f"gps_meta{s}")
-                st.checkbox("Timestamps visible/verifiable", key=f"timestamp_photo{s}")
-                st.checkbox("Beneficiary consent obtained for photos", key=f"consent_photo{s}")
-        elif ev_type == "Tracer survey results":
-            with st.expander(_sub_lbl, expanded=st.session_state.get("_irc_used", False)):
-                st.checkbox("Follow-up conducted at appropriate interval (3+ months)", key=f"followup_tracer{s}")
-                st.checkbox("Response rate documented (target: 60%+)", key=f"response_rate{s}")
-                st.checkbox("Sampling bias / non-response acknowledged", key=f"bias_ack{s}")
-        elif ev_type == "Financial records":
-            with st.expander(_sub_lbl, expanded=st.session_state.get("_irc_used", False)):
-                st.checkbox("Receipts/transactions dated", key=f"receipts_dated{s}")
-                st.checkbox("Reconciled with bank/MoMo statements", key=f"reconciled_ev{s}")
-                st.checkbox("Audit trail intact (request → approval → payment)", key=f"audit_trail_ev{s}")
-        elif ev_type == "Third-party audits":
-            with st.expander(_sub_lbl, expanded=st.session_state.get("_irc_used", False)):
-                st.checkbox("Auditor independent from implementer", key=f"independent_ev{s}")
-                st.checkbox("Audit report signed and dated", key=f"signed_audit{s}")
-                st.checkbox("Audit recommendations addressed/disclosed", key=f"recommendations_ev{s}")
+        _sub_checks = _EV_QUALITY_CHECKS.get(ev_type, [])
+        if _sub_checks:
+            st.markdown("**Quality checks**")
+            for _ck_key, _ck_lbl in _sub_checks:
+                st.checkbox(_ck_lbl, key=f"{_ck_key}{s}")
         elif is_qualitative_evidence:
-            with st.expander(
-                "📝 Qualitative Rigor — replaces Measurement and Definition with "
-                "narrative-evidence dimensions",
-                expanded=True,
-            ):
-                st.caption(
-                    "These checks replace the Measurement and Definition sub-scores "
-                    "for qualitative evidence."
-                )
+            with st.expander("📝 Qualitative Rigor", expanded=True):
                 (
                     _sourcing_lbl, _triangulated_lbl, _bias_lbl,
                     _voice_lbl, _consent_lbl,
@@ -2847,20 +2839,6 @@ def _render_tab3_slot(slot: int):
                     st.checkbox, _consent_lbl,
                     f"qual_consent{s}", default=False,
                 )
-                _qual_meas_count = sum([
-                    st.session_state.get(f"qual_sourcing{s}", False),
-                    st.session_state.get(f"qual_triangulated{s}", False),
-                    st.session_state.get(f"qual_bias{s}", False),
-                ])
-                _qual_meas_score = round((_qual_meas_count / 3) * 1.25, 2)
-                st.caption(f"Sourcing & Triangulation contribution: **{_qual_meas_score}/1.25**")
-                _qual_def_count = sum([
-                    bool(st.session_state.get(f"timeframe{s}")),
-                    st.session_state.get(f"qual_voice{s}", False),
-                    st.session_state.get(f"qual_consent{s}", False),
-                ])
-                _qual_def_score = round((_qual_def_count / 3) * 1.25, 2)
-                st.caption(f"Narrative Definition contribution: **{_qual_def_score}/1.25**")
 
         if ev_type == "Other":
             st.text_input("Specify evidence type", key=f"evidence_type_other{s}")
@@ -2875,10 +2853,8 @@ def _render_tab3_slot(slot: int):
         int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
         _int_vl = _evaluator.get_verification_level(int_rev, "No external review", "")
         _int_vs = round((_int_vl / 5) * 2.0, 1)
-        if _int_vs > 0:
-            st.caption(f"Internal review adds **{_int_vs}/2.0** to Verification score")
-        else:
-            st.caption("⚠ No internal review: Verification score starts at 0. Adding a reviewer will improve this.")
+        if _int_vs == 0:
+            st.warning("No internal review — adding a reviewer significantly strengthens Verification.")
         if int_rev == "Other":
             st.text_input("Specify internal reviewer", key=f"internal_review_other{s}")
 
@@ -2893,12 +2869,8 @@ def _render_tab3_slot(slot: int):
         _full_vl = _evaluator.get_verification_level(int_rev, ext_rev, verifier_text)
         _full_vs = round((_full_vl / 5) * 2.0, 1)
         _added   = round(_full_vs - _int_vs, 1)
-        if _added > 0:
-            st.caption(f"External review adds **+{_added}** more → total Verification: **{_full_vs}/2.0**")
-        elif ext_rev == "No external review":
-            st.caption("⚠ No external review: adding independent verification can raise this score significantly.")
-        else:
-            st.caption(f"Total Verification: **{_full_vs}/2.0**")
+        if ext_rev == "No external review":
+            st.warning("No external review — independent verification raises your score significantly.")
         if ext_rev == "Other":
             st.text_input("Specify external reviewer", key=f"external_review_other{s}")
 
@@ -2952,13 +2924,6 @@ def _render_tab3_slot(slot: int):
             "recall_period_ok":        st.session_state.get(f"provenance_recall{s}", PROVENANCE_YES_NO_NA_OPTIONS[0]),
             "auditor_traceable":       st.session_state.get(f"provenance_traceability{s}", TRACEABILITY_OPTIONS[0]),
         }
-        _prov_adj = _evaluator.get_provenance_adjustment(_prov_checklist)
-        if _prov_adj > 0:
-            st.caption(f"Provenance answers add **+{_prov_adj}** to Verification score (capped at 2.0/2.0 total)")
-        elif _prov_adj < 0:
-            st.caption(f"⚠ Unanswered provenance items currently subtract **{_prov_adj}** from your Verification score.")
-        else:
-            st.caption("Completing this checklist can add up to **+0.6** to your Verification score.")
 
         st.markdown("#### Reporting Period")
         st.caption("The period this submission covers. Evidence dates outside this range trigger a flag.")
@@ -3049,7 +3014,7 @@ def _render_tab3_slot(slot: int):
     _pii_triggered = _ev_type_now in PII_EVIDENCE_TYPES
     _safeguarding_triggered = _ev_type_now in SAFEGUARDING_EVIDENCE_TYPES
     _minors_triggered = _minors_possibly_involved(slot)
-    st.markdown("---")
+    st.divider()
     with st.expander("🛡️ Compliance & Data Governance", expanded=_pii_triggered or _safeguarding_triggered or _minors_triggered or st.session_state.get("_irc_used", False)):
         st.caption(
             "Handling beneficiary data in your M&E? This flags where you may be exposed "
@@ -3889,48 +3854,47 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
 
     # --- UX: DYNAMIC SIDEBAR (v3.2) ---
     with st.sidebar:
-        st.markdown("### 📋 Submission Summary")
-        st.caption("Updates as you fill in the form")
+        st.markdown("### Submission Summary")
         _sb_s = _slot_suffix(1)
 
-        def _sb_field(icon, label, key, trunc=None):
+        def _sb_field(label, key, trunc=None):
             val = str(st.session_state.get(key, "")).strip()
             if trunc and len(val) > trunc:
                 val = val[:trunc] + "…"
             if val and val not in ("(No donor specified)", "(No sector selected)"):
-                st.markdown(f"{icon} **{label}:** {val}")
+                st.markdown(f"**{label}:** {val}")
             else:
-                st.caption(f"{icon} {label}: —")
+                st.caption(f"{label}: —")
 
-        _sb_field("🎯", "Result",      "result_statement",  80)
-        _sb_field("👥", "Target Group", "target_group")
-        _sb_field("📍", "Geography",   "geographic_scope")
-        _sb_field("📅", "Timeframe",   "timeframe")
-        _sb_field("🏢", "Donor",       "donor_selected")
-        _sb_field("📊", "Indicator",   "logframe_indicator", 60)
+        _sb_field("Result",       "result_statement",  80)
+        _sb_field("Target Group", "target_group")
+        _sb_field("Geography",    "geographic_scope")
+        _sb_field("Timeframe",    "timeframe")
+        _sb_field("Donor",        "donor_selected")
+        _sb_field("Indicator",    "logframe_indicator", 60)
         _t = st.session_state.get("logframe_target", "")
         _a = st.session_state.get("logframe_achievement", "")
         if _t or _a:
             _t_d = _t if _t else "—"; _a_d = _a if _a else "—"
-            st.markdown(f"🎯 Target→Actual: **{_t_d} → {_a_d}**")
+            st.markdown(f"**Target → Actual:** {_t_d} → {_a_d}")
         else:
-            st.caption("🎯 Target→Actual: —")
-        _sb_field("📎", "Evidence Type", f"evidence_type{_sb_s}")
-        _sb_field("✅", "Verifier", f"verifier{_sb_s}")
+            st.caption("Target → Actual: —")
+        _sb_field("Evidence Type", f"evidence_type{_sb_s}")
+        _sb_field("Verifier",      f"verifier{_sb_s}")
 
-        st.markdown("---")
+        st.divider()
         try:
             _sb_sub = _build_submission_from_session(1)
             _sb_ev  = _evaluator.evaluate_submission(_sb_sub)
             _sb_c   = _sb_ev.get("raw_confidence_score", 0)
             _sb_cl  = _sb_ev.get("clarity_score", 0)
-            def _sbe(v): return "🟢" if v >= 4.0 else "🟡" if v >= 3.0 else "🔴"
-            st.markdown(f"**Confidence:** {_sbe(_sb_c)} {_sb_c}/5.0")
-            st.markdown(f"**Clarity:** {_sbe(_sb_cl)} {_sb_cl}/5.0")
+            _sb_min = min(_sb_c, _sb_cl)
+            _sbe    = "🟢" if _sb_min >= 4.0 else "🟡" if _sb_min >= 3.0 else "🔴"
+            st.markdown(f"{_sbe} Confidence **{_sb_c}** · Clarity **{_sb_cl}**")
         except Exception:
             st.caption("Fill in the form to see live scores")
 
-        st.markdown("---")
+        st.divider()
         if st.button("💾 Save Draft", key="sidebar_save_draft", use_container_width=True):
             _save_draft()
             st.toast("Draft saved!", icon="💾")
@@ -4728,26 +4692,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             pass
         # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
-        with st.expander("How scoring works"):
-            st.markdown("""
-**Confidence Score (0–5.0)** — measures how credible and traceable your evidence is.
-- **Directness** (0–2.0): target 1.5+ — how directly the evidence links to the result
-- **Verification** (0–2.0): target 1.5+ — how rigorously evidence was reviewed
-- **Recency** (0–1.0): target 0.7+ — how recently the evidence was collected
-
-**Clarity Score (0–5.0)** — measures how precisely the result is defined and measurable.
-- **Definition** (0–1.25): target 1.0+ — who, what, where, by when
-- **Measurement** (0–1.25): target 1.0+ — indicator, baseline, target stated
-- **Integrity** (0–1.0): completeness and audit trail
-- **Scope** (0–0.75): geographic and demographic coverage
-- **Governance** (0–0.75): named owner and decision use
-
-A **content quality penalty** (×0.5 to ×1.0) applies when the result statement or evidence description appears to be placeholder text.
-""")
-
-        with st.expander("📊 Live Score Preview", expanded=False):
-            _render_live_score_preview(1)
-
         st.divider()
 
         # Consent checkbox for example library
@@ -4908,7 +4852,7 @@ def render_how_scoring_works_panel() -> None:
                                  f"outcome harvesting, beneficiary narratives):")
                     for action in guide["qualitative_improve_actions"]:
                         st.markdown(f"- {action}")
-                st.markdown("---")
+                st.divider()
 
 
 def render_personalized_weakness_panel(
@@ -5688,7 +5632,7 @@ def render_screen_2():
 
 
     # --- Stage 2 Engagement Card ---
-    st.markdown("---")
+    st.divider()
     with st.container(border=True):
         st.markdown("#### Want someone to look at this with you?")
         st.info(

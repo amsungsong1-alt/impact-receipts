@@ -54,12 +54,7 @@ _READINESS_STYLE = {
 # Shown under every readiness banner — keeps the headline from reading as a
 # guarantee of donor approval.
 _LIMITS_DISCLAIMER = (
-    "This is improvement guidance, not a guarantee of approval. Impact Integrity Diagnostic "
-    "checks the evidence you entered against what donor reviewers typically look "
-    "for — completeness, verifiability, clarity, and data-protection flags. It "
-    "does not see your underlying data collection, judge your programme, or "
-    "replace your donor's own assessment. A \"Submission-Ready\" result means the "
-    "gaps it can detect are closed — not that approval is assured."
+    "Guidance only — your donor makes the final call, not this tool."
 )
 
 
@@ -96,8 +91,7 @@ def get_diagnostic_state(
         if beneficiary_voice == "No beneficiary voice captured":
             return (
                 "NEEDS REFINEMENT",
-                "Strong on both axes, but missing beneficiary voice — Bond Evidence Principles 2024 "
-                "require voice & inclusion. Consider adding beneficiary feedback.",
+                "Strong on both axes — add beneficiary feedback to reach the highest evidence tier.",
             )
         return "STRONG", "Ready for submission"
     if confidence >= 3.5 and clarity < 3.0:
