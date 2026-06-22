@@ -3879,6 +3879,9 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         if st.button("💾 Save Draft", key="sidebar_save_draft", use_container_width=True):
             _save_draft()
             st.toast("Draft saved!", icon="💾")
+        st.caption("─")
+        if st.button("📊 Score your whole logframe →", key="sidebar_portfolio_cta", use_container_width=True):
+            _go_to_screen(3)
     # --- END UX: DYNAMIC SIDEBAR (v3.2) ---
 
     # Auto-save timer toast
@@ -4746,6 +4749,15 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 st.session_state["screen"] = 2
                 st.rerun()
 
+        # Portfolio CTA — contextual: user is about to score a result, may want to do the whole logframe
+        if st.button(
+            "📊 Checking a full logframe? Score the whole portfolio →",
+            key="tab3_portfolio_cta",
+            use_container_width=False,
+            help="Upload your logframe CSV to score all indicators at once.",
+        ):
+            _go_to_screen(3)
+
         st.divider()
 
         if st.session_state.get("confirm_reset"):
@@ -5541,6 +5553,15 @@ def render_screen_2():
             type="primary",
             key="html_primary_btn",
         )
+
+    # Portfolio CTA — highest conversion intent moment (user just saw one result scored)
+    if st.button(
+        "📊 Scored 1 result — check your whole logframe →",
+        key="s2_portfolio_cta",
+        use_container_width=True,
+        help="Upload your logframe CSV to see which indicators are weakest across your full portfolio.",
+    ):
+        _go_to_screen(3)
 
     st.divider()
 
