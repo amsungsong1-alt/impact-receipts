@@ -333,7 +333,7 @@ SECURE_HANDLING_CHECKLIST_MAP = {
 # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
 # --- UX: INSTANT REPORT CHECK (v3.2) ---
-INSTANT_CHECK_SYSTEM_PROMPT = r'''You are an expert MEL (Monitoring, Evaluation, and Learning) data extraction engine for the Impact Integrity Diagnostic tool. Your job is to read donor-funded project progress reports and extract structured data to pre-fill a submission verification form.
+INSTANT_CHECK_SYSTEM_PROMPT = r'''You are an expert MEL (Monitoring, Evaluation, and Learning) data extraction engine for the Impact Integrity Check tool. Your job is to read donor-funded project progress reports and extract structured data to pre-fill a submission verification form.
 
 ## YOUR TASK
 
@@ -1583,7 +1583,7 @@ def _go_to_screen(screen: int, reset: bool = False):
 
 def _render_tagline_footer():
     st.markdown(
-        '<div class="trust-tagline">Impact Integrity Diagnostic · Built in Accra for MEL teams across West Africa</div>',
+        '<div class="trust-tagline">Impact Integrity Check · Score your result before your donor does · Built in Accra</div>',
         unsafe_allow_html=True,
     )
 
@@ -1695,8 +1695,8 @@ _TUTORIAL_COPY = {
     1: {
         "title": "📝 Each field below contributes to your score.",
         "body": (
-            "Watch the **Submission Summary** panel (top-left sidebar) update as you fill in each field.\n"
-            "Open **Live Score Preview** on the Review & Submit tab to see a full score breakdown before submitting."
+            "Watch the **Submission Summary** panel (sidebar) update as you fill in each field.\n"
+            "The **Review & Submit** tab shows your live Confidence and Clarity scores with fix buttons — check it before submitting."
         ),
     },
     2: {
@@ -3580,10 +3580,11 @@ def render_screen_0():
         _logo_b64 = base64.b64encode(_logo_path.read_bytes()).decode()
         _logo_tag = (
             f'<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">'
-            f'<img src="data:image/png;base64,{_logo_b64}" alt="Impact Integrity Diagnostic" style="height:56px;">'
+            f'<img src="data:image/png;base64,{_logo_b64}" alt="Impact Integrity Check" style="height:56px;">'
             f'<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
-            f'<span style="color:#1B5E20;">Impact Integrity Diagnostic</span><br>'
-            f'<span style="color:#8A6500; font-weight:400;">Pre-submission confidence check for MEL teams reporting to donors</span>'
+            f'<span style="color:#1B5E20;">Impact Integrity Check</span><br>'
+            f'<span style="color:#8A6500; font-weight:400;">Score your result before your donor does.</span><br>'
+            f'<span style="color:#616161; font-weight:400; font-size:0.82rem;">Evidence quality check for M&amp;E professionals reporting to USAID, FCDO, GIZ and 7 more donors.</span>'
             f'</span>'
             f'</div>'
         )
@@ -3591,8 +3592,8 @@ def render_screen_0():
         _logo_tag = (
             '<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">'
             '<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
-            '<span style="color:#1B5E20;">Impact Integrity Diagnostic</span><br>'
-            '<span style="color:#8A6500; font-weight:400;">Pre-submission confidence check for MEL teams reporting to donors</span>'
+            '<span style="color:#1B5E20;">Impact Integrity Check</span><br>'
+            '<span style="color:#8A6500; font-weight:400;">Score your result before your donor does.</span>'
             '</span>'
             '</div>'
         )
@@ -3635,7 +3636,7 @@ def render_screen_0():
             <strong style="color:#1B5E20;">&#128204; Real case from 2024:</strong>
             An African consultancy&rsquo;s final donor report was rejected three times
             for missing M&amp;E data and logframe gaps. 40+ hours of senior staff rework.
-            Impact Integrity Diagnostic catches these issues before they reach your donor.
+            Impact Integrity Check catches these issues before they reach your donor.
           </p>
         </div>
         """,
@@ -5381,7 +5382,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             return "✅" if s >= 4.0 else "⚠️" if s >= 3.0 else "🔴"
         _tf = fixes[0]["message"] if fixes else "No major gaps — ready to refine."
         _wa_text = (
-            f"📊 Impact Integrity Diagnostic — Pre-Submission Check\n"
+            f"📊 Impact Integrity Check — Pre-Submission Check\n"
             f"Confidence: {conf_score}/5.0 {_share_icon(conf_score)}  ·  "
             f"Clarity: {clar_score}/5.0 {_share_icon(clar_score)}\n"
             f"Top fix: {_tf}\n"
@@ -5592,7 +5593,7 @@ def render_screen_2():
 
     with st.expander("📚 Methodology & Citations", expanded=False):
         st.markdown("""
-**Impact Integrity Diagnostic v3.0 scoring methodology is anchored in:**
+**Impact Integrity Check v3.0 scoring methodology is anchored in:**
 
 - **Data Quality Standards** — adapted from USAID ADS 201.3.5.7, OECD-DAC 2019 evaluation criteria, and FCDO DQA guidance. Used for all Confidence and Clarity sub-scores.
 
@@ -5641,7 +5642,7 @@ def render_screen_2():
         with st.container(border=True):
             st.markdown("#### Want someone to look at this with you?")
             _s2_wa_url = "https://wa.me/233503648195?text=" + urllib.parse.quote(
-                "Hi, I've just run an Impact Integrity Diagnostic check and would like "
+                "Hi, I've just run an Impact Integrity Check check and would like "
                 "a deeper review of my result before submission. Can we talk?"
             )
             st.markdown(
@@ -6189,7 +6190,7 @@ def _build_donor_template_docx(template: dict, submission: dict, evaluation: dic
 
     doc = _docx.Document()
     doc.add_heading(f"{template['label']} Report", level=0)
-    doc.add_paragraph(f"Generated by Impact Integrity Diagnostic: {timestamp}")
+    doc.add_paragraph(f"Generated by Impact Integrity Check: {timestamp}")
 
     for section in template["sections"]:
         doc.add_heading(section["heading"], level=1)
@@ -6263,7 +6264,7 @@ def _build_markdown_report(submission: dict, evaluation: dict, timestamp: str) -
     filenames  = submission.get("attached_filenames", [])
 
     lines = [
-        "# Impact Integrity Diagnostic — Evaluation Report",
+        "# Impact Integrity Check — Evaluation Report",
         f"**Generated:** {timestamp}",
         f"**Confidence Score:** {conf_score}/5.0 ({conf_label})",
         f"**Clarity Score:** {clar_score}/5.0 ({clar_label})",
@@ -7336,7 +7337,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Impact Integrity Diagnostic — Report</title>
+<title>Impact Integrity Check — Report</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet"/>
 {_vega_scripts}
 <style>
@@ -7355,7 +7356,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
 </style>
 </head>
 <body>
-<h1>Impact Integrity Diagnostic — Evaluation Report</h1>
+<h1>Impact Integrity Check — Evaluation Report</h1>
 <p style="color:#616161;font-size:0.88rem;">Generated: {timestamp}</p>
 {_lite_note}
 {_meta_html}
@@ -7493,7 +7494,7 @@ def _build_review_summary_docx(submission: dict, evaluation: dict, review_info: 
     fixes      = evaluation.get("fixes", [])
 
     doc = _docx.Document()
-    doc.add_heading("Impact Integrity Diagnostic — Review Summary", level=0)
+    doc.add_heading("Impact Integrity Check — Review Summary", level=0)
     doc.add_paragraph(f"Generated: {timestamp}")
 
     doc.add_heading("Result Statement", level=1)
@@ -7844,7 +7845,7 @@ def _build_portfolio_verification_summary_html(results_df, warnings: list, times
 
 def main():
     st.set_page_config(
-        page_title="Impact Integrity Diagnostic",
+        page_title="Impact Integrity Check",
         page_icon="",
         layout="centered",
         initial_sidebar_state="collapsed",
