@@ -1711,7 +1711,7 @@ _TUTORIAL_COPY = {
     3: {
         "title": "📄 Download your report and submit it to your donor.",
         "body": (
-            "Use the **Download HTML Report** or **Download PDF Report** buttons below "
+            "Use the **Download PDF Report** button above "
             "to get a shareable copy of your results.\n\n"
             "Used your free checks? Upgrade options (pay-per-check or monthly) appear "
             "wherever you've reached the free-check limit."
@@ -3992,7 +3992,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         if _irc_summary:
             st.success(
                 f"⚡ Instant Check complete — {_irc_summary['filled']} fields auto-filled across all tabs. "
-                "Use the tab buttons above to review each section before submitting."
+                "Use the **Result Basics**, **Logframe Linkage**, **Evidence & Verification**, and **Review & Submit** stage buttons at the top to review each section before submitting."
             )
             if _irc_summary.get("skipped"):
                 st.info(f"ℹ️ Left blank (not found in document): {_irc_summary['skipped']}")
@@ -4002,7 +4002,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 st.warning(f"⚠️ Compliance gaps not found: {_irc_summary['compliance_gaps']}")
             st.info(
                 "📋 **Checked one result.** If your report has more, click "
-                "**＋ Add Another Result** above, then re-run the check targeting a different result."
+                "**＋ Add Another Result** below, then re-run the check targeting a different result."
             )
         # --- END IRC fill summary banner ---
 
