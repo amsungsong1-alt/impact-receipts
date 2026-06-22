@@ -1252,9 +1252,10 @@ h1, h2, h3, h4 {
   margin-bottom: 8px;
 }
 .hero-tagline {
-  font-style: italic;
+  font-style: normal;
+  font-weight: 600;
   color: #8A6500;
-  font-size: 1rem;
+  font-size: 1.05rem;
   margin: 4px 0 14px 0;
 }
 
@@ -1379,6 +1380,7 @@ h1, h2, h3, h4 {
 @media (max-width: 420px) {
   .md-pitch .lbl { display: none !important; }
   .md-pitch { padding: 8px 8px !important; }
+  .md-pstage .dot { width: 24px !important; height: 24px !important; font-size: 10px !important; }
 }
 /* Active tab: bold + underline */
 .stTabs [data-baseweb="tab"][aria-selected="true"] button {
@@ -2491,7 +2493,7 @@ def _render_slot_fields(slot: int):
     elif _rs and not any(c.isdigit() for c in _rs):
         st.caption("Tip: Add a number (e.g., '500 farmers trained') — quantified claims score higher.")
 
-    st.markdown("#### Logframe Linkage")
+    st.markdown("#### 🔗 Logframe Linkage")
     st.caption(
         "**Why this matters:** A real African consultancy had their final donor report "
         "rejected 3 times in 2024 because results weren't tied to logframe indicators. "
@@ -2842,7 +2844,7 @@ def _render_tab1_slot(slot: int):
 def _render_tab2_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
     _render_fix_notes(slot, 1)
-    st.markdown("#### Logframe Linkage")
+    st.markdown("#### 🔗 Logframe Linkage")
     st.caption("Copy your approved indicator code and target directly from your Technical Proposal or logframe matrix.")
 
     # Show result statement as read-only reference so user can reconcile without scrolling back
@@ -2974,7 +2976,7 @@ def _render_tab3_slot(slot: int):
     )
 
     # Reporting Period — 3-column inline row (no stacked Today buttons)
-    st.markdown("**Reporting Period**")
+    st.markdown("**📅 Reporting Period**")
     st.caption("The period this submission covers. Evidence outside this range is flagged.")
     _rp_col1, _rp_col2, _rp_col3 = st.columns(3)
     with _rp_col1:
@@ -3070,7 +3072,7 @@ def _render_tab3_slot(slot: int):
         }
 
     # Beneficiary Voice — promoted to its own section immediately after evidence checks
-    st.markdown("### Beneficiary Voice")
+    st.markdown("### 🗣️ Beneficiary Voice")
     st.caption("Did the people this programme serves contribute to or validate this evidence?")
     st.caption("Score by method — No voice: +0.0 · Anecdotal: +0.15 · Representatives / Systematic: +0.35 · Independent: +0.5")
     st.selectbox(
@@ -3407,7 +3409,7 @@ def inject_matchday_css():
     .md-stat .val { font-size:34px; font-weight:600; line-height:1; }
     .md-stat .sub { font-size:11px; color:#888780; margin-top:6px; }
     .md-div { background:#d3d1c7; }
-    .md-green { color:#1D9E75; } .md-amber { color:#BA7517; } .md-red { color:#A32D2D; }
+    .md-green { color:#1B5E20; } .md-amber { color:#8A6500; } .md-red { color:#A32D2D; }
     .md-var { background:#1a1a18; color:#fff; border-radius:8px;
         padding:24px 20px; margin:16px 0; display:flex; align-items:center; gap:18px; }
     .md-var-badge { background:#A32D2D; color:#fff; font-size:11px; font-weight:700;
@@ -3571,7 +3573,7 @@ def render_fulltime(confidence, clarity, summary):
     clar_txt = "—" if clarity is None else str(int(round(clarity)))
     st.markdown(f"""
     <div class="md-fulltime">
-      <div class="whistle">Full-time whistle</div>
+      <div class="whistle">YOUR RESULT</div>
       <h3>Confidence {conf_txt} · Clarity {clar_txt}</h3>
       <p>{_esc(summary)}</p>
     </div>
@@ -3647,7 +3649,7 @@ def render_screen_0():
     # Case study — strongest trust element, above the fold
     st.markdown(
         """
-        <div style="border-left:3px solid #8A6500;padding:8px 12px;margin:12px 0;background:transparent;">
+        <div style="border-left:4px solid #8A6500;padding:8px 12px;margin:12px 0;background:transparent;">
           <p style="margin:0;font-size:0.85rem;color:#212121;">
             <strong style="color:#1B5E20;">&#128204; Real case from 2024:</strong>
             An African consultancy&rsquo;s final donor report was rejected three times
@@ -3676,7 +3678,7 @@ def render_screen_0():
     with st.expander("More about this tool"):
         st.markdown(
             """
-            <div style="border-radius:8px; background:#F1F8E9; border-left:3px solid #1B5E20;
+            <div style="border-radius:8px; background:#F1F8E9; border-left:4px solid #1B5E20;
                         padding:10px 16px; margin:10px 0; font-size:0.85rem; color:#374151;">
               <strong style="color:#1B5E20;">🔒 Your data stays in your browser.</strong>
               We never store your result statements, evidence, or uploaded documents on our servers.
@@ -5119,7 +5121,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         lk_state = linkage.get("state", "MISSING")
         lk_rat   = linkage.get("rationale", "")
         lk_issues = linkage.get("issues", [])
-        st.markdown("#### Logframe Linkage")
+        st.markdown("#### 🔗 Logframe Linkage")
         if lk_state == "STRONG":
             st.success(f"✓ {lk_rat}")
         elif lk_state == "WEAK":
@@ -7884,7 +7886,7 @@ def _build_portfolio_verification_summary_html(results_df, warnings: list, times
 def main():
     st.set_page_config(
         page_title="Impact Integrity Check",
-        page_icon="",
+        page_icon="✅",
         layout="centered",
         initial_sidebar_state="collapsed",
     )
