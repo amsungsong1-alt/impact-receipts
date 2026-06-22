@@ -2196,7 +2196,7 @@ def _render_live_score_preview(slot: int = 1):
     elif _answered == 0:
         st.markdown("**Data governance checklist not yet completed — 0 of 6 questions answered.**")
     else:
-        st.markdown(f"**Governance readiness: {int(gov_score / 24 * 100)}% — review items below.**")
+        st.markdown(f"**Governance readiness: {int(gov_score / 24 * 100)}% — review items in the checklist below.**")
 
     # Remediation action — placed right next to the status line so the fix is one click away
     if gov_score < 20:
@@ -2827,11 +2827,7 @@ def _render_tab2_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
     _render_fix_notes(slot, 1)
     st.markdown("#### Logframe Linkage")
-    st.caption(
-        "**Why this matters:** A real African consultancy had their final donor report "
-        "rejected 3 times in 2024 because results weren't tied to logframe indicators. "
-        "40+ hours of rework. We don't want that to happen to you."
-    )
+    st.caption("Copy your approved indicator code and target directly from your Technical Proposal or logframe matrix.")
 
     # Show result statement as read-only reference so user can reconcile without scrolling back
     _rs_ref = st.session_state.get(f"result_statement{s}", "").strip()
@@ -2843,6 +2839,8 @@ def _render_tab2_slot(slot: int):
         key=f"logframe_fill_later{s}",
         help="Tick this to continue without logframe data. You can return to complete it before scoring.",
     )
+    if _fill_later:
+        st.caption("Note: unfilled logframe fields reduce your Clarity score.")
     if not _fill_later:
         _irc_widget(
             st.text_input,
@@ -2902,10 +2900,13 @@ def _render_tab3_slot(slot: int):
     
         _irc_widget(
             st.checkbox,
-            "This result is evidenced qualitatively (case study, outcome harvesting, Most "
-            "Significant Change, beneficiary voice) — score Definition and Measurement on "
-            "qualitative dimensions instead of numeric precision",
+            "Evidence is qualitative (case study, MSC, outcome harvesting)",
             f"qualitative_evidence{s}", default=False,
+            help=(
+                "Tick if your evidence is a case study, outcome harvesting, Most Significant Change, "
+                "or beneficiary narrative. Switches Definition and Measurement scoring to qualitative "
+                "dimensions instead of numeric precision."
+            ),
         )
         is_qualitative_evidence = (
             ev_type in QUALITATIVE_EVIDENCE_TYPES
@@ -3055,6 +3056,7 @@ def _render_tab3_slot(slot: int):
     # Beneficiary Voice — promoted to its own section immediately after evidence checks
     st.markdown("### Beneficiary Voice")
     st.caption("Did the people this programme serves contribute to or validate this evidence?")
+    st.caption("Score by method — No voice: +0.0 · Anecdotal: +0.15 · Representatives / Systematic: +0.35 · Independent: +0.5")
     st.selectbox(
         "How were beneficiary voices captured?",
         key=f"beneficiary_voice{s}",
@@ -3105,6 +3107,7 @@ def _render_tab3_slot(slot: int):
             "📋 Data Governance Checklist (expand to complete)",
             expanded=_pii_triggered or _safeguarding_triggered or _minors_triggered,
         ):
+            st.caption("⚠ Unanswered questions score as 'No' and reduce your Governance sub-score. Answer 'Not applicable' where it genuinely doesn't apply.")
             st.selectbox(
                 "Do you have documented consent from beneficiaries for their data "
                 "to be shared with the donor?",
@@ -3203,65 +3206,21 @@ def _render_tab3_slot(slot: int):
             )
     # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
-    # --- ADVISORY CHECKLIST (v3.4, score-neutral) ---
-    with st.expander("📊 Reporting Quality Checklist (optional, advisory only)", expanded=st.session_state.get("_irc_used", False)):
-        st.caption("These do not affect your Confidence or Clarity scores — they appear as advisory flags in your report.")
-        st.selectbox(
-            "Does your report distinguish attribution from contribution?",
-            options=["Not specified", "Yes", "No", "Not sure"],
-            key=f"attribution_contribution{s}",
-            help=(
-                "Attribution claims your program caused the change on its own. "
-                "Contribution acknowledges your program was one of several "
-                "contributing factors alongside others."
-            ),
-        )
-        st.selectbox(
-            "Is beneficiary data disaggregated (women, youth, PWD, rural)?",
-            options=["Not specified", "Yes — fully disaggregated", "Partially disaggregated", "No"],
-            key=f"disaggregation_status{s}",
-            help="Many donors now expect results broken down by sex, age, disability, and location.",
-        )
-        st.divider()
-        st.text_area(
-            "What did you learn from this result, and how did your program adapt? (optional)",
-            key=f"learning_notes{s}",
-            placeholder=(
-                "e.g., We learned that follow-up calls increased survey response rates, "
-                "so we adjusted our M&E plan to include monthly check-ins."
-            ),
-            help=(
-                "Donors increasingly look for evidence of learning and adaptation. "
-                "This appears as a Donor Readiness flag in your report — it does not "
-                "affect your Confidence or Clarity scores."
-            ),
-        )
-        st.text_area(
-            "What can this data NOT confirm or be generalized to? (optional)",
-            key=f"limitations_notes{s}",
-            placeholder=(
-                "e.g., This sample covers only urban participants and cannot be "
-                "generalized to rural areas."
-            ),
-            help=(
-                "Disclosing limitations builds credibility. This appears as a Donor "
-                "Readiness flag in your report — it does not affect your Confidence or "
-                "Clarity scores."
-            ),
-        )
-        st.text_area(
-            "Who owns this result, and what decision will it inform? (optional — improves Clarity)",
-            key=f"additional_context{s}",
-            placeholder=(
-                "e.g., The MEL Lead owns this result. It will inform the Q3 budget "
-                "reallocation decision for the livelihoods component."
-            ),
-            help=(
-                "Naming an owner and the decision this result informs strengthens your "
-                "Governance sub-score (part of Clarity)."
-            ),
-        )
-    # --- END ADVISORY CHECKLIST (v3.4/v3.5) ---
+    # Governance context — affects Clarity/Governance sub-score
+    st.text_area(
+        "Who owns this result, and what decision will it inform? (optional — improves Clarity)",
+        key=f"additional_context{s}",
+        placeholder=(
+            "e.g., The MEL Lead owns this result. It will inform the Q3 budget "
+            "reallocation decision for the livelihoods component."
+        ),
+        help=(
+            "Naming an owner and the decision this result informs strengthens your "
+            "Governance sub-score (part of Clarity)."
+        ),
+    )
+    # Advisory fields (attribution, disaggregation, learning, limitations) moved to
+    # Screen 2 "Optional reporting flags" so users can fill them after seeing their score.
 
     prev_files = st.session_state.get(f"draft_uploaded_filenames{s}", [])
     if prev_files:
@@ -3648,11 +3607,12 @@ def render_screen_0():
         unsafe_allow_html=True,
     )
 
-    if st.button("Score My Result Statement →", type="primary", use_container_width=True, key="cta_top"):
+    if st.button("Check My Result Statement →", type="primary", use_container_width=True, key="cta_top"):
         if not st.session_state.get("has_seen_tutorial"):
             st.session_state["tutorial_step"] = 1
         _go_to_screen(1, reset=True)
     st.caption("Takes 4 minutes · First 3 checks are free.")
+    st.caption("Free to start · Paid upgrade unlocks AI auto-fill and unlimited scoring.")
 
     if st.button("🚀 Try with a sample result →", key="cta_demo",
                  help="Loads a realistic ANC result from Ashanti Region — runs in seconds",
@@ -3667,15 +3627,27 @@ def render_screen_0():
         st.query_params["demo"] = "1"
         _go_to_screen(1)
 
-    if st.button("Score my whole logframe →", use_container_width=True, key="cta_portfolio"):
-        _go_to_screen(3)
+    # Case study — strongest trust element, above the fold
+    st.markdown(
+        """
+        <div style="border-left:3px solid #8A6500;padding:8px 12px;margin:12px 0;background:transparent;">
+          <p style="margin:0;font-size:0.85rem;color:#212121;">
+            <strong style="color:#1B5E20;">&#128204; Real case from 2024:</strong>
+            An African consultancy&rsquo;s final donor report was rejected three times
+            for missing M&amp;E data and logframe gaps. 40+ hours of senior staff rework.
+            Impact Integrity Diagnostic catches these issues before they reach your donor.
+          </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    with st.expander("↩ Resume a previous session"):
+    with st.expander("📂 Load a saved draft (JSON)"):
         uploaded_json = st.file_uploader(
             "Upload a previously saved inputs JSON",
             type=["json"],
             key="resume_json_upload",
-            help="Upload a JSON file previously downloaded via 'Download Draft (JSON)' on the Review & Submit tab.",
+            help="Upload a JSON file previously downloaded from the Review & Submit tab.",
         )
         if uploaded_json is not None:
             try:
@@ -3685,19 +3657,6 @@ def render_screen_0():
                 st.error(f"Could not read the file: {exc}")
 
     with st.expander("More about this tool"):
-        st.markdown(
-            """
-            <div style="border-left:3px solid #8A6500;padding:8px 12px;margin:4px 0 12px 0;background:transparent;">
-              <p style="margin:0;font-size:0.85rem;color:#212121;">
-                <strong style="color:#1B5E20;">&#128204; Real case from 2024:</strong>
-                An African consultancy&rsquo;s final donor report was rejected three times
-                for missing M&amp;E data and logframe gaps. 40+ hours of senior staff rework.
-                Impact Integrity Diagnostic catches these issues before they reach your donor.
-              </p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
         st.markdown(
             """
             <div style="border-radius:8px; background:#F1F8E9; border-left:3px solid #1B5E20;
@@ -3888,7 +3847,11 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         _sb_field("Geography",    "geographic_scope")
         _sb_field("Timeframe",    "timeframe")
         _sb_field("Donor",        "donor_selected")
-        _sb_field("Indicator",    "logframe_indicator", 60)
+        _logframe_skipped = st.session_state.get("logframe_fill_later", False)
+        if _logframe_skipped:
+            st.caption("Logframe: Skipped (fill before scoring)")
+        else:
+            _sb_field("Indicator", "logframe_indicator", 60)
         _t = st.session_state.get("logframe_target", "")
         _a = st.session_state.get("logframe_achievement", "")
         if _t or _a:
@@ -3981,7 +3944,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 )
             if _donor_val in DONOR_GUIDANCE:
                 _dg = DONOR_GUIDANCE[_donor_val]
-                with st.expander(f"💡 {_donor_val} reporting tips", expanded=True):
+                with st.expander(f"💡 {_donor_val} reporting tips (3 tips)", expanded=False):
                     st.markdown(f"**Key emphasis:** {_dg['key_emphasis']}")
                     st.markdown(f"**Most common rejection:** {_dg['common_rejection']}")
                     st.markdown(f"**Tip:** {_dg['tip']}")
@@ -4034,7 +3997,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 st.rerun()
         with _em_col2:
             if st.button(
-                "⚡ Instant Report Check",
+                "⚡ Instant Report Check (paid)",
                 use_container_width=True,
                 type="primary" if _entry_mode == "⚡ Instant Report Check" else "secondary",
                 key="btn_irc",
@@ -4661,10 +4624,13 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                     key="tab3_save_draft_top",
                 )
 
-        # Gate awareness — show before user invests time reviewing scores
-        if not st.session_state.get("user_email"):
-            st.info("📧 You'll enter your email below to run this check.")
-        else:
+        # Gate — email inline at top so user can act immediately, no st.stop() blocking
+        _has_email = bool(st.session_state.get("user_email"))
+        if not _has_email:
+            st.warning("📧 **Enter your email to run your check.** We use it to track your free checks — no password needed.")
+            _render_email_gate_inline("_check")
+            _has_email = bool(st.session_state.get("user_email"))
+        if _has_email:
             _email_gate_check = st.session_state.get("user_email", "")
             _u_gate = get_user(_email_gate_check) if _email_gate_check else None
             _checks_gate = (_u_gate or {}).get("free_checks_used", 0)
@@ -4706,16 +4672,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
 
         st.divider()
 
-        # --- Require email before running any check ---
-        if not st.session_state.get("user_email"):
-            st.warning(
-                "📧 **Enter your email to run your check.** "
-                "We use it to track your free checks — no password needed."
-            )
-            _render_email_gate_inline("_check")
-            st.stop()
-
-        # Consent checkbox for example library — shown after email gate
+        # GDPR consent — before submit, not after email gate
         st.checkbox(
             "📚 Allow my anonymised entries to improve extraction quality for other MEL officers. "
             "(Act 843 / NDPA compliant — no names or organisations are stored.)",
@@ -4726,8 +4683,8 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         _u_now = get_user(_email_now) if _email_now else None
         _checks_now = (_u_now or {}).get("free_checks_used", 0)
         _paid_now = st.session_state.get("is_paid") or is_still_paid(_u_now)
-        _check_allowed = _paid_now or _checks_now < FREE_CHECKS_LIMIT
-        if not _check_allowed:
+        _check_allowed = _has_email and (_paid_now or _checks_now < FREE_CHECKS_LIMIT)
+        if _has_email and not _check_allowed:
             _render_paywall()
         # --- End usage tracking ---
         _sb4, _bb4 = st.columns([3, 1])
@@ -4739,7 +4696,13 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 st.rerun()
         with _sb4:
             pass
-        if _check_allowed and st.button("Score My Result Statement →", type="primary", use_container_width=True):
+        if st.button(
+            "Run Diagnostic & Get Report →",
+            type="primary",
+            use_container_width=True,
+            disabled=not _check_allowed,
+            help="Enter your email above to enable scoring" if not _has_email else None,
+        ):
             mandatory = [
                 st.session_state.get("result_statement", ""),
                 st.session_state.get("target_group", ""),
@@ -4800,9 +4763,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             if st.button("Start Fresh", use_container_width=False):
                 st.session_state["confirm_reset"] = True
                 st.rerun()
-
-        if st.button("← Back to Home", use_container_width=False):
-            _go_to_screen(0)
 
     _save_draft()
     _render_tagline_footer()
@@ -4922,7 +4882,7 @@ def _render_review_handoff(submission: dict, ev: dict, card_idx: int):
     slot = card_idx + 1
     s = _slot_suffix(slot)
 
-    with st.expander("Review & sign-off", expanded=False):
+    with st.expander("📋 Team review & sign-off (agency feature)", expanded=False):
         st.caption(
             "Optional — record a reviewer's decision before handing this result back "
             "to the field officer or passing it up the chain. No accounts or logins: "
@@ -5056,6 +5016,12 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             unsafe_allow_html=True,
         )
 
+    # Evidence statement — inline, most actionable output after the top fix
+    _ev_stmt = _generate_evidence_statement(submission) if callable(globals().get("_generate_evidence_statement")) else None
+    if _ev_stmt:
+        st.markdown("**Evidence statement for your report** — copy and edit before pasting into your narrative:")
+        st.code(_ev_stmt, language=None)
+
     # INVALID INPUT early exit
     if diag_state == "INVALID INPUT":
         st.error("Input Quality Issue Detected")
@@ -5087,6 +5053,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     verify_level = conf_comp.get("verify_level", 0)
     def_score    = clar_comp.get("definition_score", 0)
 
+    st.markdown("---\n#### Full Score Breakdown")
     st.markdown("### What Donors Want to Know")
     fq_col1, fq_col2 = st.columns(2)
     with fq_col1:
@@ -5596,6 +5563,33 @@ def render_screen_2():
             else:
                 st.markdown(f"- {_fix_msg}")
 
+    # Optional reporting flags — moved here from Tab 2 so users can fill after seeing scores
+    with st.expander("📝 Optional reporting flags (no score impact)", expanded=False):
+        st.caption("These appear as advisory flags in your report — they do not affect your Confidence or Clarity scores.")
+        _s2_slot_suffix = _slot_suffix(1)
+        st.selectbox(
+            "Does your report distinguish attribution from contribution?",
+            options=["Not specified", "Yes", "No", "Not sure"],
+            key=f"attribution_contribution{_s2_slot_suffix}",
+            help="Attribution claims your program caused the change on its own. Contribution acknowledges multiple factors.",
+        )
+        st.selectbox(
+            "Is beneficiary data disaggregated (women, youth, PWD, rural)?",
+            options=["Not specified", "Yes — fully disaggregated", "Partially disaggregated", "No"],
+            key=f"disaggregation_status{_s2_slot_suffix}",
+            help="Many donors now expect results broken down by sex, age, disability, and location.",
+        )
+        st.text_area(
+            "What did you learn from this result, and how did your program adapt?",
+            key=f"learning_notes{_s2_slot_suffix}",
+            placeholder="e.g., We learned that follow-up calls increased survey response rates, so we adjusted our M&E plan.",
+        )
+        st.text_area(
+            "What can this data NOT confirm or be generalized to?",
+            key=f"limitations_notes{_s2_slot_suffix}",
+            placeholder="e.g., This sample covers only urban participants and cannot be generalized to rural areas.",
+        )
+
     with st.expander("📚 Methodology & Citations", expanded=False):
         st.markdown("""
 **Impact Integrity Diagnostic v3.0 scoring methodology is anchored in:**
@@ -5658,7 +5652,7 @@ def render_screen_2():
                 f'📱 Book a free first review with the founder on WhatsApp</a>',
                 unsafe_allow_html=True,
             )
-            st.caption("Download your report below and share it before the call.")
+            st.caption("Download your report above and share it before the call.")
 
     _render_tutorial(3)
 
