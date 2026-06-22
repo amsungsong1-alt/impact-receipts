@@ -2054,12 +2054,18 @@ def _render_evidence_ladder_chart(ladder, key: str):
 
 
 def _render_live_score_preview(slot: int = 1):
-    sub = _build_submission_from_session(slot)
-    try:
-        ev = _evaluator.evaluate_submission(sub)
-    except Exception:
-        st.caption("Fill in the form fields above to see your live score.")
-        return
+    # Reuse cached evaluation from Tab 3 if available (avoids triple evaluate_submission() call)
+    _cache = st.session_state.get("_tab3_ev_cache") if slot == 1 else None
+    if _cache:
+        sub = _cache["sub"]
+        ev  = _cache["ev"]
+    else:
+        sub = _build_submission_from_session(slot)
+        try:
+            ev = _evaluator.evaluate_submission(sub)
+        except Exception:
+            st.caption("Fill in the form fields above to see your live score.")
+            return
 
     conf_score     = ev.get("confidence_score", 0)       # post-multiplier (gate assessment)
     raw_conf       = ev.get("raw_confidence_score", conf_score)  # pre-multiplier (matches sub-scores)
@@ -2275,6 +2281,7 @@ def _build_inputs_json(timestamp: str) -> str:
         "session_id": f"ir-{timestamp}",
         "active_slots": active,
         "slots": slots_data,
+        "consent_examples": st.session_state.get("consent_examples", False),
     }
     return json.dumps(payload, indent=2, ensure_ascii=False)
 
@@ -2361,6 +2368,9 @@ def _load_from_inputs_json(data: dict):
         for _k, _v in _sd.items() if _v and _k in _BASE_FORM_KEYS
     )
     st.success(f"✅ Draft loaded — {_prefill_count} fields pre-filled. Review and update as needed.")
+    # Restore consent preference from draft
+    if "consent_examples" in data:
+        st.session_state["consent_examples"] = bool(data["consent_examples"])
     # --- END UX: SMART DEFAULTS (v3.2) ---
     # bump version so _irc_widget-backed fields re-seed from the freshly loaded values
     st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
@@ -4658,11 +4668,13 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                     st.rerun()
 
         # --- Score preview (unconditional — no email needed to see your own scores) ---
+        # Compute evaluation ONCE and cache; _render_live_score_preview reuses it (lean: no triple eval)
         try:
-            _banner_sub = _build_submission_from_session(1)
-            _banner_ev  = _evaluator.evaluate_submission(_banner_sub)
-            _banner_c   = round(_banner_ev.get("raw_confidence_score", 0) * 20, 1)
-            _banner_cl  = round(_banner_ev.get("clarity_score", 0) * 20, 1)
+            _tab3_sub = _build_submission_from_session(1)
+            _tab3_ev  = _evaluator.evaluate_submission(_tab3_sub)
+            st.session_state["_tab3_ev_cache"] = {"sub": _tab3_sub, "ev": _tab3_ev}
+            _banner_c  = round(_tab3_ev.get("raw_confidence_score", 0) * 20, 1)
+            _banner_cl = round(_tab3_ev.get("clarity_score", 0) * 20, 1)
             if _banner_c >= 75 and _banner_cl >= 75:
                 st.success("✅ Strong Submission — Your result meets quality thresholds for donor submission.")
             elif _banner_c >= 50 or _banner_cl >= 50:
@@ -4670,9 +4682,9 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             else:
                 st.error("🔴 High Risk — Your donor will likely query or reject this result. Fix critical issues first.")
         except Exception:
-            pass
+            st.session_state.pop("_tab3_ev_cache", None)
 
-        # Live score breakdown with per-axis fix buttons (unconditional)
+        # Live score breakdown — uses cached evaluation for slot 1
         for _lsp_slot in range(1, active + 1):
             _render_live_score_preview(_lsp_slot)
 
@@ -5083,7 +5095,9 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     verify_level = conf_comp.get("verify_level", 0)
     def_score    = clar_comp.get("definition_score", 0)
 
-    st.markdown("---\n#### Full Score Breakdown")
+    st.markdown("---")
+    if diag_state == "STRONG":
+        st.success("✅ Your result is submission-ready. The full breakdown is below for reference — no action required.")
     st.markdown("### What Donors Want to Know")
     fq_col1, fq_col2 = st.columns(2)
     with fq_col1:
@@ -5571,14 +5585,23 @@ def render_screen_2():
             key="html_primary_btn",
         )
 
-    # Portfolio CTA — highest conversion intent moment (user just saw one result scored)
-    if st.button(
-        "📊 Scored 1 result — check your whole logframe →",
-        key="s2_portfolio_cta",
-        use_container_width=True,
-        help="Upload your logframe CSV to see which indicators are weakest across your full portfolio.",
-    ):
-        _go_to_screen(3)
+    # Post-download CTAs — JTBD exit: user got their answer, what next?
+    _done_c1, _done_c2 = st.columns(2)
+    with _done_c1:
+        if st.button("✓ Done — check another result →", key="s2_done_cta", use_container_width=True, type="primary"):
+            _reset_all_slots()
+            st.session_state["evaluations"] = None
+            st.session_state["current_tab"] = 0
+            st.query_params["tab"] = "0"
+            _go_to_screen(1, reset=True)
+    with _done_c2:
+        if st.button(
+            "📊 Check your whole logframe →",
+            key="s2_portfolio_cta",
+            use_container_width=True,
+            help="Upload your logframe CSV to see which indicators are weakest across your full portfolio.",
+        ):
+            _go_to_screen(3)
 
     st.divider()
 
