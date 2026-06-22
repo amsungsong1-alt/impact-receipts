@@ -3452,11 +3452,11 @@ def inject_matchday_css():
 
 
 MATCHDAY_COMMENTARY = {
-    "enter":    "Kickoff. Your indicators are taking the field — let's line them up.",
-    "logframe": "Good movement — let's see which indicators find a home in the logframe.",
-    "evidence": "The goal is being checked. VAR is reviewing the evidence before anything counts.",
-    "review":   "Decision time. Submit as-is, or strengthen a flagged claim before you shoot.",
-    "report":   "Full time. Here's your result and the official match report.",
+    "enter":    "Step 1 — Define your result: who benefited, what changed, where and when.",
+    "logframe": "Step 2 — Link your result to your approved logframe indicator and target.",
+    "evidence": "Step 3 — Document and verify your supporting evidence.",
+    "review":   "Step 4 — Review your scores and run the full diagnostic.",
+    "report":   "Diagnostic complete. Here are your Confidence and Clarity scores.",
 }
 
 
@@ -3466,7 +3466,7 @@ def render_commentary(stage_key: str):
     if not line:
         return
     st.markdown(
-        f'<div class="md-ticker"><span class="mic">LIVE</span>'
+        f'<div class="md-ticker"><span class="mic">STEP</span>'
         f'<span class="txt">{line}</span></div>',
         unsafe_allow_html=True,
     )
@@ -3488,11 +3488,11 @@ def render_scoreboard(confidence=None, clarity=None, verified=False):
     clar_txt = "—" if clarity is None else str(int(round(clarity)))
     conf_cls = _score_class(confidence, verified)
     clar_cls = _score_class(clarity, verified)
-    status = "● final" if verified else "● provisional"
+    status = "● scored" if verified else "● preview"
     status_color = "#A5D6A7" if verified else "#FFD54F"
     st.markdown(f"""
     <div class="md-sb">
-      <div class="md-sb-head"><span>Match stats</span>
+      <div class="md-sb-head"><span>Score summary</span>
         <span class="md-sb-live" style="color:{status_color}">{status}</span></div>
       <div class="md-sb-body">
         <div class="md-stat"><div class="name">Confidence</div>
@@ -3511,29 +3511,29 @@ def render_var_review():
     """Dark VAR panel shown while the confidence check is running."""
     st.markdown(
         '<div class="md-var">'
-        '<div class="md-var-badge">VAR</div>'
+        '<div class="md-var-badge">CHECKING</div>'
         '<div class="md-var-text">'
-        '<strong>VAR Review in progress</strong><br>'
-        '<span>Checking video evidence — the official decision is coming.</span>'
+        '<strong>Diagnostic in progress</strong><br>'
+        '<span>Analysing your evidence and result — your scores are being computed.</span>'
         '</div></div>',
         unsafe_allow_html=True,
     )
 
 
 MATCHDAY_STAGES = [
-    ("enter",    "Line-up"),
-    ("logframe", "Build-up"),
-    ("evidence", "VAR"),
-    ("review",   "The shot"),
-    ("report",   "Full time"),
+    ("enter",    "Result"),
+    ("logframe", "Logframe"),
+    ("evidence", "Evidence"),
+    ("review",   "Review"),
+    ("report",   "Report"),
 ]
 
 MATCHDAY_TIPS = {
     "enter":    "Step 1 — Define your result: who benefited, what changed, where and when",
     "logframe": "Step 2 — Link your result to your logframe indicator and target",
-    "evidence": "Step 3 · VAR — Verification Assistant Referee: evidence check before your score counts",
-    "review":   "Step 4 — Add donor context and submit for your Confidence &amp; Clarity scores",
-    "report":   "Full time — your Confidence &amp; Clarity scores and verdict are in",
+    "evidence": "Step 3 — Document and verify your supporting evidence before scoring",
+    "review":   "Step 4 — Review your live scores and run the full diagnostic",
+    "report":   "Your Confidence &amp; Clarity scores and verdict are in",
 }
 
 
@@ -3601,8 +3601,7 @@ def render_screen_0():
             f'<img src="data:image/png;base64,{_logo_b64}" alt="Impact Integrity Check" style="height:56px;">'
             f'<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
             f'<span style="color:#1B5E20;">Impact Integrity Check</span><br>'
-            f'<span style="color:#8A6500; font-weight:400;">Score your result before your donor does.</span><br>'
-            f'<span style="color:#616161; font-weight:400; font-size:0.82rem;">Evidence quality check for M&amp;E professionals reporting to USAID, FCDO, GIZ and 7 more donors.</span>'
+            f'<span style="color:#8A6500; font-weight:600;">Score your result before your donor does.</span>'
             f'</span>'
             f'</div>'
         )
@@ -3620,7 +3619,6 @@ def render_screen_0():
         <div class="hero-block">
           {_logo_tag}
           <h1>Know which reported results are strong, weak, or need fixing — before your donor sees them.</h1>
-          <p class="hero-tagline">Check if your evidence is strong and your result statement is clear enough — before your donor asks.</p>
         </div>
         """,
         unsafe_allow_html=True,
