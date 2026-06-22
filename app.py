@@ -2282,6 +2282,7 @@ def _build_inputs_json(timestamp: str) -> str:
         "active_slots": active,
         "slots": slots_data,
         "consent_examples": st.session_state.get("consent_examples", False),
+        "has_seen_tutorial": st.session_state.get("has_seen_tutorial", False),
     }
     return json.dumps(payload, indent=2, ensure_ascii=False)
 
@@ -2368,9 +2369,12 @@ def _load_from_inputs_json(data: dict):
         for _k, _v in _sd.items() if _v and _k in _BASE_FORM_KEYS
     )
     st.success(f"✅ Draft loaded — {_prefill_count} fields pre-filled. Review and update as needed.")
-    # Restore consent preference from draft
+    # Restore user preferences from draft
     if "consent_examples" in data:
         st.session_state["consent_examples"] = bool(data["consent_examples"])
+    if data.get("has_seen_tutorial"):
+        st.session_state["has_seen_tutorial"] = True
+        st.session_state["tutorial_step"] = 99  # skip all steps
     # --- END UX: SMART DEFAULTS (v3.2) ---
     # bump version so _irc_widget-backed fields re-seed from the freshly loaded values
     st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
@@ -3102,10 +3106,12 @@ def _render_tab3_slot(slot: int):
     _pii_triggered = _ev_type_now in PII_EVIDENCE_TYPES
     _safeguarding_triggered = _ev_type_now in SAFEGUARDING_EVIDENCE_TYPES
     _minors_triggered = _minors_possibly_involved(slot)
+    _compliance_needed = _pii_triggered or _safeguarding_triggered or _minors_triggered
     st.divider()
     with st.expander(
-        "🛡️ Compliance & Data Governance",
-        expanded=_pii_triggered or _safeguarding_triggered or _minors_triggered,
+        "🛡️ Compliance & Data Governance"
+        + ("" if _compliance_needed else " (no PII flag for this evidence type — optional)"),
+        expanded=_compliance_needed,
     ):
         st.caption(
             "Required if your evidence involves personal data. "
@@ -3132,8 +3138,8 @@ def _render_tab3_slot(slot: int):
                 "(Core Humanitarian Standard, Commitment 4 — Keeping Children Safe)."
             )
         with st.expander(
-            "📋 Data Governance Checklist (expand to complete)",
-            expanded=_pii_triggered or _safeguarding_triggered or _minors_triggered,
+            "📋 Data Governance Checklist",
+            expanded=_compliance_needed,
         ):
             st.caption("⚠ Unanswered questions score as 'No' and reduce your Governance sub-score. Answer 'Not applicable' where it genuinely doesn't apply.")
             st.selectbox(
@@ -5236,14 +5242,15 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             "this affects your Clarity score and Act 843 / NDPA compliance (Ghana)."
         )
 
-    # place this here: scoring transparency layer (explanation + personalized weakness panel)
-    render_how_scoring_works_panel()
-    render_personalized_weakness_panel(
-        direct_score=ds, verify_score=vs, recency_score=rs,
-        definition_score=def_s, measurement_score=meas_s,
-        integrity_score=integ, scope_score=scope, governance_score=gov,
-        is_qualitative=is_qual,
-    )
+    # Scoring explanation + weakness panel — skip for STRONG (nothing to fix)
+    if diag_state != "STRONG":
+        render_how_scoring_works_panel()
+        render_personalized_weakness_panel(
+            direct_score=ds, verify_score=vs, recency_score=rs,
+            definition_score=def_s, measurement_score=meas_s,
+            integrity_score=integ, scope_score=scope, governance_score=gov,
+            is_qualitative=is_qual,
+        )
 
     # Evidence Ladder (rule-based, no score impact)
     ladder = ev.get("evidence_ladder", {})
