@@ -1369,6 +1369,16 @@ h1, h2, h3, h4 {
     display: flex !important;
     align-items: center !important;
   }
+  /* Pitch strip: reduce padding on mobile so it stays compact */
+  .md-pitch { padding: 6px 10px !important; }
+  .md-pitch-stages { max-width: 100% !important; }
+  /* Sidebar: reduce push-down to match smaller strip height */
+  [data-testid="stSidebarUserContent"] { padding-top: 72px !important; }
+}
+/* Very narrow phones: hide pitch strip text labels, show dots only */
+@media (max-width: 420px) {
+  .md-pitch .lbl { display: none !important; }
+  .md-pitch { padding: 8px 8px !important; }
 }
 /* Active tab: bold + underline */
 .stTabs [data-baseweb="tab"][aria-selected="true"] button {
@@ -1570,6 +1580,7 @@ def _go_to_screen(screen: int, reset: bool = False):
     if reset:
         _reset_all_slots()
     st.session_state["screen"] = screen
+    st.session_state["_scroll_to_content"] = True
     st.query_params["screen"] = str(screen)
     if screen != 1:
         st.query_params.pop("tab", None)
@@ -2088,6 +2099,7 @@ def _render_live_score_preview(slot: int = 1):
         # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
         if st.button("→ Fix: Go to Result Basics", key="fix_content_quality", type="primary"):
             st.session_state["current_tab"] = 0
+            st.session_state["_scroll_to_content"] = True
             st.query_params["tab"] = "0"
             st.rerun()
         # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
@@ -2136,16 +2148,19 @@ def _render_live_score_preview(slot: int = 1):
     if state in ("MISLEADING", "FUNDAMENTALLY WEAK"):
         if st.button("→ Fix: Sharpen Result Statement", key="fix_misleading", type="primary"):
             st.session_state["current_tab"] = 0
+            st.session_state["_scroll_to_content"] = True
             st.query_params["tab"] = "0"
             st.rerun()
     if state in ("UNDEREVIDENCED", "FUNDAMENTALLY WEAK"):
         if st.button("→ Fix: Strengthen Evidence", key="fix_underevidenced", type="primary"):
             st.session_state["current_tab"] = 2
+            st.session_state["_scroll_to_content"] = True
             st.query_params["tab"] = "2"
             st.rerun()
     if state == "NEEDS REFINEMENT":
         if st.button("→ Fix: Review Specific Gaps", key="fix_refinement", type="primary"):
             st.session_state["current_tab"] = 1
+            st.session_state["_scroll_to_content"] = True
             st.query_params["tab"] = "1"
             st.rerun()
     # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
@@ -2202,6 +2217,7 @@ def _render_live_score_preview(slot: int = 1):
     if gov_score < 20:
         if st.button("→ Fix: Governance Issues", key="fix_gov_btn", type="primary"):
             st.session_state["current_tab"] = 2
+            st.session_state["_scroll_to_content"] = True
             st.query_params["tab"] = "2"
             st.rerun()
 
@@ -3535,7 +3551,7 @@ def render_pitch_strip(current_stage: str):
                   f'<div class="lbl">{lbl}</div>{tip_html}</div>')
     st.markdown(
         f'<div class="md-pitch"><div class="md-pitch-stages">{cells}</div></div>'
-        f'<div style="height:72px"></div>',
+        f'<div style="height:96px"></div>',
         unsafe_allow_html=True,
     )
 
@@ -4628,20 +4644,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                     key="tab3_save_draft_top",
                 )
 
-        # Gate — email inline at top so user can act immediately, no st.stop() blocking
-        _has_email = bool(st.session_state.get("user_email"))
-        if not _has_email:
-            st.warning("📧 **Enter your email to run your check.** We use it to track your free checks — no password needed.")
-            _render_email_gate_inline("_check")
-            _has_email = bool(st.session_state.get("user_email"))
-        if _has_email:
-            _email_gate_check = st.session_state.get("user_email", "")
-            _u_gate = get_user(_email_gate_check) if _email_gate_check else None
-            _checks_gate = (_u_gate or {}).get("free_checks_used", 0)
-            _paid_gate = st.session_state.get("is_paid") or is_still_paid(_u_gate)
-            if not _paid_gate and _checks_gate >= FREE_CHECKS_LIMIT:
-                st.warning("You've used your free checks — upgrade below to score this result.")
-
         st.progress(_completed_b / len(_REQUIRED_FIELDS_B),
                     text=f"Form completion: {_completed_b}/{len(_REQUIRED_FIELDS_B)} required fields")
         if _missing_b:
@@ -4651,10 +4653,11 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 if st.button("→ Fix: Jump to First Missing Field", key="jump_missing_b", type="primary"):
                     _first_b = _TAB_IDX_B[_missing_b[0][0]]
                     st.session_state["current_tab"] = _first_b
+                    st.session_state["_scroll_to_content"] = True
                     st.query_params["tab"] = str(_first_b)
                     st.rerun()
 
-        # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
+        # --- Score preview (unconditional — no email needed to see your own scores) ---
         try:
             _banner_sub = _build_submission_from_session(1)
             _banner_ev  = _evaluator.evaluate_submission(_banner_sub)
@@ -4668,15 +4671,31 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 st.error("🔴 High Risk — Your donor will likely query or reject this result. Fix critical issues first.")
         except Exception:
             pass
-        # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
-        # Live score breakdown with per-axis fix buttons
+        # Live score breakdown with per-axis fix buttons (unconditional)
         for _lsp_slot in range(1, active + 1):
             _render_live_score_preview(_lsp_slot)
 
         st.divider()
 
-        # GDPR consent — before submit, not after email gate
+        # Email gate — only gates the Submit action, not score visibility.
+        # _render_email_gate_inline calls st.stop() so nothing below renders until email is set.
+        _has_email = bool(st.session_state.get("user_email"))
+        if not _has_email:
+            st.warning("📧 **Enter your email to run your check.** We use it to track your free checks — no password needed.")
+            _render_email_gate_inline("_check")
+            # st.stop() inside _render_email_gate_inline halts rendering here until email is set
+
+        # Reached only after email is set
+        _has_email = True
+        _email_gate_check = st.session_state.get("user_email", "")
+        _u_gate = get_user(_email_gate_check) if _email_gate_check else None
+        _checks_gate = (_u_gate or {}).get("free_checks_used", 0)
+        _paid_gate = st.session_state.get("is_paid") or is_still_paid(_u_gate)
+        if not _paid_gate and _checks_gate >= FREE_CHECKS_LIMIT:
+            st.warning("You've used your free checks — upgrade below to score this result.")
+
+        # GDPR consent — shown after email confirmed
         st.checkbox(
             "📚 Allow my anonymised entries to improve extraction quality for other MEL officers. "
             "(Act 843 / NDPA compliant — no names or organisations are stored.)",
@@ -4687,8 +4706,8 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
         _u_now = get_user(_email_now) if _email_now else None
         _checks_now = (_u_now or {}).get("free_checks_used", 0)
         _paid_now = st.session_state.get("is_paid") or is_still_paid(_u_now)
-        _check_allowed = _has_email and (_paid_now or _checks_now < FREE_CHECKS_LIMIT)
-        if _has_email and not _check_allowed:
+        _check_allowed = _paid_now or _checks_now < FREE_CHECKS_LIMIT
+        if not _check_allowed:
             _render_paywall()
         # --- End usage tracking ---
         _sb4, _bb4 = st.columns([3, 1])
@@ -4700,12 +4719,10 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 st.rerun()
         with _sb4:
             pass
-        if st.button(
+        if _check_allowed and st.button(
             "Run Diagnostic & Get Report →",
             type="primary",
             use_container_width=True,
-            disabled=not _check_allowed,
-            help="Enter your email above to enable scoring" if not _has_email else None,
         ):
             mandatory = [
                 st.session_state.get("result_statement", ""),
