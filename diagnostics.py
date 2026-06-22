@@ -332,62 +332,78 @@ _SCORING_GUIDE = {
 # ---------------------------------------------------------------------------
 DONOR_CROSSWALK = {
     "directness": {
-        "dqa": ["Validity"],
+        "dqa":  ["Validity"],
         "bond": ["Appropriateness"],
-        "eu": [],
+        "eu":   [],
+        "wb":   ["PDO Achievement"],
         "rationale": "Directness checks whether the evidence measures the programme's "
                       "contribution to the result — DQA Validity asks whether data "
-                      "measures what it claims to measure.",
+                      "measures what it claims to measure; World Bank PDO Achievement "
+                      "requires a demonstrable link between activities and outcomes.",
     },
     "verification": {
-        "dqa": ["Reliability", "Integrity"],
+        "dqa":  ["Reliability", "Integrity"],
         "bond": ["Triangulation"],
-        "eu": [],
+        "eu":   [],
+        "wb":   ["PLR Data Quality", "Third-Party Verification"],
         "rationale": "Independent review reduces measurement error (Reliability) and "
                       "guards against misreporting (Integrity); Bond calls this "
-                      "Triangulation.",
+                      "Triangulation; World Bank PLR requires independent data quality "
+                      "assessment at mid-term.",
     },
     "recency": {
-        "dqa": ["Timeliness"],
+        "dqa":  ["Timeliness"],
         "bond": [],
-        "eu": [],
+        "eu":   [],
+        "wb":   ["Timeliness"],
         "rationale": "DQA Timeliness requires data current enough to inform decisions; "
-                      "Bond has no dedicated recency principle.",
+                      "World Bank Results Framework also requires indicators to be "
+                      "measured within the reporting period.",
     },
     "definition": {
-        "dqa": ["Validity", "Precision"],
+        "dqa":  ["Validity", "Precision"],
         "bond": [],
-        "eu": [],
+        "eu":   [],
+        "wb":   ["Indicator Specificity"],
         "rationale": "A precisely scoped result (who/what/where/when) is both valid "
-                      "and precise under DQA; Bond does not separately assess wording.",
+                      "and precise under DQA; World Bank Results Framework requires "
+                      "SMART indicators with defined baseline and target.",
     },
     "measurement": {
-        "dqa": ["Precision"],
+        "dqa":  ["Precision"],
         "bond": [],
-        "eu": [],
+        "eu":   [],
+        "wb":   ["Results Framework Indicator", "Baseline & Target"],
         "rationale": "A stated indicator, baseline, and target is exactly what DQA "
-                      "Precision evaluates.",
+                      "Precision evaluates; World Bank PDO indicators require documented "
+                      "baseline values and annual targets.",
     },
     "integrity": {
-        "dqa": ["Integrity"],
+        "dqa":  ["Integrity"],
         "bond": ["Transparency"],
-        "eu": [],
+        "eu":   [],
+        "wb":   ["Data Integrity"],
         "rationale": "Complete data with an audit trail satisfies DQA Integrity and "
-                      "Bond's Transparency principle.",
+                      "Bond's Transparency principle; World Bank requires data integrity "
+                      "safeguards documented in the MEL annex.",
     },
     "scope": {
-        "dqa": ["Validity"],
+        "dqa":  ["Validity"],
         "bond": [],
-        "eu": [],
+        "eu":   [],
+        "wb":   ["Coverage"],
         "rationale": "Coverage matching the claim (right population/area) is part of "
-                      "DQA Validity; Bond has no separate scope principle.",
+                      "DQA Validity; World Bank PDO indicators require coverage to match "
+                      "the defined target population in the Results Framework.",
     },
     "governance": {
-        "dqa": ["Integrity"],
+        "dqa":  ["Integrity"],
         "bond": ["Transparency", "Accountability"],
-        "eu": [],
+        "eu":   [],
+        "wb":   ["M&E Accountability"],
         "rationale": "A named, accountable owner supports DQA Integrity and Bond's "
-                      "Transparency/Accountability principle.",
+                      "Transparency/Accountability principle; World Bank requires a "
+                      "designated M&E officer named in the project operations manual.",
     },
 }
 
@@ -417,7 +433,7 @@ DONOR_PROFILES = {
         "frameworks": [("dqa", "USAID DQA standard(s)"), ("bond", "Bond Evidence Principle")],
     },
     "USAID": {
-        "label": "USAID DQA",
+        "label": "USAID ADS 201 / DQA",
         "frameworks": [("dqa", "USAID DQA standard(s)")],
     },
     "FCDO-Bond": {
@@ -427,6 +443,10 @@ DONOR_PROFILES = {
     "EU": {
         "label": "EU / OECD-DAC",
         "frameworks": [("eu", "OECD-DAC criterion")],
+    },
+    "World Bank": {
+        "label": "World Bank Results Framework",
+        "frameworks": [("wb", "World Bank Results Framework")],
     },
 }
 
