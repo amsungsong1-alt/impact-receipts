@@ -5589,7 +5589,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             f"Clarity: {clar_score}/5.0 {_share_icon(clar_score)}\n"
             f"Top fix: {_tf}\n"
             f"Verdict: {verdict}\n"
-            f"Checked with: https://impact-integrity-diagnostic.streamlit.app/"
+            f"Checked with: Impact Integrity Check (https://impact-integrity-diagnostic.streamlit.app/)"
         )
         _wa_url = "https://wa.me/?text=" + urllib.parse.quote(_wa_text)
         st.markdown(
@@ -7693,7 +7693,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
 
 <div class="footer">
   Evaluated using {METHODOLOGY_STACK}.<br/>
-  Contact: <a href="https://wa.me/233503648195">WhatsApp +233 50 364 8195</a> &nbsp;&middot;&nbsp; <a href="https://impact-integrity-diagnostic.streamlit.app/">impact-integrity-diagnostic.streamlit.app</a>
+  Contact: <a href="https://wa.me/233503648195">WhatsApp +233 50 364 8195</a> &nbsp;&middot;&nbsp; <a href="https://impact-integrity-diagnostic.streamlit.app/">Impact Integrity Check</a>
 </div>
 </body>
 </html>"""

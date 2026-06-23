@@ -121,8 +121,8 @@ def send_results_email(
   </p>
   <p style='color:#424242;font-size:0.875rem;margin-top:28px;border-top:1px solid #eee;padding-top:12px;'>
     Impact Integrity Check &middot; Built in Accra for MEL teams across West Africa<br>
-    <a href='https://impact-integrity-diagnostic.streamlit.app/' style='color:#9e9e9e;'>
-      impact-integrity-diagnostic.streamlit.app
+    <a href='https://impact-integrity-diagnostic.streamlit.app/' style='color:#424242;'>
+      Impact Integrity Check
     </a>
   </p>
 </div>""",
