@@ -247,6 +247,37 @@ _PROVENANCE_FOR_EV_TYPE: dict[str, list[str]] = {
 _PROVENANCE_ALL = ["sampling_documented", "double_counting_checked", "collection_tool_named",
                    "collector_independent", "recall_period_ok"]
 
+# Smart semantic defaults per (evidence_type, provenance_key).
+# Phase A: deterministic, semantics-based. Only applied if the user hasn't already answered.
+# Phase B: once ≥50 real answers accumulate per type in Supabase, modal answers will override.
+_PROVENANCE_DEFAULTS: dict[tuple, str] = {
+    # Financial records: exhaustive (no sampling), naturally independent, audit trail inherent
+    ("Financial records", "sampling_documented"):     "Not applicable",
+    ("Financial records", "double_counting_checked"): "Yes",
+    ("Financial records", "collection_tool_named"):   "Yes",
+    ("Financial records", "collector_independent"):   "Not applicable",
+    ("Financial records", "recall_period_ok"):        "Not applicable",
+    # Third-party audits: inherently independent, structured methodology
+    ("Third-party audits", "collector_independent"):  "Yes",
+    ("Third-party audits", "collection_tool_named"):  "Yes",
+    ("Third-party audits", "sampling_documented"):    "Not applicable",
+    # Partner verification letters: simple attestation, no sampling or recall
+    ("Partner verification letters", "sampling_documented"):     "Not applicable",
+    ("Partner verification letters", "recall_period_ok"):        "Not applicable",
+    ("Partner verification letters", "double_counting_checked"): "Not applicable",
+    # Attendance sheets: prone to double-counting; tool is the sheet itself
+    ("Attendance sheets / participant registers", "double_counting_checked"): "Yes",
+    ("Attendance sheets / participant registers", "collection_tool_named"):   "Yes",
+    # Photos: no recall needed; collection tool is camera/phone
+    ("Photos with metadata", "recall_period_ok"):      "Not applicable",
+    ("Photos with metadata", "collection_tool_named"): "Yes",
+    # Raw datasets: sampling always relevant
+    ("Raw datasets or survey exports", "sampling_documented"):    "Yes",
+    ("Raw datasets or survey exports", "collection_tool_named"):  "Yes",
+    # Tracer surveys: recall IS a risk (survey done after the fact)
+    ("Tracer survey results", "collection_tool_named"): "Yes",
+}
+
 # Human-readable labels for provenance keys
 _PROVENANCE_LABELS = {
     "sampling_documented":     "Sampling or selection method documented",
@@ -2283,6 +2314,7 @@ def _build_inputs_json(timestamp: str) -> str:
         "slots": slots_data,
         "consent_examples": st.session_state.get("consent_examples", False),
         "has_seen_tutorial": st.session_state.get("has_seen_tutorial", False),
+        "user_email": st.session_state.get("user_email", ""),
     }
     return json.dumps(payload, indent=2, ensure_ascii=False)
 
@@ -2375,6 +2407,8 @@ def _load_from_inputs_json(data: dict):
     if data.get("has_seen_tutorial"):
         st.session_state["has_seen_tutorial"] = True
         st.session_state["tutorial_step"] = 99  # skip all steps
+    if data.get("user_email"):
+        st.session_state["user_email"] = data["user_email"]
     # --- END UX: SMART DEFAULTS (v3.2) ---
     # bump version so _irc_widget-backed fields re-seed from the freshly loaded values
     st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
@@ -3065,9 +3099,15 @@ def _render_tab3_slot(slot: int):
             for _pk in _prov_keys:
                 _pk_ss = _prov_key_map.get(_pk)
                 if _pk_ss:
+                    # Apply smart semantic default if user hasn't answered yet
+                    _smart = _PROVENANCE_DEFAULTS.get((_ev_type_prov, _pk), PROVENANCE_YES_NO_NA_OPTIONS[0])
+                    _existing = st.session_state.get(_pk_ss, PROVENANCE_YES_NO_NA_OPTIONS[0])
+                    _prov_default = _existing if _existing != PROVENANCE_YES_NO_NA_OPTIONS[0] else _smart
+                    if _prov_default != PROVENANCE_YES_NO_NA_OPTIONS[0] and _existing == PROVENANCE_YES_NO_NA_OPTIONS[0]:
+                        st.session_state[_pk_ss] = _prov_default
                     _irc_widget(
                         st.selectbox, _PROVENANCE_LABELS[_pk],
-                        _pk_ss, default=PROVENANCE_YES_NO_NA_OPTIONS[0],
+                        _pk_ss, default=_prov_default,
                         options=PROVENANCE_YES_NO_NA_OPTIONS,
                     )
         _irc_widget(
@@ -3647,6 +3687,48 @@ def render_screen_0():
     st.caption("Takes 4 minutes · First 3 checks are free.")
     st.caption("Free to start · Paid upgrade unlocks AI auto-fill and unlimited scoring.")
 
+    with st.expander("⚡ Get a quick read (1 minute) — no registration needed"):
+        st.caption("Fill 3 fields to instantly see provisional Confidence and Clarity scores. No tabs, no email required.")
+        qc_result  = st.text_area("Your result statement", key="qc_result", height=80,
+                                   placeholder="e.g., Trained 250 farmers in climate-smart practices in Northern Region, Jan–Jun 2025")
+        qc_ev_type = st.selectbox("Evidence type", key="qc_ev_type",
+                                   options=["(Select evidence type)"] + EVIDENCE_TYPES)
+        qc_verifier = st.text_input("Who verified this?", key="qc_verifier",
+                                    placeholder="e.g., District Agriculture Officer")
+        if st.button("⚡ Quick Check →", key="qc_run", type="primary", use_container_width=True):
+            if qc_result and qc_ev_type != "(Select evidence type)":
+                try:
+                    _qc_sub = {
+                        "result_statement": qc_result,
+                        "target_group": "", "timeframe": "", "geographic_scope": "",
+                        "logframe_indicator": "", "logframe_target": "", "logframe_achievement": "",
+                        "additional_context": "",
+                        "evidence": [{"type": qc_ev_type, "description": "", "verified_by": qc_verifier,
+                                      "internal_review": "Not reviewed", "external_review": "No external review"}],
+                        "beneficiary_voice": "", "provenance_checklist": {},
+                    }
+                    _qc_ev = _evaluator.evaluate_submission(_qc_sub)
+                    _qc_c  = _qc_ev.get("raw_confidence_score", 0)
+                    _qc_cl = _qc_ev.get("clarity_score", 0)
+                    _qc_cl_label, _ = _evaluator.interpret_score(_qc_cl)
+                    _qc_c_label,  _ = _evaluator.interpret_score(_qc_c)
+                    st.success(
+                        f"**Provisional scores** — Confidence: **{_qc_c}/5.0** ({_qc_c_label}) · "
+                        f"Clarity: **{_qc_cl}/5.0** ({_qc_cl_label})"
+                    )
+                    st.caption("Provisional only — Verification, Recency, and Clarity improve with full form data.")
+                    if st.button("Continue for full diagnosis →", key="qc_continue", use_container_width=True):
+                        st.session_state["result_statement"] = qc_result
+                        st.session_state["evidence_type"]    = qc_ev_type
+                        st.session_state["verifier"]         = qc_verifier
+                        if not st.session_state.get("has_seen_tutorial"):
+                            st.session_state["tutorial_step"] = 1
+                        _go_to_screen(1, reset=False)
+                except Exception:
+                    st.warning("Fill in your result statement and select an evidence type to get a quick read.")
+            else:
+                st.warning("Enter a result statement and select an evidence type to run the quick check.")
+
     if st.button("🚀 Try with a sample result →", key="cta_demo",
                  help="Loads a realistic ANC result from Ashanti Region — runs in seconds",
                  use_container_width=True):
@@ -4010,10 +4092,10 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             label = "Tell us about your result" if active == 1 else f"Tell us about your results ({active} added)"
             st.markdown(f"## {label}")
         with col_add:
-            if active < 3:
+            if active < 6:
                 st.markdown("<div style='padding-top:22px'></div>", unsafe_allow_html=True)
                 if st.button("＋ Add Another Result", use_container_width=True,
-                             help="Add a second or third result to this submission (max 3)."):
+                             help="Add up to 6 results to this submission."):
                     st.session_state["active_slots"] = active + 1
                     st.rerun()
 
@@ -4777,6 +4859,19 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                         _ex_clean = _anonymize_value(_ex_val)
                         if _ex_clean:
                             save_example(_ex_field, _ex_sector, _ex_clean)
+                    # Phase B: log provenance answers for future adaptive learning
+                    _ev_type_log = st.session_state.get("evidence_type", "")
+                    _prov_log_map = {
+                        "sampling_documented":     "provenance_sampling",
+                        "double_counting_checked": "provenance_dedup",
+                        "collection_tool_named":   "provenance_tool",
+                        "collector_independent":   "provenance_independence",
+                        "recall_period_ok":        "provenance_recall",
+                    }
+                    for _plk, _plss in _prov_log_map.items():
+                        _plv = st.session_state.get(_plss, "")
+                        if _plv and _plv not in ("Choose an option...", ""):
+                            save_example(f"provenance__{_plk}", _ev_type_log, _plv)
                 # --- Track usage ---
                 if not _paid_now and _email_now:
                     increment_checks(_email_now)
