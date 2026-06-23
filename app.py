@@ -5511,7 +5511,7 @@ def render_screen_2():
         subs, evs = [], []
         try:
             render_var_review()
-            with st.spinner("VAR reviewing evidence…"):
+            with st.spinner("Running diagnostic…"):
                 for slot in range(1, active + 1):
                     sub = _build_submission_from_session(slot)
                     ev  = _evaluator.evaluate_submission(sub)
@@ -6924,97 +6924,6 @@ def _validate_import_rows(submissions: list) -> list:
         issues.append(row_issues)
 
     return issues
-
-
-def render_csv_import_view():
-    """Bulk CSV import: upload -> map columns -> preview/validate -> commit.
-    Each confirmed row is scored via _evaluator.evaluate_submission() and
-    persisted via save_all_files(), exactly like a manual submission."""
-    import pandas as pd
-
-    st.caption(_CSV_IMPORT_COPY["intro"])
-
-    uploaded = st.file_uploader("Upload CSV", type=["csv"], key="csv_import_upload")
-    if uploaded is None:
-        return
-
-    df, err = _parse_import_csv(uploaded)
-    if err:
-        st.error(err)
-        return
-
-    profiles = _load_import_profiles()
-    profile_options = [_CSV_IMPORT_COPY["new_mapping"]] + list(profiles.keys())
-    selected_profile = st.selectbox(_CSV_IMPORT_COPY["profile_label"], profile_options, key="csv_import_profile_select")
-    saved_map = profiles.get(selected_profile, {}) if selected_profile != _CSV_IMPORT_COPY["new_mapping"] else {}
-
-    column_options = [_CSV_IMPORT_COPY["not_mapped"]] + list(df.columns)
-    column_map = {}
-    for target_key, label, required, _ in _CSV_IMPORT_FIELDS:
-        display_label = f"{label} *" if required else label
-        default_col = saved_map.get(target_key, "")
-        default_idx = column_options.index(default_col) if default_col in column_options else 0
-        choice = st.selectbox(display_label, column_options, index=default_idx, key=f"csv_import_map_{target_key}")
-        if choice != _CSV_IMPORT_COPY["not_mapped"]:
-            column_map[target_key] = choice
-
-    profile_name_input = st.text_input(
-        _CSV_IMPORT_COPY["save_profile_label"],
-        value=selected_profile if selected_profile != _CSV_IMPORT_COPY["new_mapping"] else "",
-        key="csv_import_profile_name",
-    )
-    if st.button(_CSV_IMPORT_COPY["save_profile_button"], key="csv_import_save_profile_btn"):
-        if profile_name_input.strip():
-            profiles[profile_name_input.strip()] = column_map
-            _save_import_profiles(profiles)
-            st.success(_CSV_IMPORT_COPY["profile_saved"])
-
-    submissions = [
-        _csv_row_to_submission(row, column_map, profile_name_input.strip() or "unnamed")
-        for row in df.to_dict(orient="records")
-    ]
-    issues = _validate_import_rows(submissions)
-
-    n_rows = len(submissions)
-    n_missing = sum(1 for iss in issues if iss["missing_required"])
-    n_dupes = sum(1 for iss in issues if iss["duplicate"])
-
-    st.markdown(f"##### {_CSV_IMPORT_COPY['preview_header']}")
-    preview_df = df.copy()
-    preview_df["Issues"] = [
-        "; ".join(
-            (["Missing: " + ", ".join(iss["missing_required"])] if iss["missing_required"] else [])
-            + iss["type_issues"]
-            + (["Duplicate"] if iss["duplicate"] else [])
-        ) or "—"
-        for iss in issues
-    ]
-    st.dataframe(preview_df, use_container_width=True)
-    st.caption(_CSV_IMPORT_COPY["summary_template"].format(n=n_rows, m=n_missing, d=n_dupes))
-
-    skip_incomplete = st.checkbox(_CSV_IMPORT_COPY["skip_incomplete"], value=False, key="csv_import_skip_incomplete")
-    confirmed = st.checkbox(_CSV_IMPORT_COPY["confirm_checkbox"], value=False, key="csv_import_confirm")
-
-    if st.button(_CSV_IMPORT_COPY["import_button"], disabled=not confirmed, key="csv_import_commit_btn"):
-        to_import = [
-            (sub, iss) for sub, iss in zip(submissions, issues)
-            if not (skip_incomplete and iss["missing_required"])
-        ]
-        if not to_import:
-            st.warning(_CSV_IMPORT_COPY["no_rows"])
-        else:
-            results = []
-            for sub, _iss in to_import:
-                ev = _evaluator.evaluate_submission(sub)
-                save_all_files(sub, ev)
-                results.append({
-                    "indicator": sub.get("logframe_indicator") or sub.get("result_statement", "")[:60],
-                    "confidence_score": ev.get("confidence_score", 0),
-                    "clarity_score":    ev.get("clarity_score", 0),
-                    "verdict":          ev.get("verdict", ""),
-                })
-            st.success(_CSV_IMPORT_COPY["import_done"].format(k=len(results)))
-            st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
 
 
 # ---------------------------------------------------------------------------
