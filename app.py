@@ -1039,27 +1039,44 @@ PROVENANCE_YES_NO_NA_OPTIONS = [
 
 # (column_name, required, example value for the downloadable template)
 _PORTFOLIO_COLUMNS = [
-    ("indicator_name",       True,  "Indicator 2.1: Households with access to safe water"),
-    ("result_statement",     True,  "Installed 12 community boreholes serving 3,400 people across 4 districts in Northern Region between Jan-Jun 2025."),
-    ("target_group",         True,  "Rural households"),
+    # --- Required fields ---
+    ("indicator_name",       True,  "Indicator 2.1: Number of rural households with access to safely managed drinking water (WASH)"),
+    ("result_statement",     True,  "Constructed 12 boreholes serving 3,400 rural households across 4 districts in Northern Region between January and June 2025"),
+    ("target_group",         True,  "Rural households without access to safe drinking water; women and children primarily responsible for water collection"),
     ("timeframe",            True,  "January–June 2025"),
-    ("geographic_scope",     True,  "4 districts, Northern Region"),
+    ("geographic_scope",     True,  "Tamale, Yendi, Savelugu, and Karaga districts (Northern Region, Ghana)"),
     ("evidence_type",        True,  "Attendance sheets / participant registers"),
-    ("evidence_description", True,  "Borehole completion certificates and community handover registers, signed by District Water Officer."),
+    ("evidence_description", True,  "Borehole functionality reports from 12 sites + water quality test results from district lab + GPS-tagged photos of completed structures, verified by DWSO"),
+    # --- Verification fields ---
     ("evidence_date",        False, "June 2025"),
     ("internal_review",      False, "Reviewed by MEL Officer"),
     ("external_review",      False, "No external review"),
-    ("verifier",             False, "District Water Officer"),
-    ("logframe_indicator",   False, "Indicator 2.1: Number of households with access to safely managed drinking water"),
-    ("logframe_target",      False, "3,000 households"),
-    ("logframe_achievement", False, "3,400 households"),
+    ("verifier",             False, "District Water and Sanitation Officer, Water Resource Commission inspector"),
+    # --- Logframe linkage ---
+    ("logframe_indicator",   False, "Indicator 2.1: Number of households with access to safely managed drinking water (SDG 6.1 aligned)"),
+    ("logframe_target",      False, "3,000 households with access by Q4 2025"),
+    ("logframe_achievement", False, "3,400 households by June 2025 — 113% of target"),
+    # --- Advisory flags ---
     ("learning_notes",       False, ""),
     ("limitations_notes",    False, ""),
-    ("qual_sourcing_documented", False, "FALSE"),
-    ("qual_triangulated",        False, "FALSE"),
-    ("qual_bias_considered",     False, "FALSE"),
+    # --- Qualitative rigor (TRUE/FALSE) ---
+    ("qual_sourcing_documented",           False, "FALSE"),
+    ("qual_triangulated",                  False, "FALSE"),
+    ("qual_bias_considered",               False, "FALSE"),
     ("qual_beneficiary_voice_represented", False, "FALSE"),
     ("qual_consent_ethics_addressed",      False, "FALSE"),
+    # --- Beneficiary voice — affects Confidence bonus (+0–0.5) ---
+    ("beneficiary_voice",      False, "No beneficiary voice captured"),
+    # --- Governance context — affects Clarity > Governance sub-score ---
+    ("additional_context",     False, "MEL Lead owns this result. Informs Q3 budget reallocation for WASH component."),
+    # --- Provenance checklist — each affects Confidence > Verification score ---
+    # Values: Yes / No / Not applicable  (blank defaults to 'Not applicable' — neutral)
+    ("provenance_sampling",    False, "Not applicable"),
+    ("provenance_dedup",       False, "Yes"),
+    ("provenance_tool",        False, "Yes"),
+    ("provenance_independent", False, "Not applicable"),
+    ("provenance_recall",      False, "Not applicable"),
+    ("provenance_traceable",   False, "Yes — an auditor could retrieve the original records"),
 ]
 
 # Accepted values for internal_review / external_review (unrecognized values
@@ -1068,7 +1085,15 @@ _PORTFOLIO_REVIEW_HINT = (
     "internal_review accepts: 'Reviewed by MEL Officer', 'Collected only (no review)', "
     "'Not reviewed'. external_review accepts: 'Verified by independent third party', "
     "'External partner review', 'No external review'. Leave blank to default to "
-    "'Not reviewed' / 'No external review'."
+    "'Not reviewed' / 'No external review'. "
+    "provenance_sampling / provenance_dedup / provenance_tool / provenance_independent / "
+    "provenance_recall / provenance_traceable accept: 'Yes', 'No', 'Not applicable' — "
+    "leave blank to default to 'Not applicable' (neutral, no penalty). "
+    "beneficiary_voice accepts: 'No beneficiary voice captured', "
+    "'Direct beneficiary feedback collected (e.g., Lean Data survey, focus groups, NPS)', "
+    "'Beneficiary representatives consulted (community leaders, beneficiary committees)', "
+    "'Anecdotal beneficiary quotes only (uncollected, not systematic)', "
+    "'Not applicable to this result type'."
 )
 
 SUBMISSION_CHECKLIST = {
@@ -6552,7 +6577,7 @@ def _portfolio_row_to_submission(row: dict) -> dict:
         "target_group":       _get("target_group"),
         "timeframe":          _get("timeframe"),
         "geographic_scope":   _get("geographic_scope"),
-        "additional_context": "",
+        "additional_context": _get("additional_context"),
         "learning_notes":     _get("learning_notes"),
         "limitations_notes":  _get("limitations_notes"),
         "internal_review":    internal_review,
@@ -6560,6 +6585,7 @@ def _portfolio_row_to_submission(row: dict) -> dict:
         "logframe_indicator":   _get("logframe_indicator"),
         "logframe_target":      _get("logframe_target"),
         "logframe_achievement": _get("logframe_achievement"),
+        "beneficiary_voice":    _get("beneficiary_voice", "No beneficiary voice captured"),
         "evidence": [{
             "type":        _get("evidence_type"),
             "description": _get("evidence_description"),
@@ -6572,6 +6598,14 @@ def _portfolio_row_to_submission(row: dict) -> dict:
             "bias_considered":               _get_bool("qual_bias_considered"),
             "beneficiary_voice_represented": _get_bool("qual_beneficiary_voice_represented"),
             "consent_ethics_addressed":      _get_bool("qual_consent_ethics_addressed"),
+        },
+        "provenance_checklist": {
+            "sampling_documented":     _get("provenance_sampling",    "Not applicable"),
+            "double_counting_checked": _get("provenance_dedup",       "Not applicable"),
+            "collection_tool_named":   _get("provenance_tool",        "Not applicable"),
+            "collector_independent":   _get("provenance_independent", "Not applicable"),
+            "recall_period_ok":        _get("provenance_recall",      "Not applicable"),
+            "auditor_traceable":       _get("provenance_traceable",   "Choose an option..."),
         },
     }
 
