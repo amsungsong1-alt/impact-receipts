@@ -5151,6 +5151,12 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         st.markdown("**Evidence statement for your report** — copy and edit before pasting into your narrative:")
         st.code(_ev_stmt, language=None)
 
+    # STRONG early exit — score + evidence statement is everything needed; no detail wall
+    if diag_state == "STRONG":
+        st.success("This result is submission-ready. Download your report above.")
+        st.divider()
+        return
+
     # INVALID INPUT early exit
     if diag_state == "INVALID INPUT":
         st.error("Input Quality Issue Detected")
@@ -5407,76 +5413,32 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         unsafe_allow_html=True,
     )
 
-    # What To Fix — tailored by diagnostic state
+    # What To Fix — simple bullet list (no checkboxes: users thought ticking = fixed)
     conf_fixes = [f for f in fixes if f.get("dimension") == "confidence"]
     clar_fixes = [f for f in fixes if f.get("dimension") == "clarity"]
 
-    def _render_conf_fixes(offset=0):
-        for j, fix in enumerate(conf_fixes):
-            st.checkbox(
-                f"{fix['message']}  _({fix['score_impact']})_",
-                value=False,
-                key=f"fix_conf_{card_idx}_{j + offset}",
-            )
+    def _render_fix_bullets(fix_list, label):
+        if not fix_list:
+            return
+        st.markdown(f"**{label}**")
+        for fix in fix_list:
+            st.markdown(f"- {fix['message']} *({fix['score_impact']})*")
 
-    def _render_clar_fixes(offset=0):
-        for j, fix in enumerate(clar_fixes):
-            st.checkbox(
-                f"{fix['message']}  _({fix['score_impact']})_",
-                value=False,
-                key=f"fix_clar_{card_idx}_{j + offset}",
-            )
-
-    if diag_state == "STRONG":
-        st.success("This check found no further fixes to address.")
-        if fixes:
-            smallest = fixes[0]
-            st.caption(f"Optional refinement: {smallest['message']} ({smallest['score_impact']})")
-
-    elif diag_state == "MISLEADING":
-        if clar_fixes:
-            st.markdown("##### Sharpen your definition (Clarity) — priority fixes")
-            _render_clar_fixes()
-        if conf_fixes:
-            with st.expander("Confidence fixes (secondary)"):
-                _render_conf_fixes()
+    if diag_state == "MISLEADING":
+        _render_fix_bullets(clar_fixes, "Sharpen your definition (Clarity)")
+        _render_fix_bullets(conf_fixes, "Confidence fixes")
 
     elif diag_state == "UNDEREVIDENCED":
-        if conf_fixes:
-            st.markdown("##### Strengthen your evidence (Confidence) — priority fixes")
-            _render_conf_fixes()
-        if clar_fixes:
-            with st.expander("Clarity fixes (secondary)"):
-                _render_clar_fixes()
+        _render_fix_bullets(conf_fixes, "Strengthen your evidence (Confidence)")
+        _render_fix_bullets(clar_fixes, "Clarity fixes")
 
     elif diag_state == "FUNDAMENTALLY WEAK":
-        st.error("This result requires fundamental rework. Both axes need attention.")
-        if conf_fixes:
-            st.markdown("##### Strengthen your evidence (Confidence)")
-            _render_conf_fixes()
-        if clar_fixes:
-            st.markdown("##### Sharpen your definition (Clarity)")
-            _render_clar_fixes()
+        st.error("This result requires fundamental rework on both axes.")
+        _render_fix_bullets(conf_fixes, "Strengthen your evidence (Confidence)")
+        _render_fix_bullets(clar_fixes, "Sharpen your definition (Clarity)")
 
-    elif diag_state == "NEEDS REFINEMENT":
-        all_fixes = fixes[:3]
-        if all_fixes:
-            st.markdown("##### Top fixes to address before submission")
-            for j, fix in enumerate(all_fixes):
-                dim = fix.get("dimension", "conf")
-                st.checkbox(
-                    f"{fix['message']}  _({fix['score_impact']})_",
-                    value=False,
-                    key=f"fix_{dim}_{card_idx}_top_{j}",
-                )
-
-    else:
-        if conf_fixes:
-            st.markdown("##### Strengthen your evidence (Confidence)")
-            _render_conf_fixes()
-        if clar_fixes:
-            st.markdown("##### Sharpen your definition (Clarity)")
-            _render_clar_fixes()
+    elif fixes:
+        _render_fix_bullets(fixes[:3], "Top fixes before submission")
 
     filenames = submission.get("attached_filenames", [])
     if filenames:
