@@ -2992,99 +2992,39 @@ def _render_tab2_slot(slot: int):
 def _render_tab3_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
     _render_fix_notes(slot, 2)
-    with st.expander("📋 Evidence Details", expanded=True):
-        _irc_widget(
-            st.text_area, "Describe your supporting evidence", f"evidence_description{s}", default="",
-            placeholder=_ph["evidence_description"],
-            height=120,
-            help="Describe the actual document or data: who collected it, how, and what's in it.",
-        )
-        _ed_val = st.session_state.get(f"evidence_description{s}", "")
-        if _ed_val and len(_ed_val.strip()) < 30:
-            st.warning("Evidence description is brief. Specify: who collected it, how, and what it contains.")
 
-        _irc_widget(
-            st.selectbox, "Evidence type", f"evidence_type{s}", default=EVIDENCE_TYPES[0],
-            options=EVIDENCE_TYPES,
-            help=EVIDENCE_TYPE_HELP,
-        )
-        ev_type = st.session_state.get(f"evidence_type{s}", EVIDENCE_TYPES[0])
-        ev_desc = st.session_state.get(f"evidence_description{s}", "")
-        _dl = _evaluator.get_directness_level(ev_type, ev_desc)
-        _ds = round((_dl / 5) * 2.0, 1)
-    
-        _irc_widget(
-            st.checkbox,
-            "Evidence is qualitative (case study, MSC, outcome harvesting)",
-            f"qualitative_evidence{s}", default=False,
-            help=(
-                "Tick if your evidence is a case study, outcome harvesting, Most Significant Change, "
-                "or beneficiary narrative. Switches Definition and Measurement scoring to qualitative "
-                "dimensions instead of numeric precision."
-            ),
-        )
-        is_qualitative_evidence = (
-            ev_type in QUALITATIVE_EVIDENCE_TYPES
-            or st.session_state.get(f"qualitative_evidence{s}", False)
-        )
+    # ── CORE (4 fields — always visible) ────────────────────────────────────
+    _irc_widget(
+        st.text_area, "Describe your supporting evidence", f"evidence_description{s}", default="",
+        placeholder=_ph["evidence_description"],
+        height=120,
+        help="Describe the actual document or data: who collected it, how, and what's in it.",
+    )
+    _ed_val = st.session_state.get(f"evidence_description{s}", "")
+    if _ed_val and len(_ed_val.strip()) < 30:
+        st.warning("Evidence description is brief. Specify: who collected it, how, and what it contains.")
 
-        _sub_checks = _EV_QUALITY_CHECKS.get(ev_type, [])
-        if _sub_checks:
-            st.markdown("**Quality checks**")
-            for _ck_key, _ck_lbl in _sub_checks:
-                st.checkbox(_ck_lbl, key=f"{_ck_key}{s}")
-        elif is_qualitative_evidence:
-            with st.expander("📝 Qualitative Rigor", expanded=True):
-                (
-                    _sourcing_lbl, _triangulated_lbl, _bias_lbl,
-                    _voice_lbl, _consent_lbl,
-                ) = QUAL_RIGOR_CHECKLIST.get(
-                    ev_type, QUAL_RIGOR_CHECKLIST["Case study"]
-                )
-                _irc_widget(
-                    st.checkbox, _sourcing_lbl,
-                    f"qual_sourcing{s}", default=False,
-                )
-                _irc_widget(
-                    st.checkbox, _triangulated_lbl,
-                    f"qual_triangulated{s}", default=False,
-                )
-                _irc_widget(
-                    st.checkbox, _bias_lbl,
-                    f"qual_bias{s}", default=False,
-                )
-                _irc_widget(
-                    st.checkbox, _voice_lbl,
-                    f"qual_voice{s}", default=False,
-                )
-                _irc_widget(
-                    st.checkbox, _consent_lbl,
-                    f"qual_consent{s}", default=False,
-                )
+    _irc_widget(
+        st.selectbox, "Evidence type", f"evidence_type{s}", default=EVIDENCE_TYPES[0],
+        options=EVIDENCE_TYPES,
+        help=EVIDENCE_TYPE_HELP,
+    )
+    ev_type = st.session_state.get(f"evidence_type{s}", EVIDENCE_TYPES[0])
+    ev_desc = st.session_state.get(f"evidence_description{s}", "")
+    _dl = _evaluator.get_directness_level(ev_type, ev_desc)
+    _ds = round((_dl / 5) * 2.0, 1)
 
-        if ev_type == "Other":
-            st.text_input("Specify evidence type", key=f"evidence_type_other{s}")
+    if ev_type == "Other":
+        st.text_input("Specify evidence type", key=f"evidence_type_other{s}")
 
-    # Who verified this — core field, shown before the verification detail expander
     _irc_widget(
         st.text_input, "Who verified this?", f"verifier{s}", default="",
         placeholder=_ph.get("verifier", "e.g., District Agriculture Officer, partner org M&E lead, external evaluator"),
         help="The person or organization that confirmed the data is accurate.",
     )
 
-    # Reporting Period — 3-column inline row (no stacked Today buttons)
-    st.markdown("**Reporting Period**")
-    st.caption("The period this submission covers. Evidence outside this range is flagged.")
-    _rp_col1, _rp_col2, _rp_col3 = st.columns(3)
-    with _rp_col1:
-        _irc_widget(st.date_input, "Period start", f"reporting_start{s}", default=date.today())
-    with _rp_col2:
-        _irc_widget(st.date_input, "Period end",   f"reporting_end{s}",   default=date.today())
-    with _rp_col3:
-        _irc_widget(st.date_input, "Evidence collected", f"evidence_date{s}", default=date.today())
-    _ed   = st.session_state.get(f"evidence_date{s}")
-    _rp_s = st.session_state.get(f"reporting_start{s}")
-    _rp_e = st.session_state.get(f"reporting_end{s}")
+    _irc_widget(st.date_input, "When was this evidence collected?", f"evidence_date{s}", default=date.today())
+    _ed = st.session_state.get(f"evidence_date{s}")
     if _ed and hasattr(_evaluator, "get_recency_diagnostic"):
         _rec_diag = _evaluator.get_recency_diagnostic(_ed)
         if "0.4/1.0" in _rec_diag or "0.2/1.0" in _rec_diag:
@@ -3093,16 +3033,53 @@ def _render_tab3_slot(slot: int):
             st.info(_rec_diag)
         else:
             st.success(_rec_diag)
-    if _ed and _rp_s and _rp_e and hasattr(_evaluator, "validate_reporting_period"):
-        _, _rp_msg, _rp_sev = _evaluator.validate_reporting_period(_ed, _rp_s, _rp_e)
-        if _rp_sev == "ERROR":
-            st.error(_rp_msg)
-        elif _rp_sev == "WARNING":
-            st.warning(_rp_msg)
-        elif _rp_msg:
-            st.success(_rp_msg)
 
-    with st.expander("✅ Verification", expanded=True):
+    # Determine whether to auto-open the detail expander (PII/safeguarding triggers)
+    _ev_type_now = st.session_state.get(f"evidence_type{s}", "")
+    _pii_triggered = _ev_type_now in PII_EVIDENCE_TYPES
+    _safeguarding_triggered = _ev_type_now in SAFEGUARDING_EVIDENCE_TYPES
+    _minors_triggered = _minors_possibly_involved(slot)
+    _compliance_needed = _pii_triggered or _safeguarding_triggered or _minors_triggered
+
+    # ── ADD MORE DETAIL (collapsed by default; auto-opens for PII/safeguarding) ──
+    with st.expander(
+        "⚙️ Add more detail (improves your score)" + (" — ⚠️ compliance required" if _compliance_needed else ""),
+        expanded=_compliance_needed,
+    ):
+        # Qualitative evidence checkbox + quality checks
+        is_qualitative_evidence = (
+            ev_type in QUALITATIVE_EVIDENCE_TYPES
+            or st.session_state.get(f"qualitative_evidence{s}", False)
+        )
+        _irc_widget(
+            st.checkbox,
+            "Evidence is qualitative (case study, MSC, outcome harvesting)",
+            f"qualitative_evidence{s}", default=False,
+            help="Switches Definition and Measurement scoring to qualitative dimensions.",
+        )
+        is_qualitative_evidence = (
+            ev_type in QUALITATIVE_EVIDENCE_TYPES
+            or st.session_state.get(f"qualitative_evidence{s}", False)
+        )
+        _sub_checks = _EV_QUALITY_CHECKS.get(ev_type, [])
+        if _sub_checks:
+            st.markdown("**Quality checks**")
+            for _ck_key, _ck_lbl in _sub_checks:
+                st.checkbox(_ck_lbl, key=f"{_ck_key}{s}")
+        elif is_qualitative_evidence:
+            st.markdown("**Qualitative Rigor**")
+            (
+                _sourcing_lbl, _triangulated_lbl, _bias_lbl,
+                _voice_lbl, _consent_lbl,
+            ) = QUAL_RIGOR_CHECKLIST.get(ev_type, QUAL_RIGOR_CHECKLIST["Case study"])
+            _irc_widget(st.checkbox, _sourcing_lbl,      f"qual_sourcing{s}",     default=False)
+            _irc_widget(st.checkbox, _triangulated_lbl,  f"qual_triangulated{s}", default=False)
+            _irc_widget(st.checkbox, _bias_lbl,          f"qual_bias{s}",         default=False)
+            _irc_widget(st.checkbox, _voice_lbl,         f"qual_voice{s}",        default=False)
+            _irc_widget(st.checkbox, _consent_lbl,       f"qual_consent{s}",      default=False)
+
+        st.divider()
+        st.markdown("**Internal & External Review**")
         int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
         _irc_widget(
             st.selectbox, "Internal review", f"internal_review{s}", default=INTERNAL_REVIEW_OPTIONS[0],
@@ -3113,7 +3090,7 @@ def _render_tab3_slot(slot: int):
         _int_vl = _evaluator.get_verification_level(int_rev, "No external review", "")
         _int_vs = round((_int_vl / 5) * 2.0, 1)
         if _int_vs == 0:
-            st.warning("No internal review — adding a reviewer significantly strengthens Verification.")
+            st.warning("No internal review — adding a reviewer strengthens Verification.")
         if int_rev == "Other":
             st.text_input("Specify internal reviewer", key=f"internal_review_other{s}")
 
@@ -3126,13 +3103,33 @@ def _render_tab3_slot(slot: int):
         verifier_text = st.session_state.get(f"verifier{s}", "")
         _full_vl = _evaluator.get_verification_level(int_rev, ext_rev, verifier_text)
         _full_vs = round((_full_vl / 5) * 2.0, 1)
-        _added   = round(_full_vs - _int_vs, 1)
         if ext_rev == "No external review":
             st.warning("No external review — independent verification raises your score significantly.")
         if ext_rev == "Other":
             st.text_input("Specify external reviewer", key=f"external_review_other{s}")
 
-        # Provenance — smart-filtered by evidence type
+        st.divider()
+        st.markdown("**Reporting Period**")
+        st.caption("The period this submission covers. Evidence outside this range is flagged.")
+        _rp_col1, _rp_col2 = st.columns(2)
+        with _rp_col1:
+            _irc_widget(st.date_input, "Period start", f"reporting_start{s}", default=date.today())
+        with _rp_col2:
+            _irc_widget(st.date_input, "Period end",   f"reporting_end{s}",   default=date.today())
+        _rp_s = st.session_state.get(f"reporting_start{s}")
+        _rp_e = st.session_state.get(f"reporting_end{s}")
+        if _ed and _rp_s and _rp_e and hasattr(_evaluator, "validate_reporting_period"):
+            _, _rp_msg, _rp_sev = _evaluator.validate_reporting_period(_ed, _rp_s, _rp_e)
+            if _rp_sev == "ERROR":
+                st.error(_rp_msg)
+            elif _rp_sev == "WARNING":
+                st.warning(_rp_msg)
+            elif _rp_msg:
+                st.success(_rp_msg)
+
+        st.divider()
+        st.markdown("**Data Collection & Provenance**")
+        st.caption("Answer 'Not applicable' where it honestly doesn't apply — that's neutral.")
         _ev_type_prov = st.session_state.get(f"evidence_type{s}", "")
         _prov_keys = _PROVENANCE_FOR_EV_TYPE.get(_ev_type_prov, _PROVENANCE_ALL)
         _prov_key_map = {
@@ -3142,23 +3139,19 @@ def _render_tab3_slot(slot: int):
             "collector_independent":   f"provenance_independence{s}",
             "recall_period_ok":        f"provenance_recall{s}",
         }
-        if _prov_keys:
-            st.markdown("**Data Collection & Provenance**")
-            st.caption("Answer 'Not applicable' where it honestly doesn't apply — that's neutral.")
-            for _pk in _prov_keys:
-                _pk_ss = _prov_key_map.get(_pk)
-                if _pk_ss:
-                    # Apply smart semantic default if user hasn't answered yet
-                    _smart = _PROVENANCE_DEFAULTS.get((_ev_type_prov, _pk), PROVENANCE_YES_NO_NA_OPTIONS[0])
-                    _existing = st.session_state.get(_pk_ss, PROVENANCE_YES_NO_NA_OPTIONS[0])
-                    _prov_default = _existing if _existing != PROVENANCE_YES_NO_NA_OPTIONS[0] else _smart
-                    if _prov_default != PROVENANCE_YES_NO_NA_OPTIONS[0] and _existing == PROVENANCE_YES_NO_NA_OPTIONS[0]:
-                        st.session_state[_pk_ss] = _prov_default
-                    _irc_widget(
-                        st.selectbox, _PROVENANCE_LABELS[_pk],
-                        _pk_ss, default=_prov_default,
-                        options=PROVENANCE_YES_NO_NA_OPTIONS,
-                    )
+        for _pk in _prov_keys:
+            _pk_ss = _prov_key_map.get(_pk)
+            if _pk_ss:
+                _smart = _PROVENANCE_DEFAULTS.get((_ev_type_prov, _pk), PROVENANCE_YES_NO_NA_OPTIONS[0])
+                _existing = st.session_state.get(_pk_ss, PROVENANCE_YES_NO_NA_OPTIONS[0])
+                _prov_default = _existing if _existing != PROVENANCE_YES_NO_NA_OPTIONS[0] else _smart
+                if _prov_default != PROVENANCE_YES_NO_NA_OPTIONS[0] and _existing == PROVENANCE_YES_NO_NA_OPTIONS[0]:
+                    st.session_state[_pk_ss] = _prov_default
+                _irc_widget(
+                    st.selectbox, _PROVENANCE_LABELS[_pk],
+                    _pk_ss, default=_prov_default,
+                    options=PROVENANCE_YES_NO_NA_OPTIONS,
+                )
         _irc_widget(
             st.selectbox, "Could an external auditor retrieve the original records?",
             f"provenance_traceability{s}", default=TRACEABILITY_OPTIONS[0],
@@ -3174,40 +3167,39 @@ def _render_tab3_slot(slot: int):
             "auditor_traceable":       st.session_state.get(f"provenance_traceability{s}", TRACEABILITY_OPTIONS[0]),
         }
 
-    # Beneficiary Voice — promoted to its own section immediately after evidence checks
-    st.markdown("### Beneficiary Voice")
-    st.caption("Did the people this programme serves contribute to or validate this evidence?")
-    st.caption("Score by method — No voice: +0.0 · Anecdotal: +0.15 · Representatives / Systematic: +0.35 · Independent: +0.5")
-    st.selectbox(
-        "How were beneficiary voices captured?",
-        key=f"beneficiary_voice{s}",
-        options=_BV_OPTIONS,
-        help="The strongest evidence includes beneficiary perspectives, not just provider reports.",
-    )
-    _bv_val = st.session_state.get(f"beneficiary_voice{s}", "")
-    _bv_score = (_evaluator.compute_beneficiary_voice_bonus(_bv_val)
-                 if hasattr(_evaluator, "compute_beneficiary_voice_bonus") else 0.0)
-    if _bv_val and _bv_val not in ("No beneficiary voice captured", "Choose an option..."):
-        st.caption(f"Beneficiary Voice bonus: **+{_bv_score}/0.5**")
+        st.divider()
+        st.markdown("**Beneficiary Voice**")
+        st.caption("Score by method — No voice: +0.0 · Anecdotal: +0.15 · Representatives/Systematic: +0.35 · Independent: +0.5")
+        st.selectbox(
+            "How were beneficiary voices captured?",
+            key=f"beneficiary_voice{s}",
+            options=_BV_OPTIONS,
+            help="The strongest evidence includes beneficiary perspectives, not just provider reports.",
+        )
+        _bv_val = st.session_state.get(f"beneficiary_voice{s}", "")
+        _bv_score = (_evaluator.compute_beneficiary_voice_bonus(_bv_val)
+                     if hasattr(_evaluator, "compute_beneficiary_voice_bonus") else 0.0)
+        if _bv_val and _bv_val not in ("No beneficiary voice captured", "Choose an option..."):
+            st.caption(f"Beneficiary Voice bonus: **+{_bv_score}/0.5**")
 
-    # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
-    _ev_type_now = st.session_state.get(f"evidence_type{s}", "")
-    _pii_triggered = _ev_type_now in PII_EVIDENCE_TYPES
-    _safeguarding_triggered = _ev_type_now in SAFEGUARDING_EVIDENCE_TYPES
-    _minors_triggered = _minors_possibly_involved(slot)
-    _compliance_needed = _pii_triggered or _safeguarding_triggered or _minors_triggered
-    st.divider()
-    with st.expander(
-        "🛡️ Compliance & Data Governance"
-        + ("" if _compliance_needed else " (no PII flag for this evidence type — optional)"),
-        expanded=_compliance_needed,
-    ):
+        st.divider()
+        st.text_area(
+            "Who owns this result, and what decision will it inform? (optional — improves Clarity)",
+            key=f"additional_context{s}",
+            placeholder="e.g., The MEL Lead owns this result. It will inform the Q3 budget reallocation.",
+            help="Naming an owner and the decision this result informs strengthens your Governance sub-score.",
+        )
+
+        if _compliance_needed:
+            st.divider()
+            st.markdown("**🛡️ Compliance & Ethics** — your evidence type may involve personal data")
+
+    # --- GOVERNANCE & COMPLIANCE LAYER — shown only when triggered ---
+    if _compliance_needed:
         st.caption(
             "Required if your evidence involves personal data. "
             "Flags exposure under Ghana's Act 843 / Nigeria's NDPA."
         )
-        st.subheader("🛡️ Compliance & Ethics Check")
-        st.caption("*Ensure your evidence is not just credible — but legally safe and safe for the people in it.*")
         if _pii_triggered:
             st.warning(
                 "⚠️ **PII Alert:** One or more of your selected evidence types may "
@@ -3327,23 +3319,7 @@ def _render_tab3_slot(slot: int):
                 "Uploading your policy grants a +5 Governance Bonus to your "
                 "Confidence Score for this session."
             )
-    # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
-
-    # Governance context — affects Clarity/Governance sub-score
-    st.text_area(
-        "Who owns this result, and what decision will it inform? (optional — improves Clarity)",
-        key=f"additional_context{s}",
-        placeholder=(
-            "e.g., The MEL Lead owns this result. It will inform the Q3 budget "
-            "reallocation decision for the livelihoods component."
-        ),
-        help=(
-            "Naming an owner and the decision this result informs strengthens your "
-            "Governance sub-score (part of Clarity)."
-        ),
-    )
-    # Advisory fields (attribution, disaggregation, learning, limitations) moved to
-    # Screen 2 "Optional reporting flags" so users can fill them after seeing their score.
+    # --- END GOVERNANCE & COMPLIANCE LAYER ---
 
     prev_files = st.session_state.get(f"draft_uploaded_filenames{s}", [])
     if prev_files:
@@ -3945,47 +3921,6 @@ def render_screen_1():
                    "geographic_scope", "evidence_description")
     )
 
-    if _has_prefill and not st.session_state.get("_last_saved_time"):
-        _warn_c1, _warn_c2 = st.columns([3, 1])
-        with _warn_c1:
-            st.warning(
-                "⚠️ **Unsaved entries.** A browser refresh will clear your form. "
-                "Download your draft now to avoid losing your work.",
-                icon=None,
-            )
-        with _warn_c2:
-            _save_draft()
-            _warn_bytes = st.session_state.get("_draft_bytes", b"")
-            if _warn_bytes:
-                st.download_button(
-                    "💾 Save draft",
-                    data=_warn_bytes,
-                    file_name="impact_receipts_draft.json",
-                    mime="application/json",
-                    use_container_width=True,
-                    key="warn_download_btn",
-                )
-
-    with st.expander("How this works — new here? Start here.", expanded=False):
-        st.markdown(
-            """
-**Fill in 4 short sections about your result → click Run Check → get your scores.**
-
-| Tab | What you'll enter |
-|-----|-------------------|
-| **1. Result Basics** | Your result statement, target group, timeframe, and geography |
-| **2. Logframe Linkage** | Your logframe indicator, target, and what you achieved |
-| **3. Evidence & Verification** | Your evidence type, source, and who verified the data |
-| **4. Review & Submit** | Donor framework, then click **Score My Result Statement →** |
-
-**What you get back:**
-- **Confidence score (0–5)** — how credible and strong your evidence is
-- **Clarity score (0–5)** — how well-defined your result statement is
-- A **plain-English verdict** with the single most important fix to make first
-
-Takes 5–10 minutes. Your draft saves automatically as you go.
-            """
-        )
     if st.session_state.pop("_payment_success", False):
         st.success("✅ Payment confirmed! Upload your document below to run the Instant Report Check — or fill in the form manually.")
 
@@ -4055,13 +3990,6 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             _go_to_screen(3)
     # --- END UX: DYNAMIC SIDEBAR (v3.2) ---
 
-    # Auto-save timer toast
-    if "screen1_start_time" not in st.session_state:
-        st.session_state["screen1_start_time"] = time.time()
-    _elapsed = time.time() - st.session_state.get("screen1_start_time", time.time())
-    if _elapsed > 300 and not st.session_state.get("save_reminded"):
-        st.toast("⏰ You've been working for 5+ minutes. Download your draft from Tab 4 before continuing.", icon="💾")
-        st.session_state["save_reminded"] = True
 
     st.markdown(
         f'<div class="md-tab-header">'
@@ -4858,14 +4786,14 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             "(Act 843 / NDPA compliant — no names or organisations are stored.)",
             key="consent_examples",
         )
-        # --- Usage tracking ---
+        # --- Usage tracking (stored for Screen 2 download gate) ---
         _email_now = st.session_state.get("user_email", "")
         _u_now = get_user(_email_now) if _email_now else None
         _checks_now = (_u_now or {}).get("free_checks_used", 0)
         _paid_now = st.session_state.get("is_paid") or is_still_paid(_u_now)
-        _check_allowed = _paid_now or _checks_now < FREE_CHECKS_LIMIT
-        if not _check_allowed:
-            _render_paywall()
+        _report_allowed = _paid_now or _checks_now < FREE_CHECKS_LIMIT
+        # Cache for Screen 2 download gate — scoring itself is always free
+        st.session_state["_report_allowed"] = _report_allowed
         # --- End usage tracking ---
         _sb4, _bb4 = st.columns([3, 1])
         with _bb4:
@@ -4876,7 +4804,8 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
                 st.rerun()
         with _sb4:
             pass
-        if _check_allowed and st.button(
+        # Submit is always enabled — paywall moves to the Download button on Screen 2
+        if st.button(
             "Run Diagnostic & Get Report →",
             type="primary",
             use_container_width=True,
@@ -5728,31 +5657,36 @@ def render_screen_2():
         ):
             _go_to_screen(3)
 
-    # Primary download — shown immediately after snapshot, BEFORE detail cards
+    # Primary download — gated: free users see score + top fix free; report requires upgrade
     timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
+    _report_allowed = st.session_state.get("_report_allowed", True)
     html_report = _build_html_report(subs[0], evs[0], timestamp) if n == 1 else \
                   _build_combined_html_report(subs, evs, timestamp)
     _pdf_primary = _html_to_pdf_bytes(html_report)
-    if _pdf_primary:
-        st.download_button(
-            "📄 Download your report (PDF)",
-            data=_pdf_primary,
-            file_name=f"impact_receipts_{timestamp}.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-            type="primary",
-            key="pdf_primary_btn",
-        )
-    elif html_report:
-        st.download_button(
-            "⬇️ Download your report (HTML)",
-            data=html_report,
-            file_name=f"impact_receipts_{timestamp}.html",
-            mime="text/html",
-            use_container_width=True,
-            type="primary",
-            key="html_primary_btn",
-        )
+    if _report_allowed:
+        if _pdf_primary:
+            st.download_button(
+                "📄 Download your report (PDF)",
+                data=_pdf_primary,
+                file_name=f"impact_receipts_{timestamp}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                type="primary",
+                key="pdf_primary_btn",
+            )
+        elif html_report:
+            st.download_button(
+                "⬇️ Download your report (HTML)",
+                data=html_report,
+                file_name=f"impact_receipts_{timestamp}.html",
+                mime="text/html",
+                use_container_width=True,
+                type="primary",
+                key="html_primary_btn",
+            )
+    else:
+        st.info("📄 **Your score is above.** Upgrade to download the full PDF report with donor-specific fixes.")
+        _render_paywall()
 
     # Post-download CTAs — JTBD exit: user got their answer, what next?
     _done_c1, _done_c2 = st.columns(2)
