@@ -4019,7 +4019,7 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
             _save_draft()
             st.toast("Draft saved!", icon="💾")
         st.caption("─")
-        if st.button("📊 Score your whole logframe →", key="sidebar_portfolio_cta", use_container_width=True):
+        if st.button("📊 Portfolio analysis →", key="sidebar_portfolio_cta", use_container_width=True):
             _go_to_screen(3)
     # --- END UX: DYNAMIC SIDEBAR (v3.2) ---
 
@@ -4906,10 +4906,10 @@ Takes 5–10 minutes. Your draft saves automatically as you go.
 
         # Portfolio CTA — contextual: user is about to score a result, may want to do the whole logframe
         if st.button(
-            "📊 Checking a full logframe? Score the whole portfolio →",
+            "📊 Run portfolio analysis →",
             key="tab3_portfolio_cta",
             use_container_width=False,
-            help="Upload your logframe CSV to score all indicators at once.",
+            help="Score all your indicators at once by uploading a logframe CSV.",
         ):
             _go_to_screen(3)
 
@@ -5686,6 +5686,16 @@ def render_screen_2():
             unsafe_allow_html=True,
         )
 
+    # n≥2 portfolio readiness callout — shown at the moment of maximum engagement
+    if n >= 2:
+        if st.button(
+            f"📊 You've scored {n} results — run a portfolio analysis to see which is weakest →",
+            key="s2_portfolio_n2_cta",
+            use_container_width=True,
+            type="primary",
+        ):
+            _go_to_screen(3)
+
     # Primary download — shown immediately after snapshot, BEFORE detail cards
     timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
     html_report = _build_html_report(subs[0], evs[0], timestamp) if n == 1 else \
@@ -5723,10 +5733,10 @@ def render_screen_2():
             _go_to_screen(1, reset=True)
     with _done_c2:
         if st.button(
-            "📊 Check your whole logframe →",
+            "📊 Portfolio analysis — score all your indicators at once →",
             key="s2_portfolio_cta",
             use_container_width=True,
-            help="Upload your logframe CSV to see which indicators are weakest across your full portfolio.",
+            help="Upload a CSV of your full logframe to see which indicators are weakest.",
         ):
             _go_to_screen(3)
 
@@ -5981,8 +5991,8 @@ def _make_slug(text: str, max_len: int = 45) -> str:
 # ---------------------------------------------------------------------------
 
 _TREND_COPY = {
-    "header": "📈 Trends over time",
-    "intro": "See how each indicator's Confidence and Clarity scores change across reporting cycles.",
+    "header": "📈 Track your portfolio score over time (quarterly comparison)",
+    "intro": "See how each indicator's Confidence and Clarity scores improve across reporting cycles. Run a new portfolio check each quarter to build your history.",
     "no_data": "No saved submissions yet. Run a check on Screen 2 to start building history for this view.",
     "one_point": "Not enough history yet to show a trend — only one submission recorded so far for this indicator.",
     "select_primary": "Select an indicator/result to view its trend",
@@ -6546,13 +6556,31 @@ _PORTFOLIO_SUBSCORE_DIMENSIONS = [
 
 
 def _portfolio_template_csv() -> bytes:
-    """Build a one-row example CSV for the Portfolio Dashboard upload."""
+    """Build a one-row example CSV for the Portfolio Dashboard upload (full 29-column version)."""
     import pandas as pd
 
+    scoring_hints = (
+        "# SCORING IMPACT: internal_review + external_review + verifier → Verification (Confidence axis) | "
+        "provenance_* fields → Verification score | beneficiary_voice → +0 to +0.5 Confidence bonus | "
+        "additional_context → Governance sub-score (Clarity) | "
+        "qual_* fields → only apply when evidence_type is qualitative"
+    )
     headers = [c[0] for c in _PORTFOLIO_COLUMNS]
     example = {c[0]: c[2] for c in _PORTFOLIO_COLUMNS}
     df = pd.DataFrame([example], columns=headers)
-    return df.to_csv(index=False).encode("utf-8")
+    csv_body = df.to_csv(index=False)
+    return (scoring_hints + "\n" + csv_body).encode("utf-8")
+
+
+def _portfolio_minimal_template_csv() -> bytes:
+    """Build a minimal 7-column template for first-time Portfolio users."""
+    import pandas as pd
+    required = [(c[0], c[2]) for c in _PORTFOLIO_COLUMNS if c[1]]
+    headers = [c[0] for c in required]
+    example = {c[0]: c[1] for c in required}
+    note = "# Fill one row per indicator/result. All 7 columns are required. Download the full template for optional scoring-boost columns."
+    df = pd.DataFrame([example], columns=headers)
+    return (note + "\n" + df.to_csv(index=False)).encode("utf-8")
 
 
 def _portfolio_row_to_submission(row: dict) -> dict:
@@ -7071,20 +7099,34 @@ def render_screen_3():
     if st.button("← Back to Home", key="portfolio_back"):
         _go_to_screen(0)
 
-    st.markdown("## 📊 Portfolio Dashboard")
+    st.markdown("## 📊 Portfolio Analysis")
     st.caption(
-        "Upload your whole logframe (one row per indicator/result) to see which "
-        "indicators and sub-scores are weakest across your portfolio."
+        "Each result you score in the main form counts as one row. "
+        "Upload your full logframe as a CSV to analyse all your indicators at once — "
+        "the heatmap shows which are weakest."
     )
 
-    st.download_button(
-        "Download CSV template",
-        data=_portfolio_template_csv(),
-        file_name="impact_receipts_portfolio_template.csv",
-        mime="text/csv",
-        key="portfolio_template_dl",
-    )
-    st.caption(_PORTFOLIO_REVIEW_HINT)
+    _tmpl_c1, _tmpl_c2 = st.columns(2)
+    with _tmpl_c1:
+        st.download_button(
+            "📥 Minimal template (7 required columns)",
+            data=_portfolio_minimal_template_csv(),
+            file_name="portfolio_template_minimal.csv",
+            mime="text/csv",
+            key="portfolio_minimal_template_dl",
+            help="Start here — fill the 7 required columns, upload, and see your heatmap.",
+        )
+    with _tmpl_c2:
+        st.download_button(
+            "📥 Full template (29 columns)",
+            data=_portfolio_template_csv(),
+            file_name="impact_receipts_portfolio_template.csv",
+            mime="text/csv",
+            key="portfolio_template_dl",
+            help="Includes provenance, beneficiary voice, and governance fields for higher scores.",
+        )
+    with st.expander("Column reference & accepted values"):
+        st.caption(_PORTFOLIO_REVIEW_HINT)
 
     uploaded = st.file_uploader(
         "Upload your completed logframe (CSV or Excel)",
@@ -7178,11 +7220,6 @@ def render_screen_3():
             )
         else:
             st.caption("PDF: install xhtml2pdf to enable one-click PDF download.")
-
-    # place this here: end of render_screen_3(), after the existing portfolio block
-    st.divider()
-    with st.expander(_CSV_IMPORT_COPY["header"]):
-        render_csv_import_view()
 
     st.divider()
     st.markdown(f"### {_TREND_COPY['header']}")
