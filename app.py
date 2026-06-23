@@ -1222,7 +1222,7 @@ CSS = """
   --brand-green: #1B5E20;
   --gold:        #8A6500;
   --body-text:   #212121;
-  --muted:       #616161;
+  --muted:       #424242;  /* raised from #616161 — WCAG 1.4.3 AA: 5.3:1 on white */
   --bg-card:     #F5F5F5;
   --border:      rgba(27,90,32,0.15);
 }
@@ -1437,6 +1437,9 @@ h1, h2, h3, h4 {
   .md-pitch .lbl { display: none !important; }
   .md-pitch { padding: 8px 8px !important; }
   .md-pstage .dot { width: 24px !important; height: 24px !important; font-size: 10px !important; }
+  /* Accessibility D6: prevent dots overlapping at high display scale */
+  .md-pitch-stages { gap: 2px; }
+  .md-pstage { min-width: 22px; }
 }
 /* Active tab: bold + underline */
 .stTabs [data-baseweb="tab"][aria-selected="true"] button {
@@ -1462,6 +1465,27 @@ details summary, .stExpander summary {
 .stCaptionContainer p, [data-testid="stCaptionContainer"] p {
     font-size: 0.78rem !important;
     color: var(--muted) !important;
+}
+/* Accessibility — WCAG 1.4.4 Resize Text: minimum readable floor for small text */
+.stCaptionContainer p, [data-testid="stCaptionContainer"] p,
+.stCaption, small, .trust-tagline { font-size: max(0.875rem, 14px) !important; }
+/* Accessibility — WCAG 2.4.7 Focus Visible: keyboard focus ring using brand green */
+*:focus-visible {
+    outline: 3px solid #1B5E20 !important;
+    outline-offset: 3px !important;
+    border-radius: 4px;
+}
+/* Screen-reader-only utility class for visually-hidden text */
+.sr-only {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+/* Accessibility — WCAG 2.5.5 Target Size: HTML anchors styled as buttons */
+.cta-call-btn a, .gtm-btn-gold a {
+    min-height: 44px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
 }
 /* Smooth navigation transitions — reduces ghost/shadow flash between tabs and screens */
 [data-testid="stMainBlockContainer"] > div {
@@ -2566,7 +2590,7 @@ def _render_slot_fields(slot: int):
     elif _rs and not any(c.isdigit() for c in _rs):
         st.caption("Tip: Add a number (e.g., '500 farmers trained') — quantified claims score higher.")
 
-    st.markdown("#### 🔗 Logframe Linkage")
+    st.markdown("#### Logframe Linkage")
     st.caption(
         "**Why this matters:** A real African consultancy had their final donor report "
         "rejected 3 times in 2024 because results weren't tied to logframe indicators. "
@@ -2917,7 +2941,7 @@ def _render_tab1_slot(slot: int):
 def _render_tab2_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
     _render_fix_notes(slot, 1)
-    st.markdown("#### 🔗 Logframe Linkage")
+    st.markdown("#### Logframe Linkage")
     st.caption("Copy your approved indicator code and target directly from your Technical Proposal or logframe matrix.")
 
     # Show result statement as read-only reference so user can reconcile without scrolling back
@@ -3049,7 +3073,7 @@ def _render_tab3_slot(slot: int):
     )
 
     # Reporting Period — 3-column inline row (no stacked Today buttons)
-    st.markdown("**📅 Reporting Period**")
+    st.markdown("**Reporting Period**")
     st.caption("The period this submission covers. Evidence outside this range is flagged.")
     _rp_col1, _rp_col2, _rp_col3 = st.columns(3)
     with _rp_col1:
@@ -3151,7 +3175,7 @@ def _render_tab3_slot(slot: int):
         }
 
     # Beneficiary Voice — promoted to its own section immediately after evidence checks
-    st.markdown("### 🗣️ Beneficiary Voice")
+    st.markdown("### Beneficiary Voice")
     st.caption("Did the people this programme serves contribute to or validate this evidence?")
     st.caption("Score by method — No voice: +0.0 · Anecdotal: +0.15 · Representatives / Systematic: +0.35 · Independent: +0.5")
     st.selectbox(
@@ -3563,12 +3587,18 @@ def _score_class(value, verified):
     return "md-red"
 
 
+_SCORE_CLASS_LABEL = {"md-green": "strong", "md-amber": "acceptable", "md-red": "high risk"}
+
+
 def render_scoreboard(confidence=None, clarity=None, verified=False):
-    """Two-stat match scoreboard for Confidence and Clarity (0-100 scale)."""
+    """Two-stat scoreboard for Confidence and Clarity (0-100 scale)."""
     conf_txt = "—" if confidence is None else str(int(round(confidence)))
     clar_txt = "—" if clarity is None else str(int(round(clarity)))
     conf_cls = _score_class(confidence, verified)
     clar_cls = _score_class(clarity, verified)
+    # Accessibility D4: text labels alongside color — WCAG 1.4.1 (no color-only signal)
+    conf_lbl = _SCORE_CLASS_LABEL.get(conf_cls, "")
+    clar_lbl = _SCORE_CLASS_LABEL.get(clar_cls, "")
     status = "● scored" if verified else "● preview"
     status_color = "#A5D6A7" if verified else "#FFD54F"
     st.markdown(f"""
@@ -3577,12 +3607,14 @@ def render_scoreboard(confidence=None, clarity=None, verified=False):
         <span class="md-sb-live" style="color:{status_color}">{status}</span></div>
       <div class="md-sb-body">
         <div class="md-stat"><div class="name">Confidence</div>
-          <div class="val {conf_cls}">{conf_txt}</div>
-          <div class="sub">Will the donor trust the evidence?</div></div>
+          <div class="val {conf_cls}" aria-label="{conf_txt} out of 100 — {conf_lbl}">{conf_txt}</div>
+          <div class="sub">Will the donor trust the evidence?</div>
+          {f'<div class="sub" style="font-size:11px;font-weight:600;">● {conf_lbl}</div>' if conf_lbl else ''}</div>
         <div class="md-div"></div>
         <div class="md-stat"><div class="name">Clarity</div>
-          <div class="val {clar_cls}">{clar_txt}</div>
-          <div class="sub">Is the result clear enough to stand alone?</div></div>
+          <div class="val {clar_cls}" aria-label="{clar_txt} out of 100 — {clar_lbl}">{clar_txt}</div>
+          <div class="sub">Is the result clear enough to stand alone?</div>
+          {f'<div class="sub" style="font-size:11px;font-weight:600;">● {clar_lbl}</div>' if clar_lbl else ''}</div>
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -5259,7 +5291,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         lk_state = linkage.get("state", "MISSING")
         lk_rat   = linkage.get("rationale", "")
         lk_issues = linkage.get("issues", [])
-        st.markdown("#### 🔗 Logframe Linkage")
+        st.markdown("#### Logframe Linkage")
         if lk_state == "STRONG":
             st.success(f"✓ {lk_rat}")
         elif lk_state == "WEAK":
@@ -7409,7 +7441,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
         "<tr><td>Submission completeness — is your package donor-ready?</td>"
         "<td>Advisory only — not scored</td></tr>"
         "</table>"
-        "<p style='font-size:0.75rem;color:#9E9E9E;margin-top:6px;'>"
+        "<p style='font-size:0.875rem;color:#424242;margin-top:6px;'>"
         "Confidence and Clarity are your two top-line scores. Ethics and Compliance are the "
         "Integrity and Governance sub-scores within Clarity, shown separately above so you can "
         "see what's driving your Clarity score — see definitions above.</p>"
@@ -7581,7 +7613,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
   td,th{{border:1px solid #E0E0E0;text-align:left;}}
   th{{background:#F5F5F5;padding:7px 8px;font-size:0.85rem;}}
   .grid{{display:grid;grid-template-columns:1fr 1fr;gap:24px;}}
-  .footer{{color:#616161;font-style:italic;font-size:0.8rem;border-top:1px solid #E0E0E0;margin-top:32px;padding-top:12px;}}
+  .footer{{color:#424242;font-style:italic;font-size:0.875rem;border-top:1px solid #E0E0E0;margin-top:32px;padding-top:12px;}}
   @media print{{
     body{{margin:20px;}}
     .no-print{{display:none;}}
@@ -7648,7 +7680,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
     {_clar_chart_div}
   </div>
 </div>
-<p class="no-print" style="color:#9E9E9E;font-size:0.75rem;">Hover over the charts above for details (requires an internet connection to load the chart library).</p>
+<p class="no-print" style="color:#424242;font-size:0.875rem;">Hover over the charts above for details (requires an internet connection to load the chart library).</p>
 {_charts_script}
 {ladder_html}
 {maturity_html}
@@ -7698,7 +7730,7 @@ def _build_reviewer_signoff_section_html(review_info: dict) -> str:
   <strong>Role:</strong> {role} &nbsp;&nbsp;
   <strong>Date:</strong> {rdate}
 </p>
-<p style="color:#9E9E9E;font-size:0.75rem;">
+<p style="color:#424242;font-size:0.875rem;">
   No accounts or authentication are used — this reflects the reviewer information
   entered for this submission in the current session.
 </p>

@@ -67,7 +67,7 @@ def _readiness_banner_html(diag_state: str) -> str:
         f"-webkit-print-color-adjust:exact;print-color-adjust:exact;'>"
         f"{style['icon']} {band} &mdash; {style['caption']}"
         f"</div>"
-        f"<p style='color:#9E9E9E;font-size:0.75rem;text-align:center;margin:-8px 0 16px;'>"
+        f"<p style='color:#424242;font-size:0.875rem;text-align:center;margin:-8px 0 16px;'>"
         f"{_LIMITS_DISCLAIMER}</p>"
     )
 
