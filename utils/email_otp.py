@@ -29,7 +29,7 @@ def send_otp_email(to_email: str, code: str) -> tuple[bool, str]:
     api_key = _get_secret("RESEND_API_KEY")
     if not api_key:
         return False, "Email verification is not configured."
-    from_address = _get_secret("RESEND_FROM", "Impact Integrity Diagnostic <onboarding@resend.dev>")
+    from_address = _get_secret("RESEND_FROM", "Impact Integrity Check <onboarding@resend.dev>")
     try:
         import requests
         resp = requests.post(
@@ -38,12 +38,12 @@ def send_otp_email(to_email: str, code: str) -> tuple[bool, str]:
             json={
                 "from": from_address,
                 "to": [to_email],
-                "subject": f"Your Impact Integrity Diagnostic verification code: {code}",
+                "subject": f"Your Impact Integrity Check verification code: {code}",
                 "html": (
                     "<div style='font-family:sans-serif;'>"
-                    "<p>Your Impact Integrity Diagnostic verification code is:</p>"
+                    "<p>Your Impact Integrity Check verification code is:</p>"
                     f"<p style='font-size:28px;font-weight:700;letter-spacing:6px;'>{code}</p>"
-                    "<p style='color:#616161;font-size:0.85rem;'>This code expires in 10 minutes. "
+                    "<p style='color:#424242;font-size:0.875rem;'>This code expires in 10 minutes. "
                     "If you didn't request this, you can safely ignore this email.</p>"
                     "</div>"
                 ),
@@ -70,7 +70,7 @@ def send_results_email(
     if not api_key:
         return False, "Email not configured."
     from_address = _get_secret(
-        "RESEND_FROM", "Impact Integrity Diagnostic <onboarding@resend.dev>"
+        "RESEND_FROM", "Impact Integrity Check <onboarding@resend.dev>"
     )
     conf_pct = round(conf_score / 5 * 100)
     clar_pct = round(clar_score / 5 * 100)
@@ -95,7 +95,7 @@ def send_results_email(
                 "subject": f"Your check: Confidence {conf_pct}% · Clarity {clar_pct}% — {verdict}",
                 "html": f"""
 <div style='font-family:Inter,sans-serif;max-width:560px;margin:0 auto;color:#212121;'>
-  <h2 style='color:#1B5E20;margin-bottom:4px;'>Your Impact Integrity Diagnostic results</h2>
+  <h2 style='color:#1B5E20;margin-bottom:4px;'>Your Impact Integrity Check results</h2>
   <p style='color:#616161;font-size:0.9rem;margin-top:0;'>{snippet}</p>
   <table style='width:100%;border-collapse:collapse;margin:16px 0;'>
     <tr>
@@ -119,8 +119,8 @@ def send_results_email(
       Fix gaps &amp; re-score &rarr;
     </a>
   </p>
-  <p style='color:#9e9e9e;font-size:0.75rem;margin-top:28px;border-top:1px solid #eee;padding-top:12px;'>
-    Impact Integrity Diagnostic &middot; Built in Accra for MEL teams across West Africa<br>
+  <p style='color:#424242;font-size:0.875rem;margin-top:28px;border-top:1px solid #eee;padding-top:12px;'>
+    Impact Integrity Check &middot; Built in Accra for MEL teams across West Africa<br>
     <a href='https://impact-integrity-diagnostic.streamlit.app/' style='color:#9e9e9e;'>
       impact-integrity-diagnostic.streamlit.app
     </a>
