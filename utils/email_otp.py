@@ -8,12 +8,29 @@ import os
 import random
 
 
+_APP_NAME = "Impact Integrity Check"
+
+
 def _get_secret(name: str, default: str = "") -> str:
     try:
         import streamlit as st
         return st.secrets.get(name) or os.environ.get(name, default)
     except Exception:
         return os.environ.get(name, default)
+
+
+def _from_address() -> str:
+    """Build the From: address, always using the current app name regardless of
+    what display name the RESEND_FROM secret may contain."""
+    raw = _get_secret("RESEND_FROM", "")
+    if not raw:
+        return f"{_APP_NAME} <onboarding@resend.dev>"
+    # If the secret has an old display name (e.g. "Impact Integrity Diagnostic <...>"),
+    # extract just the email part and re-wrap with the current app name.
+    import re
+    m = re.search(r"<([^>]+)>", raw)
+    email_part = m.group(1) if m else raw.strip()
+    return f"{_APP_NAME} <{email_part}>"
 
 
 def otp_enabled() -> bool:
@@ -29,7 +46,7 @@ def send_otp_email(to_email: str, code: str) -> tuple[bool, str]:
     api_key = _get_secret("RESEND_API_KEY")
     if not api_key:
         return False, "Email verification is not configured."
-    from_address = _get_secret("RESEND_FROM", "Impact Integrity Check <onboarding@resend.dev>")
+    from_address = _from_address()
     try:
         import requests
         resp = requests.post(
@@ -38,7 +55,7 @@ def send_otp_email(to_email: str, code: str) -> tuple[bool, str]:
             json={
                 "from": from_address,
                 "to": [to_email],
-                "subject": f"Your Impact Integrity Check verification code: {code}",
+                "subject": f"Your {_APP_NAME} verification code: {code}",
                 "html": (
                     "<div style='font-family:sans-serif;'>"
                     "<p>Your Impact Integrity Check verification code is:</p>"
@@ -69,9 +86,8 @@ def send_results_email(
     api_key = _get_secret("RESEND_API_KEY")
     if not api_key:
         return False, "Email not configured."
-    from_address = _get_secret(
-        "RESEND_FROM", "Impact Integrity Check <onboarding@resend.dev>"
-    )
+    from_address = _from_address()
+    _app_url = _get_secret("APP_BASE_URL", "https://impact-integrity-diagnostic.streamlit.app").rstrip("/")
     conf_pct = round(conf_score / 5 * 100)
     clar_pct = round(clar_score / 5 * 100)
     fixes_html = "".join(
@@ -95,7 +111,7 @@ def send_results_email(
                 "subject": f"Your check: Confidence {conf_pct}% · Clarity {clar_pct}% — {verdict}",
                 "html": f"""
 <div style='font-family:Inter,sans-serif;max-width:560px;margin:0 auto;color:#212121;'>
-  <h2 style='color:#1B5E20;margin-bottom:4px;'>Your Impact Integrity Check results</h2>
+  <h2 style='color:#1B5E20;margin-bottom:4px;'>Your {_APP_NAME} results</h2>
   <p style='color:#616161;font-size:0.9rem;margin-top:0;'>{snippet}</p>
   <table style='width:100%;border-collapse:collapse;margin:16px 0;'>
     <tr>
@@ -113,16 +129,16 @@ def send_results_email(
   <p style='margin:0 0 12px;'><strong>Verdict:</strong> {verdict}</p>
   {fixes_block}
   <p style='margin-top:24px;'>
-    <a href='https://impact-integrity-diagnostic.streamlit.app/'
+    <a href='{_app_url}/'
        style='background:#1B5E20;color:white;padding:10px 20px;border-radius:8px;
               text-decoration:none;font-weight:700;display:inline-block;'>
       Fix gaps &amp; re-score &rarr;
     </a>
   </p>
   <p style='color:#424242;font-size:0.875rem;margin-top:28px;border-top:1px solid #eee;padding-top:12px;'>
-    Impact Integrity Check &middot; Built in Accra for MEL teams across West Africa<br>
-    <a href='https://impact-integrity-diagnostic.streamlit.app/' style='color:#424242;'>
-      Impact Integrity Check
+    {_APP_NAME} &middot; Built in Accra for MEL teams across West Africa<br>
+    <a href='{_app_url}/' style='color:#424242;'>
+      {_APP_NAME}
     </a>
   </p>
 </div>""",
