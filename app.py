@@ -194,6 +194,34 @@ QUAL_RIGOR_CHECKLIST = {
 }
 
 # Per-evidence-type quality checks rendered inline (no expander wrapper).
+_EV_TYPE_KEYWORDS: dict[str, list[str]] = {
+    "Attendance sheets / participant registers": ["attendance", "register", "participant list", "sign-in", "sign in"],
+    "Raw datasets or survey exports":           ["dataset", "survey", "questionnaire", "kobo", "csv", "excel export"],
+    "Partner verification letters":             ["partner letter", "verification letter", "confirmation letter", "letter of"],
+    "Photos with metadata":                     ["photo", "photograph", "image", "gps", "picture"],
+    "Tracer survey results":                    ["tracer", "follow-up survey", "follow up survey", "tracer study"],
+    "Financial records":                        ["financial record", "receipt", "bank statement", "payment record", "invoice", "transaction"],
+    "Third-party audits":                       ["audit", "third-party", "third party", "external auditor", "independent audit"],
+    "Case study":                               ["case study", "case-study", "success story", "learning story"],
+    "Outcome harvesting":                       ["outcome harvest", "outcome mapping"],
+    "Beneficiary narrative or testimony":       ["testimony", "beneficiary narrative", "beneficiary story", "quote from"],
+}
+
+
+def _smart_extract_ev_type(ev_desc: str, ev_type_key: str) -> None:
+    """Auto-set evidence type from description keywords if still on default."""
+    if not ev_desc or len(ev_desc) < 30:
+        return
+    current = st.session_state.get(ev_type_key, "")
+    if current and current not in ("Select evidence type...", EVIDENCE_TYPES[0], ""):
+        return  # user already chose — don't overwrite
+    desc_lower = ev_desc.lower()
+    for ev_type, keywords in _EV_TYPE_KEYWORDS.items():
+        if any(kw in desc_lower for kw in keywords):
+            st.session_state[ev_type_key] = ev_type
+            return
+
+
 _EV_QUALITY_CHECKS: dict[str, list[tuple[str, str]]] = {
     "Attendance sheets / participant registers": [
         ("signatures_verified", "Signatures verified against ID list"),
@@ -1445,6 +1473,16 @@ h1, h2, h3, h4 {
 .stTabs [data-baseweb="tab"][aria-selected="true"] button {
     font-weight: 700;
     text-decoration: underline;
+}
+/* Mobile: Vega/Altair chart tooltips — keep within viewport, above bars */
+.vega-tooltip {
+    z-index: 10000 !important;
+    max-width: 90vw !important;
+    word-wrap: break-word !important;
+    font-size: 0.875rem !important;
+}
+@media (max-width: 768px) {
+  .vega-tooltip { position: fixed !important; bottom: 8px !important; top: auto !important; left: 5% !important; right: 5% !important; }
 }
 /* Form labels: consistent weight */
 .stTextInput label, .stTextArea label, .stSelectbox label,
@@ -2881,6 +2919,64 @@ def _render_fix_notes(slot: int, tab_idx: int):
         st.info(f"**📌 To improve your score, address:**\n\n{lines}")
 
 
+_MONTH_NAMES = (
+    "january","february","march","april","may","june",
+    "july","august","september","october","november","december",
+)
+
+def _smart_extract_from_result(result_text: str, s: str) -> None:
+    """Silently pre-fill empty Tab 0 fields from the result statement.
+    Never overwrites a field the user has already filled."""
+    if not result_text or len(result_text.split()) < 8:
+        return
+    rt = result_text.lower()
+
+    # Timeframe: month range + year OR Q1–Q4 + year
+    tf_key = f"timeframe{s}"
+    if not _ss_str(tf_key).strip():
+        tf_m = re.search(
+            r"(?:between\s+)?("
+            + "|".join(_MONTH_NAMES)
+            + r")[\s\w–-]*(?:and|–|-)\s*("
+            + "|".join(_MONTH_NAMES)
+            + r")\s+(\d{4})",
+            rt,
+        )
+        if tf_m:
+            m1, m2, yr = tf_m.group(1).capitalize(), tf_m.group(2).capitalize(), tf_m.group(3)
+            st.session_state[tf_key] = f"{m1}–{m2} {yr}"
+        else:
+            q_m = re.search(r"\b(q[1-4])\s+(\d{4})\b", rt)
+            if q_m:
+                st.session_state[tf_key] = f"{q_m.group(1).upper()} {q_m.group(2)}"
+
+    # Geographic scope: first location marker + surrounding context
+    gs_key = f"geographic_scope{s}"
+    if not _ss_str(gs_key).strip():
+        for marker in _LOC_MARKERS:
+            if marker in rt:
+                # Extract a short phrase around the marker
+                idx = rt.find(marker)
+                chunk = result_text[max(0, idx - 20):idx + 40].strip()
+                # Clean to just the relevant phrase
+                chunk = re.sub(r"^[^A-Za-z]*", "", chunk).split(",")[0].split(".")[0]
+                if len(chunk) > 5:
+                    st.session_state[gs_key] = chunk.strip()
+                    break
+
+    # Target group: demographic marker + surrounding noun phrase
+    tg_key = f"target_group{s}"
+    if not _ss_str(tg_key).strip():
+        for marker in _DEMO_MARKERS:
+            if marker in rt:
+                idx = rt.find(marker)
+                chunk = result_text[max(0, idx - 15):idx + 35].strip()
+                chunk = re.sub(r"^[^A-Za-z]*", "", chunk).split(",")[0].split(".")[0]
+                if len(chunk) > 4:
+                    st.session_state[tg_key] = chunk.strip()
+                    break
+
+
 def _render_tab1_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
     _render_fix_notes(slot, 0)
@@ -2891,6 +2987,8 @@ def _render_tab1_slot(slot: int):
         help="What did your project achieve? Include the action verb, number, target group, location, and timeframe.",
     )
     _rs = st.session_state.get(f"result_statement{s}", "")
+    if _rs and len(_rs.strip()) >= 30:
+        _smart_extract_from_result(_rs, s)  # auto-fill empty downstream fields
     if _rs and len(_rs.strip()) < 20:
         st.warning("Result statement is very short. Include: action verb + number + population + timeframe.")
     elif _rs and not any(c.isdigit() for c in _rs):
@@ -3003,13 +3101,15 @@ def _render_tab3_slot(slot: int):
     _ed_val = st.session_state.get(f"evidence_description{s}", "")
     if _ed_val and len(_ed_val.strip()) < 30:
         st.warning("Evidence description is brief. Specify: who collected it, how, and what it contains.")
+    elif _ed_val:
+        _smart_extract_ev_type(_ed_val, f"evidence_type{s}")  # auto-suggest type from keywords
 
     _irc_widget(
-        st.selectbox, "Evidence type", f"evidence_type{s}", default=EVIDENCE_TYPES[0],
-        options=EVIDENCE_TYPES,
+        st.radio, "Evidence type", f"evidence_type{s}", default=EVIDENCE_TYPES[1],
+        options=EVIDENCE_TYPES[1:],  # skip placeholder — radio shows all options at once
         help=EVIDENCE_TYPE_HELP,
     )
-    ev_type = st.session_state.get(f"evidence_type{s}", EVIDENCE_TYPES[0])
+    ev_type = st.session_state.get(f"evidence_type{s}", EVIDENCE_TYPES[1])
     ev_desc = st.session_state.get(f"evidence_description{s}", "")
     _dl = _evaluator.get_directness_level(ev_type, ev_desc)
     _ds = round((_dl / 5) * 2.0, 1)
@@ -3722,12 +3822,12 @@ def render_screen_0():
 
     with st.expander("⚡ Get a quick read (1 minute) — no registration needed"):
         st.caption("Fill 3 fields to instantly see provisional Confidence and Clarity scores. No tabs, no email required.")
-        qc_result  = st.text_area("Your result statement", key="qc_result", height=80,
-                                   placeholder="e.g., Trained 250 farmers in climate-smart practices in Northern Region, Jan–Jun 2025")
-        qc_ev_type = st.selectbox("Evidence type", key="qc_ev_type",
-                                   options=["(Select evidence type)"] + EVIDENCE_TYPES)
+        qc_result   = st.text_area("Your result statement", key="qc_result", height=80,
+                                    placeholder="e.g., Trained 250 farmers in climate-smart practices in Northern Region, Jan–Jun 2025")
+        qc_ev_type  = st.selectbox("Evidence type", key="qc_ev_type",
+                                    options=["(Select evidence type)"] + EVIDENCE_TYPES)
         qc_verifier = st.text_input("Who verified this?", key="qc_verifier",
-                                    placeholder="e.g., District Agriculture Officer")
+                                     placeholder="e.g., District Agriculture Officer")
         if st.button("⚡ Quick Check →", key="qc_run", type="primary", use_container_width=True):
             if qc_result and qc_ev_type != "(Select evidence type)":
                 try:
@@ -3745,22 +3845,33 @@ def render_screen_0():
                     _qc_cl = _qc_ev.get("clarity_score", 0)
                     _qc_cl_label, _ = _evaluator.interpret_score(_qc_cl)
                     _qc_c_label,  _ = _evaluator.interpret_score(_qc_c)
-                    st.success(
-                        f"**Provisional scores** — Confidence: **{_qc_c}/5.0** ({_qc_c_label}) · "
-                        f"Clarity: **{_qc_cl}/5.0** ({_qc_cl_label})"
-                    )
-                    st.caption("Provisional only — Verification, Recency, and Clarity improve with full form data.")
-                    if st.button("Continue for full diagnosis →", key="qc_continue", use_container_width=True):
-                        st.session_state["result_statement"] = qc_result
-                        st.session_state["evidence_type"]    = qc_ev_type
-                        st.session_state["verifier"]         = qc_verifier
-                        if not st.session_state.get("has_seen_tutorial"):
-                            st.session_state["tutorial_step"] = 1
-                        _go_to_screen(1, reset=False)
+                    # Cache scores so Continue button renders on next rerun
+                    st.session_state["_qc_last_scores"] = {
+                        "c": _qc_c, "cl": _qc_cl, "c_lbl": _qc_c_label, "cl_lbl": _qc_cl_label,
+                        "result": qc_result, "ev_type": qc_ev_type, "verifier": qc_verifier,
+                    }
+                    st.rerun()
                 except Exception:
                     st.warning("Fill in your result statement and select an evidence type to get a quick read.")
             else:
                 st.warning("Enter a result statement and select an evidence type to run the quick check.")
+
+        # Show cached scores + Continue button (outside the qc_run if-block so Continue click works)
+        _qc_scores = st.session_state.get("_qc_last_scores")
+        if _qc_scores:
+            st.success(
+                f"**Provisional scores** — Confidence: **{_qc_scores['c']}/5.0** ({_qc_scores['c_lbl']}) · "
+                f"Clarity: **{_qc_scores['cl']}/5.0** ({_qc_scores['cl_lbl']})"
+            )
+            st.caption("Provisional only — Verification, Recency, and Clarity improve with full form data.")
+            if st.button("Continue for full diagnosis →", key="qc_continue", use_container_width=True, type="primary"):
+                st.session_state["result_statement"] = _qc_scores["result"]
+                st.session_state["evidence_type"]    = _qc_scores["ev_type"]
+                st.session_state["verifier"]         = _qc_scores["verifier"]
+                st.session_state.pop("_qc_last_scores", None)
+                if not st.session_state.get("has_seen_tutorial"):
+                    st.session_state["tutorial_step"] = 1
+                _go_to_screen(1, reset=False)
 
     if st.button("🚀 Try with a sample result →", key="cta_demo",
                  help="Loads a realistic ANC result from Ashanti Region — runs in seconds",
@@ -3911,9 +4022,7 @@ def render_screen_1():
         if st.button("Save", key="top_save_draft_btn", help="Save draft to disk"):
             _save_draft()
     with _sav_c3:
-        if st.button("← Back to Start", key="top_home_btn", help="Back to landing page"):
-            _go_to_screen(0)
-            st.toast("Draft saved!", icon="💾")
+        pass  # Back to Start removed — use Start Fresh on Tab 3 if needed
 
     _has_prefill = any(
         _ss_str(k).strip()
@@ -4597,8 +4706,11 @@ def render_screen_1():
                     st.query_params["tab"] = "1"
                     st.rerun()
             with _pb1:
-                if st.button("← Back to Start", key="tab1_back_btn", use_container_width=True):
-                    _go_to_screen(0)
+                if st.button("← Back", key="tab1_back_btn", use_container_width=True):
+                    st.session_state["current_tab"] = 0
+                    st.session_state["_scroll_to_content"] = True
+                    st.query_params["tab"] = "0"
+                    st.rerun()
         else:
             st.caption("Fill in all four fields above to continue.")
         # --- END v3.3 ---

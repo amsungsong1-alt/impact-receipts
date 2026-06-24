@@ -175,12 +175,16 @@ def compute_clarity(
     sample_ok: bool,
     governance_yes_count: int,
     measurement_denominator: int = 3,
+    description_quality: float = 0.0,
 ) -> float:
     definition  = (definition_yes_count  / 3) * 1.25
     measurement = (measurement_yes_count / measurement_denominator) * 1.25
+    # Integrity starts at 0.75 baseline; +description_quality (up to +0.25) for
+    # non-trivial evidence; minus penalties for missing data or no audit trail.
+    # This prevents a near-empty form from scoring 1.0/1.0 on Integrity.
     integrity   = max(
         0,
-        1.0
+        0.75 + description_quality
         - (0.5 if missing_data == "Significant" else 0.25 if missing_data == "Minor" else 0)
         - (0.25 if audit_trail == "No" else 0),
     )
@@ -997,16 +1001,23 @@ def _derive_clarity_params(submission: dict) -> dict:
     has_context = bool(additional_ctx)
     governance_yes = sum([has_owner, has_review, has_context])
 
+    # --- Description quality bonus (for Integrity baseline) ---
+    # Evidence description must be non-trivial to earn the full Integrity score.
+    # 20+ words = full +0.25 bonus; fewer words = proportional.
+    desc_word_count = len(ev_desc.split()) if ev_desc else 0
+    description_quality = round(min(0.25, desc_word_count / 20 * 0.25), 3)
+
     return {
-        "definition_yes_count":   definition_yes,
-        "measurement_yes_count":  measurement_yes,
+        "definition_yes_count":    definition_yes,
+        "measurement_yes_count":   measurement_yes,
         "measurement_denominator": 3 if is_qualitative else 4,
-        "missing_data":           missing_data,
-        "audit_trail":            audit_trail,
-        "coverage":               coverage,
-        "sample_ok":              sample_ok,
-        "governance_yes_count":   governance_yes,
-        "is_qualitative":         is_qualitative,
+        "missing_data":            missing_data,
+        "audit_trail":             audit_trail,
+        "coverage":                coverage,
+        "sample_ok":               sample_ok,
+        "governance_yes_count":    governance_yes,
+        "is_qualitative":          is_qualitative,
+        "description_quality":     description_quality,
     }
 
 
