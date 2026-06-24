@@ -3105,7 +3105,7 @@ def _render_tab3_slot(slot: int):
         _smart_extract_ev_type(_ed_val, f"evidence_type{s}")  # auto-suggest type from keywords
 
     _irc_widget(
-        st.radio, "Evidence type", f"evidence_type{s}", default=EVIDENCE_TYPES[1],
+        st.radio, "Primary evidence type (select your strongest source)", f"evidence_type{s}", default=EVIDENCE_TYPES[1],
         options=EVIDENCE_TYPES[1:],  # skip placeholder — radio shows all options at once
         help=EVIDENCE_TYPE_HELP,
     )
