@@ -26,14 +26,38 @@ def _secret_key() -> str:
 
 
 def _base_url() -> str:
+    # Priority 1: explicit override in st.secrets or environment
+    env_val = os.environ.get("APP_BASE_URL", "")
     try:
         import streamlit as st
-        configured = st.secrets.get("APP_BASE_URL") or os.environ.get("APP_BASE_URL", "")
+        configured = st.secrets.get("APP_BASE_URL") or env_val
         if configured:
             return configured.rstrip("/")
-        return "https://impact-integrity-diagnostic.streamlit.app"
+
+        # Priority 2: detect live URL from request headers (Streamlit 1.30+)
+        try:
+            host = st.context.headers.get("Host") or st.context.headers.get("host", "")
+            proto = "https"  # Streamlit Cloud always serves HTTPS
+            if host:
+                return f"{proto}://{host}"
+        except Exception:
+            pass
+
+        # Priority 3: construct from Streamlit server options
+        try:
+            base_path = (st.get_option("server.baseUrlPath") or "").strip("/")
+            port = st.get_option("server.port") or 8501
+            if base_path:
+                return f"http://localhost:{port}/{base_path}"
+        except Exception:
+            pass
+
     except Exception:
-        return os.environ.get("APP_BASE_URL", "https://impact-integrity-diagnostic.streamlit.app")
+        if env_val:
+            return env_val.rstrip("/")
+
+    # Final fallback — set APP_BASE_URL in Streamlit secrets to fix payment callbacks
+    return "https://impact-integrity-diagnostic.streamlit.app"
 
 
 _last_payment_error: str = ""

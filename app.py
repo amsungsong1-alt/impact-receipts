@@ -116,6 +116,28 @@ except ImportError:
 FREE_CHECKS_LIMIT     = 3          # free manual checks per user
 PRICE_PER_CHECK_GHS   = 500        # pesewas  (GHS 5.00)
 PRICE_MONTHLY_GHS     = 5000       # pesewas  (GHS 50.00/month)
+
+# Canonical app URL — used in reports, emails, payment callbacks, share links.
+# Override by setting APP_BASE_URL in Streamlit secrets or environment variable.
+def _get_app_url() -> str:
+    _env = os.environ.get("APP_BASE_URL", "")
+    try:
+        _cfg = st.secrets.get("APP_BASE_URL") or _env
+        if _cfg:
+            return _cfg.rstrip("/")
+        # Try to detect live URL from request context (Streamlit 1.30+)
+        try:
+            _host = st.context.headers.get("Host") or st.context.headers.get("host", "")
+            if _host and "localhost" not in _host:
+                return f"https://{_host}"
+        except Exception:
+            pass
+    except Exception:
+        if _env:
+            return _env.rstrip("/")
+    return "https://impact-integrity-diagnostic.streamlit.app"
+
+APP_URL = _get_app_url()
 # --- End payment constants ---
 
 # --- Disposable / temporary email domains (blocked at the email gate) ---
@@ -5592,7 +5614,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             f"Clarity: {clar_score}/5.0 {_share_icon(clar_score)}\n"
             f"Top fix: {_tf}\n"
             f"Verdict: {verdict}\n"
-            f"Checked with: Impact Integrity Check (https://impact-integrity-diagnostic.streamlit.app/)"
+            f"Checked with: Impact Integrity Check ({APP_URL}/)"
         )
         _wa_url = "https://wa.me/?text=" + urllib.parse.quote(_wa_text)
         st.markdown(
@@ -5867,7 +5889,7 @@ def render_screen_2():
             st.query_params["tab"] = "0"
             _go_to_screen(1, reset=True)
     with _nav_c3:
-        app_url = "https://impact-integrity-diagnostic.streamlit.app"
+        app_url = APP_URL
         li_url  = f"https://www.linkedin.com/sharing/share-offsite/?url={urllib.parse.quote(app_url, safe='')}"
         st.markdown(
             f"<a href='{li_url}' target='_blank' style='font-size:0.85rem;'>Share on LinkedIn</a>",
@@ -7610,7 +7632,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
 
 <div class="footer">
   Evaluated using {METHODOLOGY_STACK}.<br/>
-  Contact: <a href="https://wa.me/233503648195">WhatsApp +233 50 364 8195</a> &nbsp;&middot;&nbsp; <a href="https://impact-integrity-diagnostic.streamlit.app/">Impact Integrity Check</a>
+  Contact: <a href="https://wa.me/233503648195">WhatsApp +233 50 364 8195</a> &nbsp;&middot;&nbsp; <a href="{APP_URL}/">Impact Integrity Check</a>
 </div>
 </body>
 </html>"""
