@@ -7373,8 +7373,9 @@ def render_screen_3():
 
 
 def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str) -> str:
-    """Lean 2–3 page Submission Readiness Card. Table-based layout for xhtml2pdf compatibility."""
-    P = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"  # print colour preservation
+    """Lean 2–3 page Submission Readiness Card.
+    Flat table layout only — no nested percentage-width tables (xhtml2pdf constraint)."""
+    P = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
 
     conf_score = round(evaluation.get("confidence_score", 0), 1)
     clar_score = round(evaluation.get("clarity_score", 0), 2)
@@ -7425,21 +7426,19 @@ def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str) 
             vbg, vfg = bg, fg; break
 
     def bar_row(val, max_v, label):
-        """xhtml2pdf-compatible bar using a nested table with coloured cells."""
+        """Bar using bgcolor attribute (xhtml2pdf-safe; no nested percentage tables)."""
         pct = min(int((val / max_v) * 100), 100) if max_v else 0
-        empty = 100 - pct
+        fill_px = max(1, int(pct * 2))   # 200px total bar width
+        empty_px = 200 - fill_px
         bar_color = "#1B5E20" if pct >= 70 else ("#F57F17" if pct >= 50 else "#B71C1C")
         score_str = f"{val}/{max_v}"
+        # Use bgcolor attribute + width attribute instead of CSS background — most reliable in xhtml2pdf
         return (
-            f"<tr>"
-            f"<td style='font-size:11px;color:#424242;padding:3px 8px 3px 0;width:130px;'>{label}</td>"
-            f"<td style='padding:3px 8px 3px 0;'>"
-            f"  <table border='0' cellspacing='0' cellpadding='0' style='width:160px;height:10px;border-collapse:collapse;{P}'><tr>"
-            f"    <td style='background:{bar_color};width:{pct}%;height:10px;{P}'></td>"
-            f"    <td style='background:#E0E0E0;width:{empty}%;height:10px;{P}'></td>"
-            f"  </tr></table>"
-            f"</td>"
-            f"<td style='font-size:11px;font-weight:700;color:{bar_color};padding:3px 0;width:60px;{P}'>{score_str}</td>"
+            f"<tr valign='middle'>"
+            f"<td width='120' style='font-size:11px;color:#424242;padding:4px 8px 4px 0;'>{label}</td>"
+            f"<td width='{fill_px}' bgcolor='{bar_color}' height='10' style='height:10px;{P}'></td>"
+            f"<td width='{empty_px}' bgcolor='#E0E0E0' height='10' style='height:10px;{P}'></td>"
+            f"<td width='55' style='font-size:11px;font-weight:700;color:{bar_color};padding-left:6px;{P}'>{score_str}</td>"
             f"</tr>"
         )
 
@@ -7503,16 +7502,15 @@ h2{{color:#1B5E20;font-size:13px;font-weight:700;border-bottom:1px solid #8A6500
 {verdict or diag_state}
 </td></tr></table>
 
-<!-- Score boxes (table: 2 columns) -->
-<table border="0" cellspacing="0" cellpadding="0" width="100%" style="margin-bottom:12px;{P}"><tr>
-<td width="49%" style="background:{cbg};color:{cfg};padding:14px;border-radius:6px;text-align:center;{P}">
-  <div style="font-size:28px;font-weight:700;font-family:Courier,monospace;{P}">{conf_score}/5.0</div>
-  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Confidence &mdash; {conf_label}</div>
+<!-- Score boxes (fixed-px widths to avoid xhtml2pdf negative-width bug) -->
+<table border="0" cellspacing="8" cellpadding="0" style="margin-bottom:12px;{P}"><tr>
+<td width="240" bgcolor="{cbg}" style="padding:14px;text-align:center;{P}">
+  <p style="font-size:28px;font-weight:700;color:{cfg};margin:0;font-family:Courier,monospace;{P}">{conf_score}/5.0</p>
+  <p style="font-size:10px;font-weight:700;color:{cfg};margin:4px 0 0;{P}">CONFIDENCE &mdash; {conf_label.upper()}</p>
 </td>
-<td width="2%"></td>
-<td width="49%" style="background:{lbg};color:{lfg};padding:14px;border-radius:6px;text-align:center;{P}">
-  <div style="font-size:28px;font-weight:700;font-family:Courier,monospace;{P}">{clar_score}/5.0</div>
-  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Clarity &mdash; {clar_label}</div>
+<td width="240" bgcolor="{lbg}" style="padding:14px;text-align:center;{P}">
+  <p style="font-size:28px;font-weight:700;color:{lfg};margin:0;font-family:Courier,monospace;{P}">{clar_score}/5.0</p>
+  <p style="font-size:10px;font-weight:700;color:{lfg};margin:4px 0 0;{P}">CLARITY &mdash; {clar_label.upper()}</p>
 </td>
 </tr></table>
 
@@ -7530,14 +7528,14 @@ h2{{color:#1B5E20;font-size:13px;font-weight:700;border-bottom:1px solid #8A6500
 <h2>Score Breakdown</h2>
 
 <p style="font-size:11px;font-weight:700;color:#424242;margin:8px 0 4px;">CONFIDENCE</p>
-<table border="0" cellspacing="0" cellpadding="0" width="100%" style="margin-bottom:10px;">
+<table border="0" cellspacing="0" cellpadding="0" style="margin-bottom:10px;">
 {bar_row(round(conf_comp.get('direct_score',0),1), 2.0, 'Directness')}
 {bar_row(round(conf_comp.get('verify_score',0),1), 2.0, 'Verification')}
 {bar_row(round(conf_comp.get('recency_score',0),1), 1.0, 'Recency')}
 </table>
 
 <p style="font-size:11px;font-weight:700;color:#424242;margin:8px 0 4px;">CLARITY</p>
-<table border="0" cellspacing="0" cellpadding="0" width="100%" style="margin-bottom:10px;">
+<table border="0" cellspacing="0" cellpadding="0" style="margin-bottom:10px;">
 {bar_row(round(clar_comp.get('definition_score',0),2), 1.25, def_label)}
 {bar_row(round(clar_comp.get('measurement_score',0),2), 1.25, meas_label)}
 {bar_row(round(clar_comp.get('integrity_score',0),2), 1.0, 'Integrity')}
