@@ -216,29 +216,79 @@ QUAL_RIGOR_CHECKLIST = {
 }
 
 # Per-evidence-type quality checks rendered inline (no expander wrapper).
+# Ordered most-specific-first to avoid false positives on substring matches.
 _EV_TYPE_KEYWORDS: dict[str, list[str]] = {
-    "Attendance sheets / participant registers": ["attendance", "register", "participant list", "sign-in", "sign in"],
-    "Raw datasets or survey exports":           ["dataset", "survey", "questionnaire", "kobo", "csv", "excel export"],
-    "Partner verification letters":             ["partner letter", "verification letter", "confirmation letter", "letter of"],
-    "Photos with metadata":                     ["photo", "photograph", "image", "gps", "picture"],
-    "Tracer survey results":                    ["tracer", "follow-up survey", "follow up survey", "tracer study"],
-    "Financial records":                        ["financial record", "receipt", "bank statement", "payment record", "invoice", "transaction"],
-    "Third-party audits":                       ["audit", "third-party", "third party", "external auditor", "independent audit"],
-    "Case study":                               ["case study", "case-study", "success story", "learning story"],
-    "Outcome harvesting":                       ["outcome harvest", "outcome mapping"],
-    "Beneficiary narrative or testimony":       ["testimony", "beneficiary narrative", "beneficiary story", "quote from"],
+    # Specific first — prevent "tracer survey" matching generic "survey"
+    "Tracer survey results": [
+        "tracer survey", "tracer study", "tracer interview", "cohort follow-up",
+        "follow-up survey", "follow up survey",
+    ],
+    # Third-party requires multi-word match — avoid "audit" alone matching anything
+    "Third-party audits": [
+        "third-party audit", "third party audit", "independent audit",
+        "external auditor", "external evaluation firm", "independent evaluator",
+        "external verifier", "external verification report",
+    ],
+    "Outcome harvesting": [
+        "outcome harvest", "outcome harvesting", "outcome mapping",
+    ],
+    "Case study": [
+        "case study", "case-study", "success story", "learning story",
+        "interview transcript", "focus group discussion", "focus group", "fgd",
+        "most significant change", " msc ", "qualitative interview",
+        "key informant interview", "kii", "narrative report",
+    ],
+    "Beneficiary narrative or testimony": [
+        "testimony", "beneficiary narrative", "beneficiary story",
+        "quote from", "beneficiary quote", "voice of beneficiar",
+        "direct testimony", "beneficiary feedback",
+    ],
+    "Partner verification letters": [
+        "partner letter", "verification letter", "confirmation letter",
+        "letter from partner", "signed letter", "partner confirmation",
+        "letter of verification", "letter of confirmation",
+    ],
+    "Photos with metadata": [
+        "photo", "photograph", "image with", "gps metadata", "gps coordinate",
+        "geotagged", "timestamped photo", "photos of", "site photo",
+    ],
+    "Attendance sheets / participant registers": [
+        "attendance sheet", "attendance register", "participant register",
+        "participant list", "sign-in sheet", "sign in sheet", "sign-up sheet",
+        "training register", "beneficiary roster", "roster of",
+        "attendance record",
+    ],
+    "Financial records": [
+        "financial record", "receipt", "bank statement", "payment record",
+        "invoice", "bank transfer", "ledger", "expenditure record",
+        "petty cash", "financial report", "transaction record",
+    ],
+    "Raw datasets or survey exports": [
+        "dataset", "questionnaire", "kobo", "kobotoolbox", "csv export",
+        "excel export", "survey data", "survey export", "household survey",
+        "baseline survey", "endline survey", "midline survey",
+        "pre/post test", "pre-test", "post-test", "pretest", "posttest",
+        "assessment score", "test score", "exam result",
+        "data collection form", "interview schedule", "collected from",
+        # broad fallback keywords — placed last so specific types match first
+        "survey", "dataset", "data collected",
+    ],
 }
 
 
 def _smart_extract_ev_type(ev_desc: str, ev_type_key: str) -> None:
-    """Auto-set evidence type from description keywords if still on default."""
-    if not ev_desc or len(ev_desc) < 30:
+    """Auto-set evidence type from description keywords if still on default.
+    Iterates _EV_TYPE_KEYWORDS in order (most-specific first) and returns on
+    first match, so general keywords like 'survey' never beat specific ones."""
+    if not ev_desc or len(ev_desc) < 15:
         return
     current = st.session_state.get(ev_type_key, "")
-    if current and current not in ("Select evidence type...", EVIDENCE_TYPES[0], ""):
-        return  # user already chose — don't overwrite
+    if current and current not in ("Select evidence type...", EVIDENCE_TYPES[0], EVIDENCE_TYPES[1], ""):
+        return  # user already made an explicit choice — don't overwrite
     desc_lower = ev_desc.lower()
     for ev_type, keywords in _EV_TYPE_KEYWORDS.items():
+        if ev_type not in EVIDENCE_TYPES:
+            continue  # skip any dict keys that don't map to a real option
         if any(kw in desc_lower for kw in keywords):
             st.session_state[ev_type_key] = ev_type
             return
@@ -2945,55 +2995,138 @@ _MONTH_NAMES = (
     "january","february","march","april","may","june",
     "july","august","september","october","november","december",
 )
+_MONTH_ABBR = ("jan","feb","mar","apr","may","jun","jul","aug","sep","sept","oct","nov","dec")
+_ALL_MONTHS_PAT = "|".join(_MONTH_NAMES + _MONTH_ABBR)
+
+# Compiled regexes for timeframe extraction
+_TF_RANGE_RE = re.compile(
+    r"(?:between\s+|from\s+)?"
+    r"\b(" + _ALL_MONTHS_PAT + r")\b"
+    r"[\s\w,–\-]*?"
+    r"(?:\band\b|\bto\b|–|-)\s*"
+    r"\b(" + _ALL_MONTHS_PAT + r")\b"
+    r"\s+(\d{4})\b",
+    re.IGNORECASE,
+)
+_TF_SINGLE_RE = re.compile(
+    r"\b(" + _ALL_MONTHS_PAT + r")\b\s+(\d{4})\b", re.IGNORECASE
+)
+_TF_QUARTER_RE = re.compile(r"\b(q[1-4])\s*[/\-–]?\s*(\d{4})\b", re.IGNORECASE)
+_TF_YEAR_RANGE_RE = re.compile(r"\b(20\d{2})\s*[-–/]\s*(20\d{2})\b")
+
+# Regex to extract geographic phrase after a preposition — most reliable for natural language
+_GEO_PREP_RE = re.compile(
+    r"(?:in|across|throughout|within|covering|from)\s+([A-Z][A-Za-z\s,–\-]{3,60}?)"
+    r"(?=\s+(?:between|from|during|in\s+20|\d{4}|q[1-4])|[.,;]|$)",
+    re.IGNORECASE,
+)
+
+# Known Ghana/West Africa city and region names for geo extraction
+_GEO_PROPER_NAMES = [
+    # Ghana regions (longest/most specific first)
+    "greater accra region", "western north region", "savannah region",
+    "north east region", "bono east region", "ahafo region", "oti region",
+    "eastern region", "western region", "central region", "volta region",
+    "northern region", "upper east region", "upper west region",
+    "ashanti region", "bono region",
+    # Ghana short forms
+    "greater accra", "western north", "upper east", "upper west",
+    "ashanti", "eastern", "western", "central",
+    # Ghana cities
+    "accra", "kumasi", "tamale", "takoradi", "tema", "sunyani",
+    "cape coast", "koforidua", "bolgatanga", "wa", "ho", "techiman",
+    # Nigeria
+    "lagos", "abuja", "kano", "ibadan", "kaduna", "enugu", "port harcourt",
+    # Other West Africa
+    "nairobi", "kampala", "dar es salaam", "kigali", "harare",
+    "freetown", "monrovia", "banjul", "conakry", "dakar",
+]
+
+
+def _clean_geo_chunk(chunk: str) -> str:
+    """Remove leading non-alpha chars, strip to first sentence/clause."""
+    chunk = re.sub(r"^[^A-Za-z]*", "", chunk)
+    chunk = re.split(r"[.;]|\bbetween\b|\bfrom\b", chunk)[0]
+    return chunk.strip()
+
 
 def _smart_extract_from_result(result_text: str, s: str) -> None:
     """Silently pre-fill empty Tab 0 fields from the result statement.
     Never overwrites a field the user has already filled."""
-    if not result_text or len(result_text.split()) < 8:
+    if not result_text or len(result_text.split()) < 6:
         return
     rt = result_text.lower()
 
-    # Timeframe: month range + year OR Q1–Q4 + year
+    # ── TIMEFRAME ──────────────────────────────────────────────────────────
     tf_key = f"timeframe{s}"
     if not _ss_str(tf_key).strip():
-        tf_m = re.search(
-            r"(?:between\s+)?("
-            + "|".join(_MONTH_NAMES)
-            + r")[\s\w–-]*(?:and|–|-)\s*("
-            + "|".join(_MONTH_NAMES)
-            + r")\s+(\d{4})",
-            rt,
-        )
+        tf_m = _TF_RANGE_RE.search(rt)
         if tf_m:
-            m1, m2, yr = tf_m.group(1).capitalize(), tf_m.group(2).capitalize(), tf_m.group(3)
+            m1 = tf_m.group(1).capitalize()
+            m2 = tf_m.group(2).capitalize()
+            yr = tf_m.group(3)
             st.session_state[tf_key] = f"{m1}–{m2} {yr}"
         else:
-            q_m = re.search(r"\b(q[1-4])\s+(\d{4})\b", rt)
+            q_m = _TF_QUARTER_RE.search(rt)
             if q_m:
                 st.session_state[tf_key] = f"{q_m.group(1).upper()} {q_m.group(2)}"
+            else:
+                s_m = _TF_SINGLE_RE.search(rt)
+                if s_m:
+                    st.session_state[tf_key] = f"{s_m.group(1).capitalize()} {s_m.group(2)}"
+                else:
+                    yr_m = _TF_YEAR_RANGE_RE.search(rt)
+                    if yr_m:
+                        st.session_state[tf_key] = f"{yr_m.group(1)}–{yr_m.group(2)}"
 
-    # Geographic scope: first location marker + surrounding context
+    # ── GEOGRAPHIC SCOPE ───────────────────────────────────────────────────
     gs_key = f"geographic_scope{s}"
     if not _ss_str(gs_key).strip():
-        for marker in _LOC_MARKERS:
-            if marker in rt:
-                # Extract a short phrase around the marker
-                idx = rt.find(marker)
-                chunk = result_text[max(0, idx - 20):idx + 40].strip()
-                # Clean to just the relevant phrase
-                chunk = re.sub(r"^[^A-Za-z]*", "", chunk).split(",")[0].split(".")[0]
-                if len(chunk) > 5:
-                    st.session_state[gs_key] = chunk.strip()
-                    break
+        # Strategy 1: preposition-based extraction ("in X Region", "across X and Y")
+        # Find ALL matches, pick the longest (most descriptive)
+        geo_candidates = _GEO_PREP_RE.findall(result_text)
+        if geo_candidates:
+            # Remove temporal noise, then filter candidates that start with real place names
+            cleaned = []
+            for cand in geo_candidates:
+                cand = re.split(r"\s+(?:between|from|during)\b", cand, flags=re.IGNORECASE)[0].strip().rstrip(",;.")
+                # Strip leading short non-place words (e.g. "IT", "a", "the")
+                # Strip leading all-caps abbreviations (e.g. "IT "), articles, or prepositions
+                # but NOT the first letter of a proper name (e.g. "Northern" starts with "N")
+                cand = re.sub(r"^(?:[A-Z]{2,}\s+|[Aa]n?\s+|[Tt]he\s+|across\s+|in\s+|from\s+)", "", cand).strip()
+                # Second pass: strip any remaining leading lowercase prepositions
+                cand = re.sub(r"^(?:across|within|throughout|in|from)\s+", "", cand, flags=re.IGNORECASE).strip()
+                if len(cand) > 4:
+                    cleaned.append(cand)
+            if cleaned:
+                best = max(cleaned, key=len)
+                st.session_state[gs_key] = best
 
-    # Target group: demographic marker + surrounding noun phrase
+        # Strategy 2: if not found, scan for known proper place names
+        if not _ss_str(gs_key).strip():
+            for place in _GEO_PROPER_NAMES:
+                if place in rt:
+                    # Expand back to capture "X districts in Y Region" patterns
+                    idx = rt.find(place)
+                    raw = result_text[max(0, idx - 20):idx + len(place) + 15]
+                    raw = re.sub(r"^[^A-Za-z\d]*", "", raw)
+                    chunk = re.split(r"[.;,]|\bbetween\b|\bfrom\b|\bduring\b", raw, flags=re.IGNORECASE)[0].strip()
+                    if len(chunk) > 4:
+                        st.session_state[gs_key] = chunk.strip()
+                        break
+
+    # ── TARGET GROUP ────────────────────────────────────────────────────────
     tg_key = f"target_group{s}"
     if not _ss_str(tg_key).strip():
         for marker in _DEMO_MARKERS:
             if marker in rt:
                 idx = rt.find(marker)
-                chunk = result_text[max(0, idx - 15):idx + 35].strip()
-                chunk = re.sub(r"^[^A-Za-z]*", "", chunk).split(",")[0].split(".")[0]
+                # Capture 20 chars before (qualifier) + marker + 50 chars after
+                raw = result_text[max(0, idx - 20):idx + len(marker) + 50]
+                chunk = re.sub(r"^[^A-Za-z]*", "", raw)
+                # Stop at geographic/temporal keywords
+                chunk = re.split(r"\b(?:across|in|within|between|from|during)\b", chunk)[0]
+                chunk = chunk.split(",")[0].split(".")[0]
                 if len(chunk) > 4:
                     st.session_state[tg_key] = chunk.strip()
                     break
