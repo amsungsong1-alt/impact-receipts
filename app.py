@@ -294,6 +294,22 @@ def _smart_extract_ev_type(ev_desc: str, ev_type_key: str) -> None:
             return
 
 
+# Maps fix dimension → IRC field keys whose page numbers are relevant to that fix.
+# Used to annotate Priority fixes with "found on page N" when IRC was used.
+_FIX_FIELD_SOURCE_MAP: dict[str, list[str]] = {
+    "confidence":   ["result_statement", "evidence_description"],
+    "clarity":      ["result_statement", "logframe_indicator"],
+    "directness":   ["evidence_description"],
+    "verification": ["evidence_description"],
+    "recency":      ["evidence_description"],
+    "definition":   ["result_statement"],
+    "measurement":  ["logframe_indicator"],
+    "integrity":    ["evidence_description"],
+    "scope":        ["result_statement"],
+    "governance":   ["result_statement"],
+}
+
+
 _EV_QUALITY_CHECKS: dict[str, list[tuple[str, str]]] = {
     "Attendance sheets / participant registers": [
         ("signatures_verified", "Signatures verified against ID list"),
@@ -5701,12 +5717,27 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     conf_fixes = [f for f in fixes if f.get("dimension") == "confidence"]
     clar_fixes = [f for f in fixes if f.get("dimension") == "clarity"]
 
+    # IRC page references — annotate fixes with source page when available
+    _irc_sources = st.session_state.get("_irc_field_sources", {}) if st.session_state.get("_irc_used") else {}
+
+    def _page_note_for_fix(fix):
+        if not _irc_sources:
+            return ""
+        dim = fix.get("dimension", "")
+        fields = _FIX_FIELD_SOURCE_MAP.get(dim, [])
+        page = next((
+            _irc_sources[f].get("page", 0)
+            for f in fields
+            if f in _irc_sources and isinstance(_irc_sources[f], dict) and _irc_sources[f].get("page", 0) > 0
+        ), 0)
+        return f" · *see page {page} of your document*" if page else ""
+
     def _render_fix_bullets(fix_list, label):
         if not fix_list:
             return
         st.markdown(f"**{label}**")
         for fix in fix_list:
-            st.markdown(f"- {fix['message']} *({fix['score_impact']})*")
+            st.markdown(f"- {fix['message']} *({fix['score_impact']})*{_page_note_for_fix(fix)}")
 
     if diag_state == "MISLEADING":
         _render_fix_bullets(clar_fixes, "Sharpen your definition (Clarity)")
@@ -5907,7 +5938,10 @@ def render_screen_2():
     timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
     _report_allowed = st.session_state.get("_report_allowed", True)
     # Build the card (primary) and the full analysis (secondary / Advanced exports)
-    _card_html   = _build_html_report_card(subs[0], evs[0], timestamp)
+    _card_html   = _build_html_report_card(
+        subs[0], evs[0], timestamp,
+        field_sources=st.session_state.get("_irc_field_sources") if st.session_state.get("_irc_used") else None,
+    )
     _card_pdf    = _html_to_pdf_bytes(_card_html)
     html_report  = _build_html_report(subs[0], evs[0], timestamp) if n == 1 else \
                    _build_combined_html_report(subs, evs, timestamp)
@@ -7372,7 +7406,7 @@ def render_screen_3():
     render_trends_view(_load_trend_history())
 
 
-def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str) -> str:
+def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str, field_sources: dict | None = None) -> str:
     """Lean 2–3 page Submission Readiness Card.
     Flat table layout only — no nested percentage-width tables (xhtml2pdf constraint)."""
     P = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
@@ -7426,27 +7460,41 @@ def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str) 
             vbg, vfg = bg, fg; break
 
     def bar_row(val, max_v, label):
-        """Bar using bgcolor attribute (xhtml2pdf-safe; no nested percentage tables)."""
+        """Bar using bgcolor + fixed px widths. Total row = 300px — safe for all xhtml2pdf page widths."""
         pct = min(int((val / max_v) * 100), 100) if max_v else 0
-        fill_px = max(1, int(pct * 2))   # 200px total bar width
-        empty_px = 200 - fill_px
+        fill_px = max(1, int(pct * 1.4))   # 140px total bar width
+        empty_px = max(1, 140 - fill_px)
         bar_color = "#1B5E20" if pct >= 70 else ("#F57F17" if pct >= 50 else "#B71C1C")
         score_str = f"{val}/{max_v}"
-        # Use bgcolor attribute + width attribute instead of CSS background — most reliable in xhtml2pdf
         return (
             f"<tr valign='middle'>"
-            f"<td width='120' style='font-size:11px;color:#424242;padding:4px 8px 4px 0;'>{label}</td>"
+            f"<td width='110' style='font-size:11px;color:#424242;padding:4px 8px 4px 0;'>{label}</td>"
             f"<td width='{fill_px}' bgcolor='{bar_color}' height='10' style='height:10px;{P}'></td>"
             f"<td width='{empty_px}' bgcolor='#E0E0E0' height='10' style='height:10px;{P}'></td>"
-            f"<td width='55' style='font-size:11px;font-weight:700;color:{bar_color};padding-left:6px;{P}'>{score_str}</td>"
+            f"<td width='50' style='font-size:11px;font-weight:700;color:{bar_color};padding-left:6px;{P}'>{score_str}</td>"
             f"</tr>"
         )
+
+    _fs = field_sources or {}
+
+    def _card_page_note(fix):
+        if not _fs:
+            return ""
+        dim = fix.get("dimension", "")
+        fields = _FIX_FIELD_SOURCE_MAP.get(dim, [])
+        page = next((
+            _fs[f].get("page", 0)
+            for f in fields
+            if f in _fs and isinstance(_fs[f], dict) and _fs[f].get("page", 0) > 0
+        ), 0)
+        return f" <i style='color:#8A6500;font-size:10px;'>(p.{page})</i>" if page else ""
 
     top_fixes = fixes[:3]
     fixes_rows = "".join(
         f"<tr><td style='vertical-align:top;padding:4px 8px 4px 0;font-size:12px;color:#1B5E20;font-weight:700;'>{i+1}.</td>"
         f"<td style='padding:4px 0;font-size:12px;color:#212121;'>{f.get('message','')} "
-        f"<span style='color:#8A6500;font-size:11px;'>({f.get('score_impact','')})</span></td></tr>"
+        f"<span style='color:#8A6500;font-size:11px;'>({f.get('score_impact','')})</span>"
+        f"{_card_page_note(f)}</td></tr>"
         for i, f in enumerate(top_fixes)
     ) if top_fixes else f"<tr><td colspan='2' style='font-size:12px;color:#1B5E20;padding:4px 0;'>&#10003; No critical fixes — result is ready to submit.</td></tr>"
 
@@ -7528,14 +7576,14 @@ h2{{color:#1B5E20;font-size:13px;font-weight:700;border-bottom:1px solid #8A6500
 <h2>Score Breakdown</h2>
 
 <p style="font-size:11px;font-weight:700;color:#424242;margin:8px 0 4px;">CONFIDENCE</p>
-<table border="0" cellspacing="0" cellpadding="0" style="margin-bottom:10px;">
+<table border="0" cellspacing="0" cellpadding="0" width="300" style="margin-bottom:10px;">
 {bar_row(round(conf_comp.get('direct_score',0),1), 2.0, 'Directness')}
 {bar_row(round(conf_comp.get('verify_score',0),1), 2.0, 'Verification')}
 {bar_row(round(conf_comp.get('recency_score',0),1), 1.0, 'Recency')}
 </table>
 
 <p style="font-size:11px;font-weight:700;color:#424242;margin:8px 0 4px;">CLARITY</p>
-<table border="0" cellspacing="0" cellpadding="0" style="margin-bottom:10px;">
+<table border="0" cellspacing="0" cellpadding="0" width="300" style="margin-bottom:10px;">
 {bar_row(round(clar_comp.get('definition_score',0),2), 1.25, def_label)}
 {bar_row(round(clar_comp.get('measurement_score',0),2), 1.25, meas_label)}
 {bar_row(round(clar_comp.get('integrity_score',0),2), 1.0, 'Integrity')}
