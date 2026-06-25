@@ -2585,6 +2585,7 @@ def _load_from_inputs_json(data: dict):
         for _k, _v in _sd.items() if _v and _k in _BASE_FORM_KEYS
     )
     st.success(f"✅ Draft loaded — {_prefill_count} fields pre-filled. Review and update as needed.")
+    st.session_state["_form_is_resumption"] = True  # show "continuing from previous session" banner
     # Restore user preferences from draft
     if "consent_examples" in data:
         st.session_state["consent_examples"] = bool(data["consent_examples"])
@@ -2765,7 +2766,7 @@ def _render_slot_fields(slot: int):
     st.text_input(
         "Target group", key=f"target_group{s}",
         placeholder=_ph["target_group"],
-        help="Who specifically? Age, gender, role, geography. Avoid 'beneficiaries' alone.",
+        help="Who specifically? Age group, gender, role, occupation. Avoid 'beneficiaries' alone — name the population.",
     )
 
     st.text_input(
@@ -3042,7 +3043,9 @@ _TF_YEAR_RANGE_RE = re.compile(r"\b(20\d{2})\s*[-–/]\s*(20\d{2})\b")
 # Regex to extract geographic phrase after a preposition — most reliable for natural language
 _GEO_PREP_RE = re.compile(
     r"(?:in|across|throughout|within|covering|from)\s+([A-Z][A-Za-z\s,–\-]{3,60}?)"
-    r"(?=\s+(?:between|from|during|in\s+20|\d{4}|q[1-4])|[.,;]|$)",
+    r"(?=\s+(?:between|from|during|in\s+20|\d{4}|q[1-4])"
+    r"|\s+(?:received|trained|vaccinated|completed|achieved|reported|served|reached|was|were|has|have|had)"
+    r"|[.,;]|$)",
     re.IGNORECASE,
 )
 
@@ -3157,6 +3160,25 @@ def _smart_extract_from_result(result_text: str, s: str) -> None:
                     break
 
 
+def _smart_extract_achievement(result_text: str, s: str) -> None:
+    """Pre-fill logframe_achievement from result statement when the field is empty.
+    Extracts the first quantified phrase (number + noun) stopping at location/time markers."""
+    key = f"logframe_achievement{s}"
+    if _ss_str(key).strip():
+        return
+    if not result_text or len(result_text.split()) < 5:
+        return
+    m = re.search(
+        r"\b(\d[\d,\.%]*\s+\w[\w\s\-]{2,40}?)"
+        r"(?=\s+(?:in|across|between|from|during|by|across|at|among)"
+        r"|\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
+        r"|[.,;]|$)",
+        result_text, re.IGNORECASE,
+    )
+    if m:
+        st.session_state[key] = m.group(1).strip()
+
+
 def _render_tab1_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
     _render_fix_notes(slot, 0)
@@ -3168,7 +3190,8 @@ def _render_tab1_slot(slot: int):
     )
     _rs = st.session_state.get(f"result_statement{s}", "")
     if _rs and len(_rs.strip()) >= 30:
-        _smart_extract_from_result(_rs, s)  # auto-fill empty downstream fields
+        _smart_extract_from_result(_rs, s)   # auto-fill target group / timeframe / geo
+        _smart_extract_achievement(_rs, s)    # auto-fill logframe actual achievement
     if _rs and len(_rs.strip()) < 20:
         st.warning("Result statement is very short. Include: action verb + number + population + timeframe.")
     elif _rs and not any(c.isdigit() for c in _rs):
@@ -3176,7 +3199,7 @@ def _render_tab1_slot(slot: int):
     _irc_widget(
         st.text_input, "Target group *", f"target_group{s}", default="",
         placeholder=_ph["target_group"],
-        help="Who specifically? Age, gender, role, geography. Avoid 'beneficiaries' alone.",
+        help="Who specifically? Age group, gender, role, occupation. Avoid 'beneficiaries' alone — name the population.",
     )
     _irc_widget(
         st.text_input, "Timeframe *", f"timeframe{s}", default="",
@@ -4061,6 +4084,7 @@ def render_screen_0():
             st.session_state[_k] = _v
         for _k, _v in _DEMO_SELECT_FIELDS.items():
             st.session_state[_k] = _v
+        st.session_state["_form_is_resumption"] = False  # demo ≠ previous session
         if not st.session_state.get("has_seen_tutorial"):
             st.session_state["tutorial_step"] = 1
         st.query_params["demo"] = "1"
@@ -4213,13 +4237,25 @@ def render_screen_1():
     if st.session_state.pop("_payment_success", False):
         st.success("✅ Payment confirmed! Upload your document below to run the Instant Report Check — or fill in the form manually.")
 
-    if _has_prefill:
-        _pf_c1, _pf_c2 = st.columns([3, 1])
-        with _pf_c1:
-            st.info("📂 Continuing from a previous session — your form fields are pre-filled from a previous session.")
-        with _pf_c2:
+    _is_resumption = st.session_state.get("_form_is_resumption", False)
+    if _has_prefill and _is_resumption:
+        st.info("📂 Continuing from a previous session — your form fields are pre-filled.")
+        if st.session_state.get("_confirm_clear_prefill"):
+            st.warning("This will clear all pre-filled fields. Are you sure?")
+            _cc1, _cc2 = st.columns(2)
+            with _cc1:
+                if st.button("Yes, clear fields", key="confirm_clear_prefill_yes", type="primary", use_container_width=True):
+                    st.session_state.pop("_confirm_clear_prefill", None)
+                    st.session_state["_form_is_resumption"] = False
+                    _reset_all_slots()
+                    st.rerun()
+            with _cc2:
+                if st.button("Cancel", key="confirm_clear_prefill_no", use_container_width=True):
+                    st.session_state.pop("_confirm_clear_prefill", None)
+                    st.rerun()
+        else:
             if st.button("Clear and start fresh", key="clear_prefill"):
-                _reset_all_slots()
+                st.session_state["_confirm_clear_prefill"] = True
                 st.rerun()
 
     active = st.session_state.get("active_slots", 1)
@@ -4894,11 +4930,8 @@ def render_screen_1():
                     st.query_params["tab"] = "1"
                     st.rerun()
             with _pb1:
-                if st.button("← Back", key="tab1_back_btn", use_container_width=True):
-                    st.session_state["current_tab"] = 0
-                    st.session_state["_scroll_to_content"] = True
-                    st.query_params["tab"] = "0"
-                    st.rerun()
+                if st.button("← Home", key="tab0_home_btn", use_container_width=True, help="Return to the landing page"):
+                    _go_to_screen(0)
         else:
             st.caption("Fill in all four fields above to continue.")
         # --- END v3.3 ---
@@ -5189,7 +5222,7 @@ def render_screen_1():
                     st.session_state["confirm_reset"] = False
                     st.rerun()
         else:
-            if st.button("Start Fresh", use_container_width=False):
+            if st.button("🗑 Clear all & restart", use_container_width=False):
                 st.session_state["confirm_reset"] = True
                 st.rerun()
 
