@@ -7373,170 +7373,209 @@ def render_screen_3():
 
 
 def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str) -> str:
-    """Lean 2–3 page Submission Readiness Card. Shareable with MEL lead or donor."""
-    _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
-    conf_score  = evaluation.get("confidence_score", 0)
-    clar_score  = evaluation.get("clarity_score", 0)
-    conf_label  = evaluation.get("confidence_label", "")
-    clar_label  = evaluation.get("clarity_label", "")
-    verdict     = evaluation.get("verdict", "")
-    fixes       = evaluation.get("fixes", [])
-    conf_comp   = evaluation.get("confidence_components", {})
-    clar_comp   = evaluation.get("clarity_components", {})
-    diag_state  = evaluation.get("diagnostic_state", "")
-    ev_stmt     = _generate_evidence_statement(submission) if callable(globals().get("_generate_evidence_statement")) else ""
+    """Lean 2–3 page Submission Readiness Card. Table-based layout for xhtml2pdf compatibility."""
+    P = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"  # print colour preservation
 
-    rs    = submission.get("result_statement", "—")
-    tg    = submission.get("target_group", "")
-    tf    = submission.get("timeframe", "")
-    geo   = submission.get("geographic_scope", "")
-    li    = submission.get("logframe_indicator", "")
-    lt    = submission.get("logframe_target", "")
-    la    = submission.get("logframe_achievement", "")
-    ev    = (submission.get("evidence") or [{}])[0]
-    ev_type = ev.get("type", "")
-    ev_desc = ev.get("description", "")
+    conf_score = round(evaluation.get("confidence_score", 0), 1)
+    clar_score = round(evaluation.get("clarity_score", 0), 2)
+    conf_label = evaluation.get("confidence_label", "")
+    clar_label = evaluation.get("clarity_label", "")
+    verdict    = evaluation.get("verdict", "")
+    fixes      = evaluation.get("fixes", [])
+    conf_comp  = evaluation.get("confidence_components", {})
+    clar_comp  = evaluation.get("clarity_components", {})
+    diag_state = evaluation.get("diagnostic_state", "")
+    ev_stmt    = _generate_evidence_statement(submission) if callable(globals().get("_generate_evidence_statement")) else ""
+
+    rs       = submission.get("result_statement", "—")
+    li       = submission.get("logframe_indicator", "")
+    lt       = submission.get("logframe_target", "")
+    la       = submission.get("logframe_achievement", "")
+    ev       = (submission.get("evidence") or [{}])[0]
+    ev_type  = ev.get("type", "")
+    ev_desc  = ev.get("description", "")
     verifier = ev.get("verified_by", "")
     ev_date  = str(ev.get("recency", "") or "")
 
-    verdict_colors = {
-        "Strong KPI — well-positioned for submission":          ("#C8E6C9","#1B5E20"),
-        "Misleading KPI — sharpen the definition":              ("#FFE0B2","#E65100"),
-        "Well-defined but weak evidence":                        ("#FFF9C4","#F57F17"),
-        "High risk — strengthen both axes before relying":      ("#FFCDD2","#B71C1C"),
+    # Score colours (used for boxes, bars, text)
+    _score_palette = {
+        "Strong":     ("#C8E6C9", "#1B5E20"),
+        "Acceptable": ("#FFF9C4", "#F57F17"),
+        "Weak":       ("#FFE0B2", "#E65100"),
+        "High Risk":  ("#FFCDD2", "#B71C1C"),
     }
-    vbg, vfg = verdict_colors.get(verdict, ("#F5F5F5","#212121"))
+    cbg, cfg = _score_palette.get(conf_label, ("#F5F5F5","#212121"))
+    lbg, lfg = _score_palette.get(clar_label, ("#F5F5F5","#212121"))
 
-    def sbar(val, max_v, label):
-        pct = min(int(val / max_v * 100), 100) if max_v else 0
-        color = "#1B5E20" if pct >= 70 else ("#F57F17" if pct >= 50 else "#B71C1C")
-        return (f"<tr><td style='font-size:0.8rem;padding:2px 6px 2px 0;white-space:nowrap;'>{label}</td>"
-                f"<td><div style='background:#E0E0E0;border-radius:4px;height:8px;width:120px;{_pca}'>"
-                f"<div style='background:{color};height:8px;border-radius:4px;width:{pct}%;{_pca}'></div></div></td>"
-                f"<td style='font-size:0.8rem;padding-left:6px;color:{color};font-weight:700;'>{val}/{max_v}</td></tr>")
+    # Verdict colour
+    _verdict_map = {
+        "Strong KPI":          ("#C8E6C9","#1B5E20"),
+        "Misleading KPI":      ("#FFE0B2","#E65100"),
+        "Well-defined but":    ("#FFF9C4","#F57F17"),
+        "High risk":           ("#FFCDD2","#B71C1C"),
+        "STRONG":              ("#C8E6C9","#1B5E20"),
+        "MISLEADING":          ("#FFE0B2","#E65100"),
+        "NEEDS REFINEMENT":    ("#FFF9C4","#F57F17"),
+        "FUNDAMENTALLY WEAK":  ("#FFCDD2","#B71C1C"),
+        "UNDEREVIDENCED":      ("#FFE0B2","#E65100"),
+    }
+    vbg, vfg = ("#F5F5F5","#424242")
+    for key, (bg, fg) in _verdict_map.items():
+        if key.lower() in (verdict or diag_state).lower():
+            vbg, vfg = bg, fg; break
+
+    def bar_row(val, max_v, label):
+        """xhtml2pdf-compatible bar using a nested table with coloured cells."""
+        pct = min(int((val / max_v) * 100), 100) if max_v else 0
+        empty = 100 - pct
+        bar_color = "#1B5E20" if pct >= 70 else ("#F57F17" if pct >= 50 else "#B71C1C")
+        score_str = f"{val}/{max_v}"
+        return (
+            f"<tr>"
+            f"<td style='font-size:11px;color:#424242;padding:3px 8px 3px 0;width:130px;'>{label}</td>"
+            f"<td style='padding:3px 8px 3px 0;'>"
+            f"  <table border='0' cellspacing='0' cellpadding='0' style='width:160px;height:10px;border-collapse:collapse;{P}'><tr>"
+            f"    <td style='background:{bar_color};width:{pct}%;height:10px;{P}'></td>"
+            f"    <td style='background:#E0E0E0;width:{empty}%;height:10px;{P}'></td>"
+            f"  </tr></table>"
+            f"</td>"
+            f"<td style='font-size:11px;font-weight:700;color:{bar_color};padding:3px 0;width:60px;{P}'>{score_str}</td>"
+            f"</tr>"
+        )
 
     top_fixes = fixes[:3]
-    fixes_html = "".join(
-        f"<li style='margin-bottom:6px;'>{i+1}. {f.get('message','')} "
-        f"<em style='color:#616161;font-size:0.85rem;'>({f.get('score_impact','')})</em></li>"
+    fixes_rows = "".join(
+        f"<tr><td style='vertical-align:top;padding:4px 8px 4px 0;font-size:12px;color:#1B5E20;font-weight:700;'>{i+1}.</td>"
+        f"<td style='padding:4px 0;font-size:12px;color:#212121;'>{f.get('message','')} "
+        f"<span style='color:#8A6500;font-size:11px;'>({f.get('score_impact','')})</span></td></tr>"
         for i, f in enumerate(top_fixes)
-    ) if top_fixes else "<li>No critical fixes — result is ready to submit.</li>"
+    ) if top_fixes else f"<tr><td colspan='2' style='font-size:12px;color:#1B5E20;padding:4px 0;'>&#10003; No critical fixes — result is ready to submit.</td></tr>"
 
-    ev_stmt_html = (f"<div style='background:#F1F8E9;border-left:4px solid #1B5E20;padding:10px 14px;"
-                    f"border-radius:6px;font-size:0.85rem;color:#212121;margin-top:8px;{_pca}'>"
-                    f"<strong>Evidence statement:</strong> {ev_stmt}</div>") if ev_stmt else ""
+    ev_stmt_block = ""
+    if ev_stmt:
+        ev_stmt_block = (
+            f"<table border='0' cellspacing='0' cellpadding='0' width='100%' style='margin:12px 0;{P}'><tr>"
+            f"<td width='4' style='background:#1B5E20;{P}'></td>"
+            f"<td style='background:#F1F8E9;padding:10px 14px;font-size:11px;color:#212121;{P}'>"
+            f"<strong>Evidence statement (ready to paste into your report):</strong><br/>{ev_stmt}"
+            f"</td></tr></table>"
+        )
 
-    is_qual = clar_comp.get("is_qualitative", False)
+    is_qual    = clar_comp.get("is_qualitative", False)
     def_label  = "Narrative Definition" if is_qual else "Definition"
-    meas_label = "Sourcing & Triangulation" if is_qual else "Measurement"
+    meas_label = "Sourcing &amp; Triangulation" if is_qual else "Measurement"
 
     user_email = st.session_state.get("user_email", "")
     donor = st.session_state.get("donor_selected", "")
-    donor_note = f" · Prepared for {donor}" if donor and donor != "(No donor specified)" else ""
+    donor_note = f" &middot; Prepared for {donor}" if donor and donor not in ("(No donor specified)","") else ""
+
+    lf_rows = ""
+    if li:
+        lf_rows += f"<tr><td style='color:#616161;font-size:11px;padding:3px 10px 3px 0;width:90px;'>Indicator</td><td style='font-size:11px;'>{li}</td></tr>"
+    if lt:
+        lf_rows += f"<tr><td style='color:#616161;font-size:11px;padding:3px 10px 3px 0;'>Target</td><td style='font-size:11px;'>{lt}</td></tr>"
+    if la:
+        lf_rows += f"<tr><td style='color:#616161;font-size:11px;padding:3px 10px 3px 0;'>Achievement</td><td style='font-size:11px;color:#1B5E20;font-weight:700;'>{la}</td></tr>"
 
     return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Submission Readiness Card — Impact Integrity Check</title>
+<html><head><meta charset="UTF-8">
+<title>Submission Readiness Card</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-  body{{font-family:'Inter',sans-serif;color:#212121;max-width:800px;margin:32px auto;padding:0 24px;font-size:0.92rem;line-height:1.5;}}
-  h1{{color:#1B5E20;font-size:1.3rem;margin:0 0 4px;}}
-  h2{{color:#1B5E20;font-size:1rem;border-bottom:1px solid #8A6500;padding-bottom:4px;margin:20px 0 10px;}}
-  .meta{{color:#616161;font-size:0.8rem;margin-bottom:16px;}}
-  .result-box{{background:#F5F5F5;border-radius:8px;padding:12px 16px;margin-bottom:12px;font-size:0.95rem;}}
-  .verdict{{padding:12px 16px;border-radius:8px;font-weight:700;font-size:1rem;margin-bottom:12px;{_pca}}}
-  .scores{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}}
-  .score-box{{background:#F5F5F5;border-radius:8px;padding:10px 14px;text-align:center;}}
-  .score-num{{font-size:2rem;font-weight:700;color:#1B5E20;font-family:monospace;}}
-  .score-label{{font-size:0.8rem;color:#616161;}}
-  table.bars{{border-collapse:collapse;width:100%;margin:8px 0;}}
-  table.bars td{{padding:2px 6px 2px 0;vertical-align:middle;}}
-  ul.fixes{{margin:0;padding-left:16px;}}
-  ul.fixes li{{margin-bottom:6px;}}
-  .field-row{{display:flex;gap:8px;margin-bottom:4px;font-size:0.85rem;}}
-  .field-label{{color:#616161;min-width:100px;flex-shrink:0;}}
-  .footer{{color:#424242;font-style:italic;font-size:0.8rem;border-top:1px solid #E0E0E0;margin-top:24px;padding-top:10px;}}
-  @media print{{
-    body{{margin:10mm;}}
-    h2{{page-break-before:auto;}}
-    .page-break{{page-break-before:always;}}
-  }}
+body{{font-family:Arial,Helvetica,sans-serif;color:#212121;margin:24px 32px;font-size:12px;line-height:1.5;}}
+h1{{color:#1B5E20;font-size:18px;margin:0 0 2px;border-bottom:2px solid #1B5E20;padding-bottom:6px;}}
+h2{{color:#1B5E20;font-size:13px;font-weight:700;border-bottom:1px solid #8A6500;padding-bottom:3px;margin:16px 0 8px;}}
 </style>
-</head>
-<body>
+</head><body>
 
+<!-- ═══ HEADER ═══ -->
 <h1>Submission Readiness Card</h1>
-<p class="meta">Impact Integrity Check · {timestamp}{donor_note}{' · ' + user_email if user_email else ''}</p>
+<p style="color:#616161;font-size:10px;margin:2px 0 16px;">Impact Integrity Check &middot; {timestamp}{donor_note}{(' &middot; ' + user_email) if user_email else ''}</p>
 
-<div class="result-box"><strong>Result statement:</strong> {rs}</div>
+<!-- Result -->
+<table border="0" cellspacing="0" cellpadding="0" width="100%" style="margin-bottom:10px;{P}"><tr>
+<td style="background:#F5F5F5;padding:10px 14px;border-radius:6px;font-size:12px;{P}">
+<strong>Result statement:</strong> {rs}
+</td></tr></table>
 
-<div class="verdict" style="background:{vbg};color:{vfg};">{verdict or diag_state}</div>
+<!-- Verdict badge -->
+<table border="0" cellspacing="0" cellpadding="0" width="100%" style="margin-bottom:10px;{P}"><tr>
+<td style="background:{vbg};color:{vfg};padding:10px 16px;border-radius:6px;font-weight:700;font-size:13px;{P}">
+{verdict or diag_state}
+</td></tr></table>
 
-<div class="scores">
-  <div class="score-box">
-    <div class="score-num">{conf_score}/5</div>
-    <div class="score-label">Confidence ({conf_label})</div>
-  </div>
-  <div class="score-box">
-    <div class="score-num">{clar_score}/5</div>
-    <div class="score-label">Clarity ({clar_label})</div>
-  </div>
-</div>
+<!-- Score boxes (table: 2 columns) -->
+<table border="0" cellspacing="0" cellpadding="0" width="100%" style="margin-bottom:12px;{P}"><tr>
+<td width="49%" style="background:{cbg};color:{cfg};padding:14px;border-radius:6px;text-align:center;{P}">
+  <div style="font-size:28px;font-weight:700;font-family:Courier,monospace;{P}">{conf_score}/5.0</div>
+  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Confidence &mdash; {conf_label}</div>
+</td>
+<td width="2%"></td>
+<td width="49%" style="background:{lbg};color:{lfg};padding:14px;border-radius:6px;text-align:center;{P}">
+  <div style="font-size:28px;font-weight:700;font-family:Courier,monospace;{P}">{clar_score}/5.0</div>
+  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Clarity &mdash; {clar_label}</div>
+</td>
+</tr></table>
 
+<!-- Priority fixes -->
 <h2>Priority fixes before submission</h2>
-<ul class="fixes">{fixes_html}</ul>
+<table border="0" cellspacing="0" cellpadding="0" width="100%" style="margin-bottom:12px;">
+{fixes_rows}
+</table>
 
-{ev_stmt_html}
+{ev_stmt_block}
 
-<div class="page-break"></div>
+<!-- ═══ PAGE 2 ═══ -->
+<p style="page-break-before:always;"></p>
+
 <h2>Score Breakdown</h2>
 
-<strong style="font-size:0.85rem;">Confidence</strong>
-<table class="bars">
-{sbar(round(conf_comp.get('direct_score',0),1), 2.0, 'Directness')}
-{sbar(round(conf_comp.get('verify_score',0),1), 2.0, 'Verification')}
-{sbar(round(conf_comp.get('recency_score',0),1), 1.0, 'Recency')}
+<p style="font-size:11px;font-weight:700;color:#424242;margin:8px 0 4px;">CONFIDENCE</p>
+<table border="0" cellspacing="0" cellpadding="0" width="100%" style="margin-bottom:10px;">
+{bar_row(round(conf_comp.get('direct_score',0),1), 2.0, 'Directness')}
+{bar_row(round(conf_comp.get('verify_score',0),1), 2.0, 'Verification')}
+{bar_row(round(conf_comp.get('recency_score',0),1), 1.0, 'Recency')}
 </table>
 
-<strong style="font-size:0.85rem;">Clarity</strong>
-<table class="bars">
-{sbar(round(clar_comp.get('definition_score',0),2), 1.25, def_label)}
-{sbar(round(clar_comp.get('measurement_score',0),2), 1.25, meas_label)}
-{sbar(round(clar_comp.get('integrity_score',0),2), 1.0, 'Integrity')}
-{sbar(round(clar_comp.get('scope_score',0),2), 0.75, 'Scope')}
-{sbar(round(clar_comp.get('governance_score',0),2), 0.75, 'Governance')}
+<p style="font-size:11px;font-weight:700;color:#424242;margin:8px 0 4px;">CLARITY</p>
+<table border="0" cellspacing="0" cellpadding="0" width="100%" style="margin-bottom:10px;">
+{bar_row(round(clar_comp.get('definition_score',0),2), 1.25, def_label)}
+{bar_row(round(clar_comp.get('measurement_score',0),2), 1.25, meas_label)}
+{bar_row(round(clar_comp.get('integrity_score',0),2), 1.0, 'Integrity')}
+{bar_row(round(clar_comp.get('scope_score',0),2), 0.75, 'Scope')}
+{bar_row(round(clar_comp.get('governance_score',0),2), 0.75, 'Governance')}
 </table>
 
-{'<h2>Logframe Linkage</h2>' if li else ''}
-{'<div class="field-row"><span class="field-label">Indicator:</span><span>' + li + '</span></div>' if li else ''}
-{'<div class="field-row"><span class="field-label">Target:</span><span>' + lt + '</span></div>' if lt else ''}
-{'<div class="field-row"><span class="field-label">Achievement:</span><span>' + la + '</span></div>' if la else ''}
+{'<h2>Logframe Linkage</h2><table border="0" cellspacing="0" cellpadding="0" style="margin-bottom:10px;">' + lf_rows + '</table>' if lf_rows else ''}
 
 <h2>Evidence Details</h2>
-<div class="field-row"><span class="field-label">Type:</span><span>{ev_type}</span></div>
-{'<div class="field-row"><span class="field-label">Verifier:</span><span>' + verifier + '</span></div>' if verifier else ''}
-{'<div class="field-row"><span class="field-label">Date:</span><span>' + ev_date + '</span></div>' if ev_date else ''}
-<div style="font-size:0.85rem;color:#616161;margin-top:6px;">{ev_desc[:300] + ('...' if len(ev_desc)>300 else '')}</div>
+<table border="0" cellspacing="0" cellpadding="0" width="100%" style="margin-bottom:6px;">
+<tr><td style="color:#616161;font-size:11px;padding:2px 10px 2px 0;width:90px;">Type</td><td style="font-size:11px;">{ev_type}</td></tr>
+{'<tr><td style="color:#616161;font-size:11px;padding:2px 10px 2px 0;">Verifier</td><td style="font-size:11px;">' + verifier + '</td></tr>' if verifier else ''}
+{'<tr><td style="color:#616161;font-size:11px;padding:2px 10px 2px 0;">Date</td><td style="font-size:11px;">' + ev_date + '</td></tr>' if ev_date else ''}
+</table>
+<p style="font-size:11px;color:#616161;margin:0;">{ev_desc[:350] + ('...' if len(ev_desc)>350 else '')}</p>
 
-<div class="page-break"></div>
-<h2>Methodology</h2>
-<p style="font-size:0.85rem;color:#424242;">
-This check scored 8 evidence-quality dimensions anchored in USAID ADS 201 (Validity, Integrity, Precision, Reliability, Timeliness), FCDO Evaluation Policy (January 2025), Bond Evidence Principles 2024, and World Bank Results Framework standards.
-Scoring is fully deterministic — no AI judgement was applied; all scoring decisions are rule-based and reproducible.
+<!-- ═══ PAGE 3 ═══ -->
+<p style="page-break-before:always;"></p>
+
+<h2>Methodology &amp; Standards</h2>
+<p style="font-size:11px;color:#424242;margin-bottom:8px;">
+This check scored 8 evidence-quality dimensions anchored in:
+<strong>USAID ADS 201</strong> (Validity, Integrity, Precision, Reliability, Timeliness) &middot;
+<strong>FCDO Evaluation Policy January 2025</strong> &middot;
+<strong>Bond Evidence Principles 2024</strong> &middot;
+<strong>World Bank Results Framework</strong>.
+Scoring is fully deterministic — no AI judgement was applied; all decisions are rule-based and reproducible.
+</p>
+<p style="font-size:11px;color:#424242;background:#FFF9C4;padding:8px 12px;border-left:3px solid #8A6500;margin-bottom:10px;{P}">
+<strong>Important:</strong> Guidance only — your donor makes the final call, not this tool.
 Score generated: {timestamp}.
 </p>
-<p style="font-size:0.8rem;color:#616161;margin-top:8px;">
-Guidance only — your donor makes the final call, not this tool.
-</p>
 
-<div class="footer">
-  Impact Integrity Check &middot; Built in Accra for MEL teams &middot; <a href="{APP_URL}/">{APP_URL.replace('https://','')}</a>
-</div>
-</body>
-</html>"""
+<p style="color:#616161;font-style:italic;font-size:10px;border-top:1px solid #E0E0E0;margin-top:20px;padding-top:8px;">
+Impact Integrity Check &middot; Built in Accra for MEL teams across West Africa &middot; {APP_URL.replace('https://','').rstrip('/')}
+</p>
+</body></html>"""
 
 
 def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart_id: str = "0") -> str:
