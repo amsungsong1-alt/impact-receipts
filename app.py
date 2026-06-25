@@ -5442,21 +5442,18 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     bv_voice_field    = submission.get("beneficiary_voice", "")
     diag_state, diag_sub = get_diagnostic_state(conf_score, clar_score, content_issues, bv_voice_field)
 
-    # Headline: is this good enough to submit?
-    if diag_state != "INVALID INPUT":
-        _render_readiness_banner(diag_state)
-
+    # Single status signal — diagnostic badge carries state + description
     diag_cfg = _DIAGNOSTIC_BADGE.get(diag_state, {"bg": "#9E9E9E", "text": "#FFFFFF", "subtitle": ""})
     _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
-    st.markdown(
-        f"<div class='diagnostic-badge' style='background:{diag_cfg['bg']};color:{diag_cfg['text']};{_pca}'>"
-        f"{diag_state} &nbsp;·&nbsp; {diag_sub}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    if diag_state != "INVALID INPUT":
+        st.markdown(
+            f"<div class='diagnostic-badge' style='background:{diag_cfg['bg']};color:{diag_cfg['text']};{_pca}'>"
+            f"{diag_state} &nbsp;·&nbsp; {diag_sub}"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
 
-    # Plain-English "what this means" — shown before the score wall
-    render_commentary("report")
+    # Scores follow immediately — no ticker or redundant banners
     render_scoreboard(
         confidence=round(conf_score * 20),
         clarity=round(clar_score * 20),
