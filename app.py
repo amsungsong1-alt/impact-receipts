@@ -7460,18 +7460,19 @@ def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str, 
             vbg, vfg = bg, fg; break
 
     def bar_row(val, max_v, label):
-        """Bar using bgcolor + fixed px widths. Total row = 300px — safe for all xhtml2pdf page widths."""
+        """Score row with label + coloured score value. No bar height tricks — fully xhtml2pdf-safe."""
         pct = min(int((val / max_v) * 100), 100) if max_v else 0
-        fill_px = max(1, int(pct * 1.4))   # 140px total bar width
-        empty_px = max(1, 140 - fill_px)
         bar_color = "#1B5E20" if pct >= 70 else ("#F57F17" if pct >= 50 else "#B71C1C")
-        score_str = f"{val}/{max_v}"
+        score_str = f"{val} / {max_v}"
+        # Unicode block bar: ■ repeated proportionally (renders as text, never crashes)
+        filled = max(0, round(pct / 10))
+        empty  = 10 - filled
+        bar_txt = f"<font color='{bar_color}'>{'&#9632;' * filled}</font><font color='#E0E0E0'>{'&#9632;' * empty}</font>"
         return (
-            f"<tr valign='middle'>"
-            f"<td width='110' style='font-size:11px;color:#424242;padding:4px 8px 4px 0;'>{label}</td>"
-            f"<td width='{fill_px}' bgcolor='{bar_color}' height='10' style='height:10px;{P}'></td>"
-            f"<td width='{empty_px}' bgcolor='#E0E0E0' height='10' style='height:10px;{P}'></td>"
-            f"<td width='50' style='font-size:11px;font-weight:700;color:{bar_color};padding-left:6px;{P}'>{score_str}</td>"
+            f"<tr>"
+            f"<td width='130' style='font-size:11px;color:#424242;padding:3px 0;'>{label}</td>"
+            f"<td width='100' style='font-size:10px;padding:3px 4px;letter-spacing:1px;'>{bar_txt}</td>"
+            f"<td width='55' style='font-size:11px;font-weight:700;color:{bar_color};padding:3px 0;{P}'>{score_str}</td>"
             f"</tr>"
         )
 
@@ -7576,14 +7577,14 @@ h2{{color:#1B5E20;font-size:13px;font-weight:700;border-bottom:1px solid #8A6500
 <h2>Score Breakdown</h2>
 
 <p style="font-size:11px;font-weight:700;color:#424242;margin:8px 0 4px;">CONFIDENCE</p>
-<table border="0" cellspacing="0" cellpadding="0" width="300" style="margin-bottom:10px;">
+<table border="0" cellspacing="0" cellpadding="0" style="margin-bottom:10px;">
 {bar_row(round(conf_comp.get('direct_score',0),1), 2.0, 'Directness')}
 {bar_row(round(conf_comp.get('verify_score',0),1), 2.0, 'Verification')}
 {bar_row(round(conf_comp.get('recency_score',0),1), 1.0, 'Recency')}
 </table>
 
 <p style="font-size:11px;font-weight:700;color:#424242;margin:8px 0 4px;">CLARITY</p>
-<table border="0" cellspacing="0" cellpadding="0" width="300" style="margin-bottom:10px;">
+<table border="0" cellspacing="0" cellpadding="0" style="margin-bottom:10px;">
 {bar_row(round(clar_comp.get('definition_score',0),2), 1.25, def_label)}
 {bar_row(round(clar_comp.get('measurement_score',0),2), 1.25, meas_label)}
 {bar_row(round(clar_comp.get('integrity_score',0),2), 1.0, 'Integrity')}
