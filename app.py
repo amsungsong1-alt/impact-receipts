@@ -633,8 +633,17 @@ Return exactly this structure. Do not add or remove keys.
     "report_prepared_by": "<string>",
     "project_name": "<string — the name of the programme/project as stated in the document, or 'Not found'>",
     "confidence_note": "<one sentence describing extraction confidence and any gaps>"
+  },
+  "field_sources": {
+    "result_statement":   {"page": 0, "confidence": "high|medium|low"},
+    "target_group":       {"page": 0, "confidence": "high|medium|low"},
+    "timeframe":          {"page": 0, "confidence": "high|medium|low"},
+    "evidence_description": {"page": 0, "confidence": "high|medium|low"},
+    "logframe_indicator": {"page": 0, "confidence": "high|medium|low"}
   }
-}'''
+}
+
+IMPORTANT: For each field in field_sources, set "page" to the 1-based page number in the document where that content was found. If the page cannot be determined, use 0. Use "confidence": "high" if the value was explicitly stated, "medium" if inferred, "low" if uncertain.'''
 
 _UX_TAB_NAMES = ["Result Basics", "Logframe Linkage", "Evidence & Verification", "Review & Submit"]
 
@@ -4320,8 +4329,10 @@ def render_screen_1():
         # --- IRC fill summary banner (shown once after extraction) ---
         _irc_summary = st.session_state.pop("_irc_summary", None)
         if _irc_summary:
+            _pages = _irc_summary.get("pages", [])
+            _page_note = f" across {len(_pages)} page{'s' if len(_pages)!=1 else ''} of your document" if _pages else ""
             st.success(
-                f"⚡ Instant Check complete — {_irc_summary['filled']} fields auto-filled across all tabs. "
+                f"⚡ Instant Check complete — {_irc_summary['filled']} fields auto-filled{_page_note}. "
                 "Use the **Result Basics**, **Logframe Linkage**, **Evidence & Verification**, and **Review & Submit** stage buttons at the top to review each section before submitting."
             )
             if _irc_summary.get("skipped"):
@@ -4769,11 +4780,17 @@ def render_screen_1():
                                     _conf3 = _irc_to_str(_em.get("confidence_note",""))
                                     _cgaps = [f for f in ["consent_documented","data_anonymised","data_protection_compliant"] if _ev3.get(f,"") == "Not found"]
                                     _glab = {"consent_documented":"Consent","data_anonymised":"Anonymisation","data_protection_compliant":"Data protection"}
+                                    # Extract page references from field_sources
+                                    _field_sources = _irc_data.get("field_sources", {})
+                                    _page_nums = {k: v.get("page",0) for k,v in _field_sources.items() if isinstance(v, dict) and v.get("page",0) > 0}
+                                    _unique_pages = sorted(set(_page_nums.values()))
+                                    st.session_state["_irc_field_sources"] = _field_sources
                                     st.session_state["_irc_summary"] = {
                                         "filled": _irc_filled,
                                         "skipped": _skip_str3,
                                         "confidence_note": _conf3 if _conf3 and _conf3 != "Not found" else "",
                                         "compliance_gaps": ", ".join(_glab.get(g,g) for g in _cgaps),
+                                        "pages": _unique_pages,
                                     }
                                     # prevent auto-advance from swallowing logframe/evidence tabs
                                     st.session_state["_tab2_auto_advanced"] = True
@@ -5886,35 +5903,39 @@ def render_screen_2():
         ):
             _go_to_screen(3)
 
-    # Primary download — gated: free users see score + top fix free; report requires upgrade
+    # Primary download — 2–3 page Readiness Card (shareable with MEL lead / donor)
     timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
     _report_allowed = st.session_state.get("_report_allowed", True)
-    html_report = _build_html_report(subs[0], evs[0], timestamp) if n == 1 else \
-                  _build_combined_html_report(subs, evs, timestamp)
+    # Build the card (primary) and the full analysis (secondary / Advanced exports)
+    _card_html   = _build_html_report_card(subs[0], evs[0], timestamp)
+    _card_pdf    = _html_to_pdf_bytes(_card_html)
+    html_report  = _build_html_report(subs[0], evs[0], timestamp) if n == 1 else \
+                   _build_combined_html_report(subs, evs, timestamp)
     _pdf_primary = _html_to_pdf_bytes(html_report)
+
     if _report_allowed:
-        if _pdf_primary:
+        if _card_pdf:
             st.download_button(
-                "📄 Download your report (PDF)",
-                data=_pdf_primary,
-                file_name=f"impact_receipts_{timestamp}.pdf",
+                "📄 Download Readiness Card (2–3 pages, shareable)",
+                data=_card_pdf,
+                file_name=f"readiness_card_{timestamp}.pdf",
                 mime="application/pdf",
                 use_container_width=True,
                 type="primary",
-                key="pdf_primary_btn",
+                key="pdf_card_btn",
             )
-        elif html_report:
+        elif _card_html:
             st.download_button(
-                "⬇️ Download your report (HTML)",
-                data=html_report,
-                file_name=f"impact_receipts_{timestamp}.html",
+                "⬇️ Download Readiness Card (HTML)",
+                data=_card_html.encode("utf-8"),
+                file_name=f"readiness_card_{timestamp}.html",
                 mime="text/html",
                 use_container_width=True,
                 type="primary",
-                key="html_primary_btn",
+                key="html_card_btn",
             )
     else:
-        st.info("📄 **Your score is above.** Upgrade to download the full PDF report with donor-specific fixes.")
+        st.info("📄 **Your score is above.** Upgrade to download the Readiness Card.")
         _render_paywall()
 
     # Post-download CTAs — JTBD exit: user got their answer, what next?
@@ -6070,7 +6091,27 @@ def render_screen_2():
                 st.session_state["screen"] = 1
                 st.rerun()
 
-    with st.expander("Advanced exports (verification summary, donor templates)"):
+    with st.expander("Advanced exports (full analysis, verification summary, donor templates)"):
+        # Full analysis — the verbose 20-section diagnostic report
+        if _pdf_primary:
+            st.download_button(
+                label="📊 Download Full Analysis (PDF) — detailed 20-section diagnostic",
+                data=_pdf_primary,
+                file_name=f"full_analysis_{timestamp}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key="pdf_full_analysis_btn",
+            )
+        elif html_report:
+            st.download_button(
+                label="📊 Download Full Analysis (HTML)",
+                data=html_report,
+                file_name=f"full_analysis_{timestamp}.html",
+                mime="text/html",
+                use_container_width=True,
+                key="html_full_analysis_btn",
+            )
+        st.divider()
         if _pdf_primary:
             with st.expander("Report handoff details"):
                 st.text_input("Prepared by (your name)", key="report_prepared_by")
@@ -7329,6 +7370,173 @@ def render_screen_3():
     st.markdown(f"### {_TREND_COPY['header']}")
     st.caption(_TREND_COPY["intro"])
     render_trends_view(_load_trend_history())
+
+
+def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str) -> str:
+    """Lean 2–3 page Submission Readiness Card. Shareable with MEL lead or donor."""
+    _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
+    conf_score  = evaluation.get("confidence_score", 0)
+    clar_score  = evaluation.get("clarity_score", 0)
+    conf_label  = evaluation.get("confidence_label", "")
+    clar_label  = evaluation.get("clarity_label", "")
+    verdict     = evaluation.get("verdict", "")
+    fixes       = evaluation.get("fixes", [])
+    conf_comp   = evaluation.get("confidence_components", {})
+    clar_comp   = evaluation.get("clarity_components", {})
+    diag_state  = evaluation.get("diagnostic_state", "")
+    ev_stmt     = _generate_evidence_statement(submission) if callable(globals().get("_generate_evidence_statement")) else ""
+
+    rs    = submission.get("result_statement", "—")
+    tg    = submission.get("target_group", "")
+    tf    = submission.get("timeframe", "")
+    geo   = submission.get("geographic_scope", "")
+    li    = submission.get("logframe_indicator", "")
+    lt    = submission.get("logframe_target", "")
+    la    = submission.get("logframe_achievement", "")
+    ev    = (submission.get("evidence") or [{}])[0]
+    ev_type = ev.get("type", "")
+    ev_desc = ev.get("description", "")
+    verifier = ev.get("verified_by", "")
+    ev_date  = str(ev.get("recency", "") or "")
+
+    verdict_colors = {
+        "Strong KPI — well-positioned for submission":          ("#C8E6C9","#1B5E20"),
+        "Misleading KPI — sharpen the definition":              ("#FFE0B2","#E65100"),
+        "Well-defined but weak evidence":                        ("#FFF9C4","#F57F17"),
+        "High risk — strengthen both axes before relying":      ("#FFCDD2","#B71C1C"),
+    }
+    vbg, vfg = verdict_colors.get(verdict, ("#F5F5F5","#212121"))
+
+    def sbar(val, max_v, label):
+        pct = min(int(val / max_v * 100), 100) if max_v else 0
+        color = "#1B5E20" if pct >= 70 else ("#F57F17" if pct >= 50 else "#B71C1C")
+        return (f"<tr><td style='font-size:0.8rem;padding:2px 6px 2px 0;white-space:nowrap;'>{label}</td>"
+                f"<td><div style='background:#E0E0E0;border-radius:4px;height:8px;width:120px;{_pca}'>"
+                f"<div style='background:{color};height:8px;border-radius:4px;width:{pct}%;{_pca}'></div></div></td>"
+                f"<td style='font-size:0.8rem;padding-left:6px;color:{color};font-weight:700;'>{val}/{max_v}</td></tr>")
+
+    top_fixes = fixes[:3]
+    fixes_html = "".join(
+        f"<li style='margin-bottom:6px;'>{i+1}. {f.get('message','')} "
+        f"<em style='color:#616161;font-size:0.85rem;'>({f.get('score_impact','')})</em></li>"
+        for i, f in enumerate(top_fixes)
+    ) if top_fixes else "<li>No critical fixes — result is ready to submit.</li>"
+
+    ev_stmt_html = (f"<div style='background:#F1F8E9;border-left:4px solid #1B5E20;padding:10px 14px;"
+                    f"border-radius:6px;font-size:0.85rem;color:#212121;margin-top:8px;{_pca}'>"
+                    f"<strong>Evidence statement:</strong> {ev_stmt}</div>") if ev_stmt else ""
+
+    is_qual = clar_comp.get("is_qualitative", False)
+    def_label  = "Narrative Definition" if is_qual else "Definition"
+    meas_label = "Sourcing & Triangulation" if is_qual else "Measurement"
+
+    user_email = st.session_state.get("user_email", "")
+    donor = st.session_state.get("donor_selected", "")
+    donor_note = f" · Prepared for {donor}" if donor and donor != "(No donor specified)" else ""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Submission Readiness Card — Impact Integrity Check</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+  body{{font-family:'Inter',sans-serif;color:#212121;max-width:800px;margin:32px auto;padding:0 24px;font-size:0.92rem;line-height:1.5;}}
+  h1{{color:#1B5E20;font-size:1.3rem;margin:0 0 4px;}}
+  h2{{color:#1B5E20;font-size:1rem;border-bottom:1px solid #8A6500;padding-bottom:4px;margin:20px 0 10px;}}
+  .meta{{color:#616161;font-size:0.8rem;margin-bottom:16px;}}
+  .result-box{{background:#F5F5F5;border-radius:8px;padding:12px 16px;margin-bottom:12px;font-size:0.95rem;}}
+  .verdict{{padding:12px 16px;border-radius:8px;font-weight:700;font-size:1rem;margin-bottom:12px;{_pca}}}
+  .scores{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}}
+  .score-box{{background:#F5F5F5;border-radius:8px;padding:10px 14px;text-align:center;}}
+  .score-num{{font-size:2rem;font-weight:700;color:#1B5E20;font-family:monospace;}}
+  .score-label{{font-size:0.8rem;color:#616161;}}
+  table.bars{{border-collapse:collapse;width:100%;margin:8px 0;}}
+  table.bars td{{padding:2px 6px 2px 0;vertical-align:middle;}}
+  ul.fixes{{margin:0;padding-left:16px;}}
+  ul.fixes li{{margin-bottom:6px;}}
+  .field-row{{display:flex;gap:8px;margin-bottom:4px;font-size:0.85rem;}}
+  .field-label{{color:#616161;min-width:100px;flex-shrink:0;}}
+  .footer{{color:#424242;font-style:italic;font-size:0.8rem;border-top:1px solid #E0E0E0;margin-top:24px;padding-top:10px;}}
+  @media print{{
+    body{{margin:10mm;}}
+    h2{{page-break-before:auto;}}
+    .page-break{{page-break-before:always;}}
+  }}
+</style>
+</head>
+<body>
+
+<h1>Submission Readiness Card</h1>
+<p class="meta">Impact Integrity Check · {timestamp}{donor_note}{' · ' + user_email if user_email else ''}</p>
+
+<div class="result-box"><strong>Result statement:</strong> {rs}</div>
+
+<div class="verdict" style="background:{vbg};color:{vfg};">{verdict or diag_state}</div>
+
+<div class="scores">
+  <div class="score-box">
+    <div class="score-num">{conf_score}/5</div>
+    <div class="score-label">Confidence ({conf_label})</div>
+  </div>
+  <div class="score-box">
+    <div class="score-num">{clar_score}/5</div>
+    <div class="score-label">Clarity ({clar_label})</div>
+  </div>
+</div>
+
+<h2>Priority fixes before submission</h2>
+<ul class="fixes">{fixes_html}</ul>
+
+{ev_stmt_html}
+
+<div class="page-break"></div>
+<h2>Score Breakdown</h2>
+
+<strong style="font-size:0.85rem;">Confidence</strong>
+<table class="bars">
+{sbar(round(conf_comp.get('direct_score',0),1), 2.0, 'Directness')}
+{sbar(round(conf_comp.get('verify_score',0),1), 2.0, 'Verification')}
+{sbar(round(conf_comp.get('recency_score',0),1), 1.0, 'Recency')}
+</table>
+
+<strong style="font-size:0.85rem;">Clarity</strong>
+<table class="bars">
+{sbar(round(clar_comp.get('definition_score',0),2), 1.25, def_label)}
+{sbar(round(clar_comp.get('measurement_score',0),2), 1.25, meas_label)}
+{sbar(round(clar_comp.get('integrity_score',0),2), 1.0, 'Integrity')}
+{sbar(round(clar_comp.get('scope_score',0),2), 0.75, 'Scope')}
+{sbar(round(clar_comp.get('governance_score',0),2), 0.75, 'Governance')}
+</table>
+
+{'<h2>Logframe Linkage</h2>' if li else ''}
+{'<div class="field-row"><span class="field-label">Indicator:</span><span>' + li + '</span></div>' if li else ''}
+{'<div class="field-row"><span class="field-label">Target:</span><span>' + lt + '</span></div>' if lt else ''}
+{'<div class="field-row"><span class="field-label">Achievement:</span><span>' + la + '</span></div>' if la else ''}
+
+<h2>Evidence Details</h2>
+<div class="field-row"><span class="field-label">Type:</span><span>{ev_type}</span></div>
+{'<div class="field-row"><span class="field-label">Verifier:</span><span>' + verifier + '</span></div>' if verifier else ''}
+{'<div class="field-row"><span class="field-label">Date:</span><span>' + ev_date + '</span></div>' if ev_date else ''}
+<div style="font-size:0.85rem;color:#616161;margin-top:6px;">{ev_desc[:300] + ('...' if len(ev_desc)>300 else '')}</div>
+
+<div class="page-break"></div>
+<h2>Methodology</h2>
+<p style="font-size:0.85rem;color:#424242;">
+This check scored 8 evidence-quality dimensions anchored in USAID ADS 201 (Validity, Integrity, Precision, Reliability, Timeliness), FCDO Evaluation Policy (January 2025), Bond Evidence Principles 2024, and World Bank Results Framework standards.
+Scoring is fully deterministic — no AI judgement was applied; all scoring decisions are rule-based and reproducible.
+Score generated: {timestamp}.
+</p>
+<p style="font-size:0.8rem;color:#616161;margin-top:8px;">
+Guidance only — your donor makes the final call, not this tool.
+</p>
+
+<div class="footer">
+  Impact Integrity Check &middot; Built in Accra for MEL teams &middot; <a href="{APP_URL}/">{APP_URL.replace('https://','')}</a>
+</div>
+</body>
+</html>"""
 
 
 def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart_id: str = "0") -> str:
