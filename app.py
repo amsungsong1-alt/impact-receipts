@@ -2341,7 +2341,7 @@ def _render_live_score_preview(slot: int = 1):
             "Fix these to remove the penalty."
         )
         # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
-        if st.button("→ Fix: Go to Result Basics", key="fix_content_quality", type="primary"):
+        if st.button("→ Fix: Go to Result Basics", key=f"fix_content_quality_{slot}", type="primary"):
             st.session_state["current_tab"] = 0
             st.session_state["_scroll_to_content"] = True
             st.query_params["tab"] = "0"
@@ -2390,19 +2390,19 @@ def _render_live_score_preview(slot: int = 1):
 
     # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
     if state in ("MISLEADING", "FUNDAMENTALLY WEAK"):
-        if st.button("→ Fix: Sharpen Result Statement", key="fix_misleading", type="primary"):
+        if st.button("→ Fix: Sharpen Result Statement", key=f"fix_misleading_{slot}", type="primary"):
             st.session_state["current_tab"] = 0
             st.session_state["_scroll_to_content"] = True
             st.query_params["tab"] = "0"
             st.rerun()
     if state in ("UNDEREVIDENCED", "FUNDAMENTALLY WEAK"):
-        if st.button("→ Fix: Strengthen Evidence", key="fix_underevidenced", type="primary"):
+        if st.button("→ Fix: Strengthen Evidence", key=f"fix_underevidenced_{slot}", type="primary"):
             st.session_state["current_tab"] = 2
             st.session_state["_scroll_to_content"] = True
             st.query_params["tab"] = "2"
             st.rerun()
     if state == "NEEDS REFINEMENT":
-        if st.button("→ Fix: Review Specific Gaps", key="fix_refinement", type="primary"):
+        if st.button("→ Fix: Review Specific Gaps", key=f"fix_refinement_{slot}", type="primary"):
             st.session_state["current_tab"] = 1
             st.session_state["_scroll_to_content"] = True
             st.query_params["tab"] = "1"
@@ -2459,14 +2459,14 @@ def _render_live_score_preview(slot: int = 1):
 
     # Remediation action — placed right next to the status line so the fix is one click away
     if gov_score < 20:
-        if st.button("→ Fix: Governance Issues", key="fix_gov_btn", type="primary"):
+        if st.button("→ Fix: Governance Issues", key=f"fix_gov_btn_{slot}", type="primary"):
             st.session_state["current_tab"] = 2
             st.session_state["_scroll_to_content"] = True
             st.query_params["tab"] = "2"
             st.rerun()
 
     # Per-item checklist
-    with st.expander("Governance checklist detail", expanded=(gov_score < 11)):
+    with st.expander("Governance checklist detail", expanded=(gov_score < 11), key=f"gov_checklist_detail_{slot}"):
         for _lbl, _val, _max, _cmap in [
             ("Beneficiary consent",                  _disp_consent,    5, CONSENT_CHECKLIST_MAP),
             ("Data anonymization",                   _disp_anon,       4, ANON_CHECKLIST_MAP),
@@ -5684,7 +5684,7 @@ def _render_review_handoff(submission: dict, ev: dict, card_idx: int):
     slot = card_idx + 1
     s = _slot_suffix(slot)
 
-    with st.expander("📋 Team review & sign-off (agency feature)", expanded=False):
+    with st.expander("📋 Team review & sign-off (agency feature)", expanded=False, key=f"team_review_{card_idx}"):
         st.caption(
             "Optional — record a reviewer's decision before handing this result back "
             "to the field officer or passing it up the chain. No accounts or logins: "
@@ -6132,7 +6132,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     bv_bonus = conf_comp.get("bv_bonus", 0.0)
     if bv_bonus < 0.5:
         bv_fix = BENEFICIARY_VOICE_WHATTOFIX.get(bv_bonus, BENEFICIARY_VOICE_WHATTOFIX[0.0])
-        with st.expander("Improve Beneficiary Voice →"):
+        with st.expander("Improve Beneficiary Voice →", key=f"bv_improve_{card_idx}"):
             st.caption(bv_fix)
 
     if donor and donor != "Other/Not specified" and donor in DONOR_DIAGNOSTICS:
@@ -6151,11 +6151,11 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             level = "low" if (raw_score / max_val) < 0.6 else "high"
             st.markdown(f"**{dim}:** {donor_map[dim][level]}")
 
-    with st.expander("Evidence statement for your report"):
+    with st.expander("Evidence statement for your report", key=f"ev_stmt_expander_{card_idx}"):
         st.code(_generate_evidence_statement(submission), language=None)
         st.caption("Edit this to match your exact context before pasting into your narrative report.")
 
-    with st.expander("Share this result"):
+    with st.expander("Share this result", key=f"share_result_{card_idx}"):
         def _share_icon(s):
             return "✅" if s >= 4.0 else "⚠️" if s >= 3.0 else "🔴"
         _tf = fixes[0]["message"] if fixes else "No major gaps — ready to refine."
