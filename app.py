@@ -3272,7 +3272,6 @@ def _render_tab1_slot(slot: int):
 def _render_tab2_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
     _render_fix_notes(slot, 1)
-    st.markdown("#### Logframe Linkage")
     st.caption("Donor question 2 of 4: Was this result in your approved plan? Link it to your indicator — this is the first thing a USAID COR checks.")
 
     # Show result statement as read-only reference so user can reconcile without scrolling back
