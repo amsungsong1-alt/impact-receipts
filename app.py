@@ -3993,6 +3993,107 @@ def render_season_teaser():
     )
 
 
+def render_pricing_page():
+    """Public 3-tier pricing page. Shown when _show_pricing=True."""
+    _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
+    if st.button("← Back", key="pricing_back"):
+        st.session_state.pop("_show_pricing", None)
+        st.rerun()
+
+    st.markdown("## Pricing")
+    st.caption("Check your result before your donor does. First 3 checks always free.")
+
+    # ROI micro-copy
+    st.markdown(
+        "<div style='background:#F1F8E9;border-left:4px solid #1B5E20;padding:10px 16px;"
+        "border-radius:6px;font-size:0.9rem;margin-bottom:20px;'>"
+        "💡 <strong>At GHS 50/month, one avoided donor rejection pays for a full year of Professional.</strong> "
+        "A USAID quarterly report cycle takes 40+ hours. One rejection costs all of it again."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Tier cards
+    _t1, _t2, _t3 = st.columns(3)
+
+    with _t1:
+        st.markdown(
+            f"<div style='border:2px solid #E0E0E0;border-radius:10px;padding:20px;height:100%;{_pca}'>"
+            "<p style='font-size:0.75rem;color:#616161;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;'>For first-time users</p>"
+            "<h3 style='color:#212121;margin:0 0 4px;'>Starter</h3>"
+            "<p style='font-size:2rem;font-weight:700;color:#212121;margin:0;'>Free</p>"
+            "<p style='font-size:0.8rem;color:#616161;margin:4px 0 16px;'>No card needed</p>"
+            "<p style='font-size:0.85rem;color:#424242;margin-bottom:12px;font-style:italic;'>Try one check</p>"
+            "<hr style='border:none;border-top:1px solid #E0E0E0;margin:12px 0;'/>"
+            "<ul style='padding-left:16px;font-size:0.85rem;color:#424242;margin:0;line-height:1.8;'>"
+            "<li>3 free checks</li>"
+            "<li>Quick Check (instant score)</li>"
+            "<li>Provisional Confidence &amp; Clarity scores</li>"
+            "</ul>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        if st.button("Start free →", key="pricing_starter", use_container_width=True):
+            st.session_state.pop("_show_pricing", None)
+            _go_to_screen(0)
+
+    with _t2:
+        st.markdown(
+            f"<div style='border:3px solid #1B5E20;border-radius:10px;padding:20px;height:100%;background:#F9FFF9;{_pca}'>"
+            "<p style='background:#1B5E20;color:white;font-size:0.7rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;"
+            "display:inline-block;padding:2px 8px;border-radius:20px;margin:0 0 8px;'>Most popular</p>"
+            "<p style='font-size:0.75rem;color:#616161;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;'>For active MEL officers</p>"
+            "<h3 style='color:#1B5E20;margin:0 0 4px;'>Professional</h3>"
+            "<p style='font-size:2rem;font-weight:700;color:#1B5E20;margin:0;'>GHS 50<span style='font-size:1rem;font-weight:400;'>/mo</span></p>"
+            "<p style='font-size:0.8rem;color:#616161;margin:4px 0 16px;'>~£3.50 · or GHS 500/year (2 months free)</p>"
+            "<p style='font-size:0.85rem;color:#424242;margin-bottom:12px;font-style:italic;'>Check every result before submission</p>"
+            "<hr style='border:none;border-top:1px solid #C8E6C9;margin:12px 0;'/>"
+            "<ul style='padding-left:16px;font-size:0.85rem;color:#424242;margin:0;line-height:1.8;'>"
+            "<li><strong>Unlimited checks</strong></li>"
+            "<li>Readiness Card PDF (shareable)</li>"
+            "<li>Donor-specific fixes (USAID, FCDO, GIZ…)</li>"
+            "<li>Full diagnostic report</li>"
+            "<li>Logframe linkage scoring</li>"
+            "</ul>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        if st.button("Check my results →", key="pricing_pro", type="primary", use_container_width=True):
+            st.session_state.pop("_show_pricing", None)
+            _go_to_screen(1, reset=True)
+
+    with _t3:
+        st.markdown(
+            f"<div style='border:2px solid #8A6500;border-radius:10px;padding:20px;height:100%;{_pca}'>"
+            "<p style='font-size:0.75rem;color:#616161;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;'>For MEL consulting firms</p>"
+            "<h3 style='color:#8A6500;margin:0 0 4px;'>Agency</h3>"
+            "<p style='font-size:2rem;font-weight:700;color:#8A6500;margin:0;'>GHS 200<span style='font-size:1rem;font-weight:400;'>/mo</span></p>"
+            "<p style='font-size:0.8rem;color:#616161;margin:4px 0 16px;'>~£13 · multiple clients</p>"
+            "<p style='font-size:0.85rem;color:#424242;margin-bottom:12px;font-style:italic;'>Quality-check your entire client portfolio</p>"
+            "<hr style='border:none;border-top:1px solid #E8D5A3;margin:12px 0;'/>"
+            "<ul style='padding-left:16px;font-size:0.85rem;color:#424242;margin:0;line-height:1.8;'>"
+            "<li>Everything in Professional</li>"
+            "<li><strong>Portfolio analysis</strong> — heatmap across all indicators</li>"
+            "<li>Up to 5 team seats</li>"
+            "<li>Priority support</li>"
+            "<li>Donor framework crosswalk reports</li>"
+            "</ul>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<a href='https://wa.me/233503648195?text=Hi%2C+I%27m+interested+in+the+Agency+plan' "
+            "target='_blank' style='display:block;text-align:center;background:#8A6500;color:white;"
+            "padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:700;font-size:0.9rem;"
+            "margin-top:8px;'>Talk to us →</a>",
+            unsafe_allow_html=True,
+        )
+
+    st.divider()
+    st.caption("All prices in GHS (Ghana Cedis). Paid via Paystack (card, MoMo, bank). "
+               "Cancel anytime. Questions? WhatsApp: +233 50 364 8195")
+
+
 def render_screen_0():
     _logo_path = pathlib.Path(__file__).parent / "logo.png.png"
     try:
@@ -4019,20 +4120,17 @@ def render_screen_0():
         f"""
         <div class="hero-block">
           {_logo_tag}
-          <h1>Know which reported results are strong, weak, or need fixing — before your donor sees them.</h1>
+          <h1>About to submit a result to your donor? Run a 4-minute quality check first.</h1>
+          <p style="font-size:0.85rem;color:#616161;margin:4px 0 0;">Built for MEL officers who report to USAID, FCDO, GIZ, and 7 more donors.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    if st.button("Check My Result Statement →", type="primary", use_container_width=True, key="cta_top"):
-        if not st.session_state.get("has_seen_tutorial"):
-            st.session_state["tutorial_step"] = 1
-        _go_to_screen(1, reset=True)
-    st.caption("Takes 4 minutes · First 3 checks are free.")
-    st.caption("Free to start · Paid upgrade unlocks AI auto-fill and unlimited scoring.")
+    st.caption("First 3 checks free · No registration needed for the quick read")
 
-    with st.expander("⚡ Get a quick read (1 minute) — no registration needed"):
+    st.markdown("**⚡ Quick Check — instant provisional scores (1 minute):**")
+    with st.container(border=True):
         st.caption("Fill 3 fields to instantly see provisional Confidence and Clarity scores. No tabs, no email required.")
         qc_result   = st.text_area("Your result statement", key="qc_result", height=80,
                                     placeholder="e.g., Trained 250 farmers in climate-smart practices in Northern Region, Jan–Jun 2025")
@@ -4084,6 +4182,19 @@ def render_screen_0():
                 if not st.session_state.get("has_seen_tutorial"):
                     st.session_state["tutorial_step"] = 1
                 _go_to_screen(1, reset=False)
+
+    # Full-form CTA — secondary to Quick Check
+    st.divider()
+    _s0_c1, _s0_c2 = st.columns([3, 1])
+    with _s0_c1:
+        if st.button("Check My Result Statement (full diagnosis) →", type="primary", use_container_width=True, key="cta_top"):
+            if not st.session_state.get("has_seen_tutorial"):
+                st.session_state["tutorial_step"] = 1
+            _go_to_screen(1, reset=True)
+    with _s0_c2:
+        if st.button("Pricing →", key="cta_pricing", use_container_width=True, help="View plans and pricing"):
+            st.session_state["_show_pricing"] = True
+            st.rerun()
 
     if st.button("🚀 Try with a sample result →", key="cta_demo",
                  help="Loads a realistic ANC result from Ashanti Region — runs in seconds",
@@ -5219,11 +5330,38 @@ def render_screen_1():
 
         st.divider()
 
-        if st.session_state.get("confirm_reset"):
+        # Hibernate option — preserves data, pauses billing intent
+        if st.session_state.get("_show_hibernate"):
+            st.info("💤 **Hibernate mode** — your form data is saved. Come back when your next reporting cycle starts.")
+            _hib1, _hib2 = st.columns(2)
+            with _hib1:
+                if st.button("Resume later (save & close)", key="hibernate_confirm", type="primary", use_container_width=True):
+                    _save_draft()
+                    st.session_state.pop("_show_hibernate", None)
+                    _go_to_screen(0)
+            with _hib2:
+                if st.button("Cancel", key="hibernate_cancel", use_container_width=True):
+                    st.session_state.pop("_show_hibernate", None)
+                    st.rerun()
+        elif st.session_state.get("confirm_reset"):
+            # Exit survey before clearing
             st.warning("Clear all inputs and start over?")
+            _exit_reason = st.selectbox(
+                "Quick question: why are you leaving? (helps us improve)",
+                ["(Select reason — optional)", "Finished my reporting cycle",
+                 "Result doesn't need checking", "Too many fields / too complex",
+                 "Switching to a different tool", "Organisation budget cut", "Other"],
+                key="exit_survey_reason",
+            )
             cf1, cf2 = st.columns(2)
             with cf1:
                 if st.button("Yes, clear everything", type="primary", use_container_width=True):
+                    if _exit_reason and _exit_reason != "(Select reason — optional)":
+                        try:
+                            from utils.db import save_example
+                            save_example("exit_reason", st.session_state.get("sector","Other"), _exit_reason)
+                        except Exception:
+                            pass
                     st.session_state["confirm_reset"] = False
                     _clear_draft()
                     _go_to_screen(1, reset=True)
@@ -5232,9 +5370,15 @@ def render_screen_1():
                     st.session_state["confirm_reset"] = False
                     st.rerun()
         else:
-            if st.button("🗑 Clear all & restart", use_container_width=False):
-                st.session_state["confirm_reset"] = True
-                st.rerun()
+            _rst_c1, _rst_c2 = st.columns(2)
+            with _rst_c1:
+                if st.button("💤 Hibernate (save & pause)", use_container_width=True, help="Saves your form. Come back next reporting cycle."):
+                    st.session_state["_show_hibernate"] = True
+                    st.rerun()
+            with _rst_c2:
+                if st.button("🗑 Clear all & restart", use_container_width=True):
+                    st.session_state["confirm_reset"] = True
+                    st.rerun()
 
     _save_draft()
     _render_tagline_footer()
@@ -8603,6 +8747,10 @@ def main():
     # --- End Paystack handler ---
 
     _init_from_query_params()
+    # Pricing overlay — shown regardless of screen
+    if st.session_state.get("_show_pricing"):
+        render_pricing_page()
+        return
     screen = st.session_state["screen"]
     {0: render_screen_0, 1: render_screen_1, 2: render_screen_2, 3: render_screen_3}.get(
         screen, render_screen_0
