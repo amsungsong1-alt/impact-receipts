@@ -4071,7 +4071,7 @@ def render_pricing_page():
             f"<div style='border:3px solid #1B5E20;border-radius:10px;padding:20px;height:100%;background:#F9FFF9;{_pca}'>"
             "<p style='background:#1B5E20;color:white;font-size:0.7rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;"
             "display:inline-block;padding:2px 8px;border-radius:20px;margin:0 0 8px;'>Most popular</p>"
-            "<p style='font-size:0.75rem;color:#616161;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;'>For active MEL officers</p>"
+            "<p style='font-size:0.75rem;color:#616161;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;'>For M&amp;E practitioners reporting regularly</p>"
             "<h3 style='color:#1B5E20;margin:0 0 4px;'>Professional</h3>"
             "<p style='font-size:2rem;font-weight:700;color:#1B5E20;margin:0;'>GHS 50<span style='font-size:1rem;font-weight:400;'>/mo</span></p>"
             "<p style='font-size:0.8rem;color:#616161;margin:4px 0 16px;'>~£3.50 · or GHS 500/year (2 months free)</p>"
@@ -4139,7 +4139,7 @@ def _render_ph_landing():
             Run a 4-minute evidence quality check first.
           </p>
           <p style='color:#616161;font-size:0.85rem;margin:0 0 24px;'>
-            Built for MEL officers who report to USAID, FCDO, GIZ, and 7 more donors.
+            For MEL officers, programme leads, and consultants — the people who answer for evidence quality. Reporting to FCDO, GIZ, World Bank, EU, and 7 more donors.
           </p>
         </div>
         """,
@@ -4192,7 +4192,7 @@ def _render_ph_landing():
     with _ph_c1:
         st.metric("Scoring dimensions", "8", help="Directness, Verification, Recency, Definition, Measurement, Integrity, Scope, Governance")
     with _ph_c2:
-        st.metric("Donors supported", "10", help="USAID, FCDO, GIZ, World Bank, AfDB, EU, Global Fund, Mastercard Foundation, KOICA, RVO")
+        st.metric("Donors supported", "10+", help="FCDO, GIZ, World Bank, EU, AfDB, Global Fund, Mastercard Foundation, KOICA, RVO, USAID, and more")
     with _ph_c3:
         st.metric("Time to score", "4 min", help="Full form with logframe, evidence, and verification fields")
 
@@ -4234,7 +4234,7 @@ def render_screen_0():
         <div class="hero-block">
           {_logo_tag}
           <h1>About to submit a result to your donor? Run a 4-minute quality check first.</h1>
-          <p style="font-size:0.85rem;color:#616161;margin:4px 0 0;">Built for MEL officers who report to USAID, FCDO, GIZ, and 7 more donors.</p>
+          <p style="font-size:0.85rem;color:#616161;margin:4px 0 0;">For MEL officers, programme leads, and consultants — the people who answer for evidence quality. Reporting to FCDO, GIZ, World Bank, EU, and 7 more donors.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -4693,13 +4693,33 @@ def render_screen_1():
                     )
                     _render_paywall(irc_context=True)
                 else:
-                    st.text_input(
-                        "Which result should we focus on? (optional)",
-                        key="irc_result_hint",
-                        placeholder='e.g. "maternal health result" or "Result 3 — ANC attendance"',
-                        help="If your report has multiple results, name the one you want extracted. "
-                             "Leave blank to extract the most prominent result.",
+                    # Multi-result extraction UI
+                    _irc_n = st.radio(
+                        "How many results to extract?",
+                        options=[1, 2, 3],
+                        index=0,
+                        horizontal=True,
+                        key="irc_n_results",
+                        help="Extract 1–3 results from your uploaded document in a single run.",
                     )
+                    _irc_hint1 = st.text_input(
+                        "Result 1 hint (optional)",
+                        key="irc_result_hint",
+                        placeholder='e.g. "ANC attendance" or "Output 2.1"',
+                        help="Name or describe the result you want extracted. Leave blank to use the most prominent one.",
+                    )
+                    if _irc_n >= 2:
+                        _irc_hint2 = st.text_input(
+                            "Result 2 hint (optional)",
+                            key="irc_result_hint_2",
+                            placeholder='e.g. "safe water access" or "Output 3.2"',
+                        )
+                    if _irc_n >= 3:
+                        _irc_hint3 = st.text_input(
+                            "Result 3 hint (optional)",
+                            key="irc_result_hint_3",
+                            placeholder='e.g. "youth employment" or "Output 4.1"',
+                        )
                     _irc_files = st.file_uploader(
                         "Upload report file(s) (or a previously downloaded draft.json)",
                         type=["pdf", "docx", "txt", "csv", "pptx", "xlsx", "xls", "json"],
@@ -4784,11 +4804,25 @@ def render_screen_1():
                                         if _fex: _fewshot[_ff] = _fex
                                     import json as _ijsonfs
                                     _fewshot_str = _ijsonfs.dumps(_fewshot, indent=2) if _fewshot else ""
-                                    _irc_hint = st.session_state.get("irc_result_hint", "").strip()
-                                    _hint_prefix = (
-                                        f"FOCUS INSTRUCTION: The user wants to extract the result about: {_irc_hint}\n"
-                                        f"Prioritise this result statement over others in the document.\n\n"
-                                    ) if _irc_hint else ""
+                                    _irc_n_res = st.session_state.get("irc_n_results", 1)
+                                    _irc_hint1 = st.session_state.get("irc_result_hint", "").strip()
+                                    _irc_hint2 = st.session_state.get("irc_result_hint_2", "").strip()
+                                    _irc_hint3 = st.session_state.get("irc_result_hint_3", "").strip()
+                                    _hints = [h for h in [_irc_hint1, _irc_hint2, _irc_hint3] if h]
+                                    if _irc_n_res > 1:
+                                        _hint_prefix = (
+                                            f"MULTI-RESULT INSTRUCTION: Extract {_irc_n_res} distinct results from this document "
+                                            f"and return them as a JSON array under a top-level 'results' key. "
+                                            f"Each element in 'results' should follow the same schema as a single result_basics + logframe_linkage + evidence_verification object.\n"
+                                        )
+                                        if _hints:
+                                            _hint_prefix += f"Focus on these results (in order): {'; '.join(f'{i+1}. {h}' for i,h in enumerate(_hints))}.\n"
+                                        _hint_prefix += "\n"
+                                    else:
+                                        _hint_prefix = (
+                                            f"FOCUS INSTRUCTION: The user wants to extract the result about: {_irc_hint1}\n"
+                                            f"Prioritise this result statement over others in the document.\n\n"
+                                        ) if _irc_hint1 else ""
                                     _irc_msgs = [{"role": "user", "content": [
                                         *([{"type":"text","text":f"Field examples for better extraction:\n{_fewshot_str}"}] if _fewshot_str else []),
                                         {"type":"text","text":f"{_hint_prefix}Extract all fields from this report:\n\n{_full_text[:60000]}"}
@@ -4830,6 +4864,46 @@ def render_screen_1():
                                     if not _irc_raw:
                                         raise ValueError("Model returned an empty response. Try a different document or fill the form manually.")
                                     _irc_data = _ijson3.loads(_irc_raw)
+
+                                    # Multi-result: if response has a 'results' array, process each slot
+                                    _irc_results_arr = _irc_data.get("results")
+                                    if isinstance(_irc_results_arr, list) and len(_irc_results_arr) > 1:
+                                        # Multi-result path: set active_slots, fill each slot
+                                        _n_extracted = min(len(_irc_results_arr), 6)
+                                        st.session_state["active_slots"] = _n_extracted
+                                        _total_filled = 0
+                                        for _ri, _ritem in enumerate(_irc_results_arr[:_n_extracted]):
+                                            _rs = _slot_suffix(_ri + 1)
+                                            _r_rb  = _ritem.get("result_basics", _ritem)
+                                            _r_ll  = _ritem.get("logframe_linkage", {})
+                                            _r_ev3 = _ritem.get("evidence_verification", {})
+                                            for _fk, _fv in [
+                                                (f"result_statement{_rs}", _r_rb.get("result_statement")),
+                                                (f"target_group{_rs}",     _r_rb.get("target_group")),
+                                                (f"timeframe{_rs}",        _r_rb.get("timeframe")),
+                                                (f"geographic_scope{_rs}", _r_rb.get("geographic_scope")),
+                                                (f"logframe_indicator{_rs}", _r_ll.get("indicator_name")),
+                                                (f"logframe_target{_rs}",    _r_ll.get("original_target")),
+                                                (f"logframe_achievement{_rs}", _r_ll.get("actual_achievement")),
+                                                (f"evidence_description{_rs}", _r_ev3.get("evidence_description")),
+                                            ]:
+                                                _sval = ", ".join(str(v) for v in _fv) if isinstance(_fv, list) else str(_fv or "").strip()
+                                                if _sval and _sval != "Not found":
+                                                    st.session_state[_fk] = _sval
+                                                    _total_filled += 1
+                                        st.session_state["_irc_summary"] = {
+                                            "filled": _total_filled,
+                                            "skipped": "",
+                                            "confidence_note": f"{_n_extracted} results extracted from your document.",
+                                            "compliance_gaps": "",
+                                            "pages": [],
+                                        }
+                                        st.session_state["_irc_used"] = True
+                                        st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
+                                        _irc_should_rerun = True
+                                        # Skip the single-result handler below
+                                        _irc_data = {}
+
                                     _rb  = _irc_data.get("result_basics", {})
                                     _ll  = _irc_data.get("logframe_linkage", {})
                                     _ev3 = _irc_data.get("evidence_verification", {})
