@@ -3192,6 +3192,15 @@ def _render_tab1_slot(slot: int):
     if _rs and len(_rs.strip()) >= 30:
         _smart_extract_from_result(_rs, s)   # auto-fill target group / timeframe / geo
         _smart_extract_achievement(_rs, s)    # auto-fill logframe actual achievement
+        # Live Clarity signal — shows momentum from the very first tab
+        try:
+            _t0_sub = _build_submission_from_session(slot)
+            _t0_ev  = _evaluator.evaluate_submission(_t0_sub)
+            _t0_cl  = _t0_ev.get("clarity_score", 0)
+            _t0_dots = "●" * int(_t0_cl) + "○" * (5 - int(_t0_cl))
+            st.caption(f"Clarity so far: **{_t0_cl}/5.0** {_t0_dots} — fill timeframe, geography, and target group to raise this.")
+        except Exception:
+            pass
     if _rs and len(_rs.strip()) < 20:
         st.warning("Result statement is very short. Include: action verb + number + population + timeframe.")
     elif _rs and not any(c.isdigit() for c in _rs):
@@ -3243,7 +3252,7 @@ def _render_tab2_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
     _render_fix_notes(slot, 1)
     st.markdown("#### Logframe Linkage")
-    st.caption("Copy your approved indicator code and target directly from your Technical Proposal or logframe matrix.")
+    st.caption("Donor question 2 of 4: Was this result in your approved plan? Link it to your indicator — this is the first thing a USAID COR checks.")
 
     # Show result statement as read-only reference so user can reconcile without scrolling back
     _rs_ref = st.session_state.get(f"result_statement{s}", "").strip()
@@ -4325,7 +4334,7 @@ def render_screen_1():
     )
 
     if _cur_tab == 0:
-        st.caption("A clear result is the first thing a donor checks. Define who benefited, what changed, where, and when.")
+        st.caption("Donor question 1 of 4: What did your project achieve? Define it precisely enough that a reviewer can check it against your logframe.")
 
         # Sector selector always visible — gates placeholder quality for all fields below
         st.selectbox(
@@ -4921,6 +4930,7 @@ def render_screen_1():
                             st.caption("Provisional only — complete Tabs 2–4 for your full scored report.")
                         except Exception:
                             pass
+            st.success("✓ Result defined. A reviewer can now check this against your logframe — donor question 1 answered.")
             _nb1, _pb1 = st.columns([3, 1])
             with _nb1:
                 if st.button("Next: Logframe Linkage →", key="tab1_next_btn", type="primary", use_container_width=True):
@@ -4960,9 +4970,9 @@ def render_screen_1():
                     _q_ev2 = _evaluator.evaluate_submission(_build_submission_from_session(1))
                     _q_clar2 = _q_ev2.get("clarity_score", 0)
                     if _q_clar2 >= 4.0:
-                        st.success(f"✓ Logframe linkage looks strong ({_q_clar2:.1f}/5.0 Clarity so far) — evidence next.")
+                        st.success(f"✓ Logframe linked. Your result is traceable to an approved commitment. ({_q_clar2:.1f}/5.0 Clarity so far)")
                     elif _q_clar2 >= 2.5:
-                        st.info(f"Logframe linkage scores {_q_clar2:.1f}/5.0 on Clarity so far — adding strong evidence will raise this.")
+                        st.info(f"Logframe linkage scores {_q_clar2:.1f}/5.0 so far — strong evidence on the next tab will raise your Confidence score.")
                     else:
                         st.warning(f"Logframe linkage scores {_q_clar2:.1f}/5.0 — check that your indicator and achievement match the result statement above.")
                 except Exception:
@@ -4988,7 +4998,7 @@ def render_screen_1():
         # --- END v3.3 ---
 
     elif _cur_tab == 2:
-        st.caption("This is where most donor rejections start. Weak or unverified evidence is caught here, not by your donor.")
+        st.caption("Donor question 3 of 4: Can you prove it? Weak evidence here is the #1 cause of rejected results.")
         for slot in range(1, active + 1):
             if active > 1:
                 st.markdown(f"---\n#### Result {slot}")
@@ -4999,9 +5009,9 @@ def render_screen_1():
             _q_ev3 = _evaluator.evaluate_submission(_build_submission_from_session(1))
             _q_conf3 = _q_ev3.get("confidence_score", 0)
             if _q_conf3 >= 4.0:
-                st.success(f"✓ Evidence looks strong ({_q_conf3:.1f}/5.0 Confidence) — ready for final review.")
+                st.success(f"✓ Evidence documented. Your donor will find this verifiable. ({_q_conf3:.1f}/5.0 Confidence) — moving to final review.")
             elif _q_conf3 >= 2.5:
-                st.info(f"Evidence scores {_q_conf3:.1f}/5.0 on Confidence — completing the verification fields will improve this.")
+                st.info(f"Evidence scores {_q_conf3:.1f}/5.0 on Confidence — complete the verification fields to strengthen before review.")
             else:
                 st.warning(f"Evidence scores {_q_conf3:.1f}/5.0 on Confidence — strengthen your evidence description or add a verifier before submitting.")
         except Exception:
@@ -5022,7 +5032,7 @@ def render_screen_1():
         # --- END v3.3 ---
 
     elif _cur_tab == 3:
-        st.caption("Your last look before it leaves your hands. Fix flagged items now while it's cheap to fix.")
+        st.caption("Final check: See your submission the way your donor will see it — and close any gaps before they do.")
 
         _REQUIRED_FIELDS_B = [
             ("result_statement",     "Result statement (Tab 1)"),
@@ -5964,6 +5974,16 @@ def render_screen_2():
         ):
             _go_to_screen(3)
 
+    # Unfair advantage exit moment — name the advantage explicitly
+    _donor_label = st.session_state.get("donor_selected", "")
+    _donor_ref = _donor_label if _donor_label and _donor_label not in ("(No donor specified)", "") else "your donor"
+    st.markdown(
+        f"<p style='color:#1B5E20;font-weight:600;font-size:0.95rem;margin:8px 0 16px;'>"
+        f"✓ You've seen your result the way your {_donor_ref} reviewer will — before they do. "
+        f"<em>That's the advantage.</em></p>",
+        unsafe_allow_html=True,
+    )
+
     # Primary download — 2–3 page Readiness Card (shareable with MEL lead / donor)
     timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
     _report_allowed = st.session_state.get("_report_allowed", True)
@@ -6019,6 +6039,12 @@ def render_screen_2():
             help="Upload a CSV of your full logframe to see which indicators are weakest.",
         ):
             _go_to_screen(3)
+
+    # Return hook — plant the seed for next quarter
+    st.caption(
+        "💡 **Save your Readiness Card.** The next time you check a result, your "
+        "📈 Improvement over time tracker will show how your evidence quality has grown."
+    )
 
     st.divider()
 
@@ -6291,7 +6317,7 @@ def _make_slug(text: str, max_len: int = 45) -> str:
 # ---------------------------------------------------------------------------
 
 _TREND_COPY = {
-    "header": "📈 Track your portfolio score over time (quarterly comparison)",
+    "header": "📈 Your improvement over time",
     "intro": "See how each indicator's Confidence and Clarity scores improve across reporting cycles. Run a new portfolio check each quarter to build your history.",
     "no_data": "No saved submissions yet. Run a check on Screen 2 to start building history for this view.",
     "one_point": "Not enough history yet to show a trend — only one submission recorded so far for this indicator.",
