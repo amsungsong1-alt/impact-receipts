@@ -46,6 +46,7 @@ try:
     from utils.db import (
         get_user, upsert_user, increment_checks, mark_paid,
         is_still_paid, save_example, get_examples,
+        save_user_draft, load_user_draft, clear_user_draft,
     )
     from utils.paystack import initialize_payment, verify_payment, last_payment_error
     from utils.anonymize import anonymize as _anonymize_value
@@ -58,6 +59,9 @@ except ImportError:
     def mark_paid(e, days=30): pass
     def is_still_paid(u): return False
     def save_example(f, s, v): pass
+    def save_user_draft(email, json_str): pass
+    def load_user_draft(email): return None
+    def clear_user_draft(email): pass
     def get_examples(f, s, k=5): return []
     def initialize_payment(e, a, p="per_use"): return ""
     def verify_payment(r): return {"status": "error", "amount": 0, "plan": ""}
@@ -1359,6 +1363,10 @@ html, body, [class*="css"] {
   font-family: 'Inter', sans-serif;
   color: var(--body-text);
 }
+/* Prevent pull-to-refresh on mobile (Chrome/Android).
+   Stops accidental page refresh when user scrolls past the top. */
+html { overscroll-behavior-y: contain; }
+body { overscroll-behavior-y: contain; }
 
 h1, h2, h3, h4 {
   font-family: 'Inter', sans-serif;
@@ -3726,6 +3734,22 @@ def _complete_email_login(email: str) -> None:
             st.session_state["is_paid"] = True
     for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
         st.session_state.pop(_k, None)
+    # Restore draft from Supabase if the user is returning after a refresh
+    # and they haven't already started filling the form in this session
+    _any_form_data = any(
+        _ss_str(k).strip()
+        for k in ("result_statement", "target_group", "evidence_description")
+    )
+    if not _any_form_data and not st.session_state.get("_form_is_resumption"):
+        try:
+            _saved_draft = load_user_draft(email)
+            if _saved_draft:
+                import json as _dj
+                _load_from_inputs_json(_dj.loads(_saved_draft))
+                st.session_state["_form_is_resumption"] = True
+                st.session_state["_draft_restored_from_cloud"] = True
+        except Exception:
+            pass
     st.rerun()
 
 
@@ -4469,9 +4493,23 @@ def render_screen_1():
     if st.session_state.pop("_payment_success", False):
         st.success("✅ Payment confirmed! Upload your document below to run the Instant Report Check — or fill in the form manually.")
 
+    # Auto-save draft to Supabase so a page refresh doesn't lose work
+    _email_for_draft = st.session_state.get("user_email", "")
+    if _email_for_draft and _has_prefill:
+        try:
+            from datetime import datetime as _dt
+            _draft_str = _build_inputs_json(_dt.now().strftime("%Y%m%d_%H%M%S"))
+            save_user_draft(_email_for_draft, _draft_str)
+        except Exception:
+            pass
+
     _is_resumption = st.session_state.get("_form_is_resumption", False)
+    _cloud_restored = st.session_state.pop("_draft_restored_from_cloud", False)
     if _has_prefill and _is_resumption:
-        st.info("📂 Continuing from a previous session — your form fields are pre-filled.")
+        if _cloud_restored:
+            st.success("✅ Your session was restored — we saved your form before the page refreshed. Pick up where you left off.")
+        else:
+            st.info("📂 Continuing from a previous session — your form fields are pre-filled.")
         if st.session_state.get("_confirm_clear_prefill"):
             st.warning("This will clear all pre-filled fields. Are you sure?")
             _cc1, _cc2 = st.columns(2)
@@ -5501,6 +5539,12 @@ def render_screen_1():
                 # --- Track usage ---
                 if not _paid_now and _email_now:
                     increment_checks(_email_now)
+                # Clear saved draft — user has submitted, fresh start next time
+                if _email_now:
+                    try:
+                        clear_user_draft(_email_now)
+                    except Exception:
+                        pass
                 # --- End tracking ---
                 st.session_state["screen"] = 2
                 st.rerun()

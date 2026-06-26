@@ -104,6 +104,61 @@ def is_still_paid(user: dict | None) -> bool:
         return True
 
 
+def save_user_draft(email: str, draft_json: str) -> None:
+    """Persist the user's form draft to Supabase so it survives page refresh.
+
+    Requires a `draft_json` TEXT column on the `users` table.
+    SQL migration (run once in Supabase SQL editor):
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS draft_json TEXT;
+    Degrades gracefully if the column doesn't exist yet.
+    """
+    if not email or not draft_json:
+        return
+    try:
+        c = _get_client()
+        if not c:
+            return
+        # Limit to ~50 KB to stay within Supabase row limits
+        c.table("users").upsert(
+            {"email": email, "draft_json": draft_json[:50000]},
+            on_conflict="email",
+        ).execute()
+    except Exception:
+        pass
+
+
+def load_user_draft(email: str) -> str | None:
+    """Retrieve the user's last saved draft JSON from Supabase, or None."""
+    if not email:
+        return None
+    try:
+        c = _get_client()
+        if not c:
+            return None
+        res = c.table("users").select("draft_json").eq("email", email).execute()
+        if res.data:
+            return res.data[0].get("draft_json") or None
+        return None
+    except Exception:
+        return None
+
+
+def clear_user_draft(email: str) -> None:
+    """Clear saved draft after user successfully scores (so stale data isn't restored)."""
+    if not email:
+        return
+    try:
+        c = _get_client()
+        if not c:
+            return
+        c.table("users").upsert(
+            {"email": email, "draft_json": None},
+            on_conflict="email",
+        ).execute()
+    except Exception:
+        pass
+
+
 def save_example(field_name: str, sector: str, value: str) -> None:
     """Store an anonymised field example."""
     if not field_name or not value:
