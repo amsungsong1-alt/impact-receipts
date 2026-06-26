@@ -116,6 +116,8 @@ except ImportError:
 FREE_CHECKS_LIMIT     = 3          # free manual checks per user
 PRICE_PER_CHECK_GHS   = 500        # pesewas  (GHS 5.00)
 PRICE_MONTHLY_GHS     = 5000       # pesewas  (GHS 50.00/month)
+PRICE_AGENCY_GHS      = 20000      # pesewas  (GHS 200.00/month — Agency tier)
+PRICE_ANNUAL_GHS      = 50000      # pesewas  (GHS 500.00/year — Professional annual)
 
 # Canonical app URL — used in reports, emails, payment callbacks, share links.
 # Override by setting APP_BASE_URL in Streamlit secrets or environment variable.
@@ -2086,7 +2088,7 @@ def _render_paywall(irc_context: bool = False):
             "- **Downloadable PDF report** — shareable with your supervisor or donor\n\n"
             f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited*"
         )
-    _c1, _c2 = st.columns(2)
+    _c1, _c2, _c3 = st.columns(3)
     with _c1:
         st.markdown(f"**Pay-per-use:** GHS {PRICE_PER_CHECK_GHS/100:.0f}")
         if st.session_state.get("_pay_once_url"):
@@ -2102,15 +2104,31 @@ def _render_paywall(irc_context: bool = False):
                 _detail = last_payment_error()
                 st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
     with _c2:
-        st.markdown(f"**Monthly unlimited:** GHS {PRICE_MONTHLY_GHS/100:.0f}/month")
+        st.markdown(f"**Professional:** GHS {PRICE_MONTHLY_GHS/100:.0f}/month")
+        st.caption("Unlimited · Readiness Card PDF")
         if st.session_state.get("_pay_monthly_url"):
             st.link_button("Complete Payment →", st.session_state["_pay_monthly_url"],
                            use_container_width=True, type="primary")
-        elif st.button("Subscribe Monthly", key="pay_monthly", use_container_width=True):
+        elif st.button("Subscribe Professional", key="pay_monthly", use_container_width=True, type="primary"):
             with st.spinner("Preparing payment link…"):
                 _url = initialize_payment(email, PRICE_MONTHLY_GHS, "monthly")
             if _url:
                 st.session_state["_pay_monthly_url"] = _url
+                st.rerun()
+            else:
+                _detail = last_payment_error()
+                st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
+    with _c3:
+        st.markdown(f"**Agency:** GHS {PRICE_AGENCY_GHS/100:.0f}/month")
+        st.caption("Portfolio analysis · 5 seats")
+        if st.session_state.get("_pay_agency_url"):
+            st.link_button("Complete Payment →", st.session_state["_pay_agency_url"],
+                           use_container_width=True)
+        elif st.button("Subscribe Agency", key="pay_agency", use_container_width=True):
+            with st.spinner("Preparing payment link…"):
+                _url = initialize_payment(email, PRICE_AGENCY_GHS, "agency")
+            if _url:
+                st.session_state["_pay_agency_url"] = _url
                 st.rerun()
             else:
                 _detail = last_payment_error()
@@ -3685,15 +3703,23 @@ _DEMO_SELECT_FIELDS = {
 
 def _complete_email_login(email: str) -> None:
     st.session_state["user_email"] = email
+    _is_new_user = get_user(email) is None  # check before upsert
     upsert_user(email)
     _u = get_user(email)
     if _u and is_still_paid(_u):
         st.session_state["is_paid"] = True
+    # Send Day-1 welcome email for new users only
+    if _is_new_user:
+        try:
+            from utils.email_otp import send_welcome_email
+            send_welcome_email(email)
+        except Exception:
+            pass
     _pending_ref = st.session_state.pop("pending_paystack_ref", None)
     if _pending_ref:
         _pr = verify_payment(_pending_ref)
         if _pr.get("status") == "success":
-            _pr_days = 30 if _pr.get("plan") == "monthly" else 1
+            _pr_days = 365 if _pr.get("plan") == "annual" else (30 if _pr.get("plan") in ("monthly", "agency") else 1)
             mark_paid(email, days=_pr_days)
             st.session_state["is_paid"] = True
     for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
@@ -8712,13 +8738,17 @@ def main():
         if _pay_result.get("status") == "success":
             _pay_email = (_pay_result.get("email") or st.session_state.get("user_email") or "").strip().lower()
             if _pay_email:
-                _days = 30 if _pay_result.get("plan") == "monthly" else 1
+                _days = 365 if _pay_result.get("plan") == "annual" else (30 if _pay_result.get("plan") in ("monthly", "agency") else 1)
+                # Track agency-tier users
+                if _pay_result.get("plan") == "agency":
+                    st.session_state["_is_agency"] = True
                 upsert_user(_pay_email)
                 mark_paid(_pay_email, days=_days)
                 st.session_state["user_email"] = _pay_email
                 st.session_state["is_paid"] = True
                 st.session_state.pop("_pay_once_url", None)
                 st.session_state.pop("_pay_monthly_url", None)
+                st.session_state.pop("_pay_agency_url", None)
                 st.session_state["screen"] = 1
                 st.session_state["current_tab"] = 0
                 st.query_params["screen"] = "1"
