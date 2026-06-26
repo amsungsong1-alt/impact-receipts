@@ -4651,23 +4651,49 @@ def render_screen_1():
         # --- IRC fill summary banner (shown once after extraction) ---
         _irc_summary = st.session_state.pop("_irc_summary", None)
         if _irc_summary:
-            _pages = _irc_summary.get("pages", [])
-            _page_note = f" across {len(_pages)} page{'s' if len(_pages)!=1 else ''} of your document" if _pages else ""
-            st.success(
-                f"⚡ Instant Check complete — {_irc_summary['filled']} fields auto-filled{_page_note}. "
-                "Use the **Result Basics**, **Logframe Linkage**, **Evidence & Verification**, and **Review & Submit** stage buttons at the top to review each section before submitting."
-            )
-            if _irc_summary.get("skipped"):
-                st.info(f"ℹ️ Left blank (not found in document): {_irc_summary['skipped']}")
-            if _irc_summary.get("confidence_note"):
-                st.info(f"ℹ️ {_irc_summary['confidence_note']}")
-            if _irc_summary.get("compliance_gaps"):
-                st.warning(f"⚠️ Compliance gaps not found: {_irc_summary['compliance_gaps']}")
-            st.info(
-                "📋 **Checked one result.** If your report has more, click "
-                "**＋ Add Another Result** below, then re-run the check targeting a different result."
-            )
-        # --- END IRC fill summary banner ---
+            _filled   = _irc_summary.get("filled", 0)
+            _skipped  = _irc_summary.get("skipped", "")
+            _pages    = _irc_summary.get("pages", [])
+            _conf_note = _irc_summary.get("confidence_note", "")
+            _cgaps     = _irc_summary.get("compliance_gaps", "")
+            _page_note = f" · extracted from {len(_pages)} page{'s' if len(_pages)!=1 else ''}" if _pages else ""
+
+            # D2 & D5: extraction quality panel — always shown, adapts to fill count
+            _TOTAL_IRC_FIELDS = 12  # approximate total extractable fields
+            if _filled == 0:
+                st.warning(
+                    "⚠️ **IRC found 0 fields** — the document couldn't be read. "
+                    "You have not been charged. A free retry has been added to your account.\n\n"
+                    "**Try:** Export your report as Word (.docx) and re-upload, or fill the form below."
+                )
+            elif _filled < 4:
+                st.warning(
+                    f"⚡ **IRC found {_filled} of ~{_TOTAL_IRC_FIELDS} fields**{_page_note}. "
+                    f"Several fields were left blank — review and fill the gaps below."
+                )
+                if _skipped:
+                    st.caption(f"Not found in document: {_skipped}")
+            else:
+                st.success(
+                    f"⚡ **IRC found {_filled} of ~{_TOTAL_IRC_FIELDS} fields**{_page_note}. "
+                    "Review the pre-filled fields using the stage buttons at the top, then submit."
+                )
+                if _skipped:
+                    st.info(f"ℹ️ Left blank (not found): {_skipped}")
+
+            if _conf_note:
+                st.caption(f"ℹ️ {_conf_note}")
+            if _cgaps:
+                st.warning(f"⚠️ Compliance fields not found: {_cgaps}")
+
+            # D3: retry button — always offer it after IRC
+            _n_active = st.session_state.get("active_slots", 1)
+            if _n_active == 1:
+                st.caption(
+                    "📋 **More results in your report?** Click **＋ Add Another Result** below, "
+                    "then re-run IRC targeting a different result."
+                )
+        # --- END IRC extraction quality panel ---
 
         col_h, col_add = st.columns([5, 1])
         with col_h:
@@ -5193,10 +5219,47 @@ def render_screen_1():
                                     st.session_state["_irc_used"] = True
                                     st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
                                     _irc_should_rerun = True
+                                    # D1: zero-field extraction = no value delivered → grant free retry
+                                    if _irc_filled == 0:
+                                        st.session_state["_irc_retry_credit"] = True
                         except Exception as _irc_exc:
-                            st.error(f"Extraction failed: {_irc_exc}. Please fill the form manually.")
+                            _exc_str = str(_irc_exc).lower()
+                            # D4: classify failure type for targeted guidance
+                            if "timeout" in _exc_str or "timed out" in _exc_str:
+                                _fail_reason = "timeout"
+                            elif "json" in _exc_str or "decode" in _exc_str or "parse" in _exc_str:
+                                _fail_reason = "parse"
+                            elif "rate" in _exc_str or "429" in _exc_str:
+                                _fail_reason = "rate_limit"
+                            else:
+                                _fail_reason = "unknown"
+                            _uploaded_name = (_irc_files[0].name if _irc_files else "").lower()
+                            _is_pdf = _uploaded_name.endswith(".pdf")
+                            if _fail_reason == "timeout":
+                                _fail_msg = ("⚠️ **Extraction timed out** — your document may be too long. "
+                                             "Try uploading just the results or outputs section.")
+                            elif _fail_reason == "parse":
+                                _fail_msg = ("⚠️ **IRC had trouble reading the document structure.** "
+                                             "Try re-saving as a plain .docx and re-uploading.")
+                            elif _fail_reason == "rate_limit":
+                                _fail_msg = "⚠️ **Service busy — please wait 30 seconds and try again.**"
+                            elif _is_pdf:
+                                _fail_msg = ("⚠️ **IRC couldn't read this PDF.** "
+                                             "If it's a scanned document, export as Word (.docx) first. "
+                                             "Password-protected PDFs are not supported.")
+                            else:
+                                _fail_msg = "⚠️ **IRC couldn't extract your document.** Try a different file format or fill in manually below."
+                            st.session_state["_irc_retry_credit"] = True
+                            st.warning(
+                                f"{_fail_msg}\n\n"
+                                "**You have not been charged for this attempt.** "
+                                "A free retry has been added to your account."
+                            )
                     if _irc_should_rerun:
                         st.rerun()
+                    # D3: show retry notice if retry credit is active
+                    elif st.session_state.get("_irc_retry_credit"):
+                        st.info("🔄 **Free retry available** — adjust your hint or upload a different file and run IRC again at no charge.")
         # --- END UX: INSTANT REPORT CHECK (v3.2) ---
 
         for slot in range(1, active + 1):
@@ -5537,7 +5600,9 @@ def render_screen_1():
                         if _plv and _plv not in ("Choose an option...", ""):
                             save_example(f"provenance__{_plk}", _ev_type_log, _plv)
                 # --- Track usage ---
-                if not _paid_now and _email_now:
+                # D1: if user had a failed IRC attempt they're retrying, don't charge again
+                _using_retry_credit = st.session_state.pop("_irc_retry_credit", False)
+                if not _paid_now and _email_now and not _using_retry_credit:
                     increment_checks(_email_now)
                 # Clear saved draft — user has submitted, fresh start next time
                 if _email_now:
