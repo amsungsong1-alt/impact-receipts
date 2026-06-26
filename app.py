@@ -1793,6 +1793,9 @@ def _init_from_query_params() -> None:
             st.session_state[_k] = _v
         for _k, _v in _DEMO_SELECT_FIELDS.items():
             st.session_state[_k] = _v
+    # Track referral source for conversion analytics
+    if "ref" in _p:
+        st.session_state["_referral_source"] = _p["ref"]
 
 
 def _go_to_screen(screen: int, reset: bool = False):
@@ -4120,7 +4123,91 @@ def render_pricing_page():
                "Cancel anytime. Questions? WhatsApp: +233 50 364 8195")
 
 
+def _render_ph_landing():
+    """Stripped-down landing for Product Hunt / referral traffic.
+    Optimised for email capture + Quick Check conversion."""
+    st.markdown(
+        """
+        <div style='text-align:center;padding:24px 0 8px;'>
+          <p style='font-size:0.75rem;color:#8A6500;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin:0 0 8px;'>
+            Featured on Product Hunt 🎉
+          </p>
+          <h1 style='color:#1B5E20;font-size:1.8rem;margin:0 0 8px;line-height:1.2;'>
+            About to submit a result to your donor?
+          </h1>
+          <p style='color:#424242;font-size:1rem;margin:0 0 4px;'>
+            Run a 4-minute evidence quality check first.
+          </p>
+          <p style='color:#616161;font-size:0.85rem;margin:0 0 24px;'>
+            Built for MEL officers who report to USAID, FCDO, GIZ, and 7 more donors.
+          </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Quick Check front-and-centre
+    st.markdown("### ⚡ Try it now — no registration")
+    with st.container(border=True):
+        qc_result_ph  = st.text_area("Your result statement", key="qc_result_ph", height=80,
+                                      placeholder="e.g., Trained 250 farmers in climate-smart practices in Ashanti Region, Jan–Jun 2025")
+        qc_ev_type_ph = st.selectbox("Evidence type", key="qc_ev_type_ph",
+                                      options=["(Select evidence type)"] + EVIDENCE_TYPES)
+        if st.button("⚡ Check my result →", key="qc_ph_run", type="primary", use_container_width=True):
+            if qc_result_ph and qc_ev_type_ph != "(Select evidence type)":
+                try:
+                    _s = {"result_statement": qc_result_ph, "target_group":"","timeframe":"","geographic_scope":"",
+                          "logframe_indicator":"","logframe_target":"","logframe_achievement":"","additional_context":"",
+                          "evidence":[{"type":qc_ev_type_ph,"description":"","verified_by":"",
+                                       "internal_review":"Not reviewed","external_review":"No external review"}],
+                          "beneficiary_voice":"","provenance_checklist":{}}
+                    _e = _evaluator.evaluate_submission(_s)
+                    _c  = _e.get("raw_confidence_score",0)
+                    _cl = _e.get("clarity_score",0)
+                    _cl_lbl, _ = _evaluator.interpret_score(_cl)
+                    _c_lbl,  _ = _evaluator.interpret_score(_c)
+                    st.session_state["_qc_ph_scores"] = {"c":_c,"cl":_cl,"c_lbl":_c_lbl,"cl_lbl":_cl_lbl,
+                                                          "result":qc_result_ph,"ev_type":qc_ev_type_ph}
+                    st.rerun()
+                except Exception:
+                    st.warning("Enter a result statement and select an evidence type.")
+            else:
+                st.warning("Enter a result statement and select an evidence type.")
+
+    _ph = st.session_state.get("_qc_ph_scores")
+    if _ph:
+        st.success(
+            f"**Confidence: {_ph['c']}/5.0** ({_ph['c_lbl']}) · "
+            f"**Clarity: {_ph['cl']}/5.0** ({_ph['cl_lbl']})"
+        )
+        st.caption("Provisional — full diagnosis needs evidence details, logframe linkage, and verification.")
+        if st.button("Get the full diagnosis + Readiness Card PDF →", key="qc_ph_continue", type="primary", use_container_width=True):
+            st.session_state["result_statement"] = _ph["result"]
+            st.session_state["evidence_type"]    = _ph["ev_type"]
+            st.session_state.pop("_qc_ph_scores", None)
+            _go_to_screen(1, reset=False)
+
+    st.divider()
+    _ph_c1, _ph_c2, _ph_c3 = st.columns(3)
+    with _ph_c1:
+        st.metric("Scoring dimensions", "8", help="Directness, Verification, Recency, Definition, Measurement, Integrity, Scope, Governance")
+    with _ph_c2:
+        st.metric("Donors supported", "10", help="USAID, FCDO, GIZ, World Bank, AfDB, EU, Global Fund, Mastercard Foundation, KOICA, RVO")
+    with _ph_c3:
+        st.metric("Time to score", "4 min", help="Full form with logframe, evidence, and verification fields")
+
+    if st.button("← Back to full landing page", key="ph_back"):
+        st.session_state.pop("_referral_source", None)
+        st.rerun()
+
+
 def render_screen_0():
+    # PH / referral traffic gets a stripped-down Quick Check landing page
+    _ref = st.session_state.get("_referral_source", "")
+    if _ref in ("producthunt", "ph", "product_hunt"):
+        _render_ph_landing()
+        return
+
     _logo_path = pathlib.Path(__file__).parent / "logo.png.png"
     try:
         _logo_b64 = base64.b64encode(_logo_path.read_bytes()).decode()
