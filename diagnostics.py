@@ -6,6 +6,8 @@ Pure, deterministic, no Streamlit dependency — moved out of app.py as part
 of the modular refactor so it can be imported and tested headlessly.
 """
 
+from evaluator import SUBMISSION_THRESHOLD, NEAR_THRESHOLD_BAND  # single source of truth
+
 # ---------------------------------------------------------------------------
 # 7-state diagnostic badge + 3-state readiness band
 # ---------------------------------------------------------------------------
@@ -87,7 +89,7 @@ def get_diagnostic_state(
             "INVALID INPUT",
             "Inputs look like placeholder text — please provide real result and evidence details",
         )
-    if confidence >= 4.0 and clarity >= 4.0:
+    if confidence >= SUBMISSION_THRESHOLD and clarity >= SUBMISSION_THRESHOLD:
         if beneficiary_voice == "No beneficiary voice captured":
             return (
                 "NEEDS REFINEMENT",
@@ -334,7 +336,7 @@ DONOR_CROSSWALK = {
     "directness": {
         "dqa":  ["Validity"],
         "bond": ["Appropriateness"],
-        "eu":   [],
+        "eu":   ["Effectiveness — evidence shows the result was achieved"],
         "wb":   ["PDO Achievement"],
         "rationale": "Directness checks whether the evidence measures the programme's "
                       "contribution to the result — DQA Validity asks whether data "
@@ -344,7 +346,7 @@ DONOR_CROSSWALK = {
     "verification": {
         "dqa":  ["Reliability", "Integrity"],
         "bond": ["Triangulation"],
-        "eu":   [],
+        "eu":   ["Coherence — independent review confirms internal consistency"],
         "wb":   ["PLR Data Quality", "Third-Party Verification"],
         "rationale": "Independent review reduces measurement error (Reliability) and "
                       "guards against misreporting (Integrity); Bond calls this "
@@ -354,7 +356,7 @@ DONOR_CROSSWALK = {
     "recency": {
         "dqa":  ["Timeliness"],
         "bond": [],
-        "eu":   [],
+        "eu":   ["Relevance — data current enough to inform decisions"],
         "wb":   ["Timeliness"],
         "rationale": "DQA Timeliness requires data current enough to inform decisions; "
                       "World Bank Results Framework also requires indicators to be "
@@ -363,7 +365,7 @@ DONOR_CROSSWALK = {
     "definition": {
         "dqa":  ["Validity", "Precision"],
         "bond": [],
-        "eu":   [],
+        "eu":   ["Relevance — claim is specific, bounded, and purpose-matched"],
         "wb":   ["Indicator Specificity"],
         "rationale": "A precisely scoped result (who/what/where/when) is both valid "
                       "and precise under DQA; World Bank Results Framework requires "
@@ -372,7 +374,7 @@ DONOR_CROSSWALK = {
     "measurement": {
         "dqa":  ["Precision"],
         "bond": [],
-        "eu":   [],
+        "eu":   ["Effectiveness — method and baseline support the effectiveness claim"],
         "wb":   ["Results Framework Indicator", "Baseline & Target"],
         "rationale": "A stated indicator, baseline, and target is exactly what DQA "
                       "Precision evaluates; World Bank PDO indicators require documented "
@@ -381,7 +383,7 @@ DONOR_CROSSWALK = {
     "integrity": {
         "dqa":  ["Integrity"],
         "bond": ["Transparency"],
-        "eu":   [],
+        "eu":   ["Coherence — complete data trail supports the intervention logic"],
         "wb":   ["Data Integrity"],
         "rationale": "Complete data with an audit trail satisfies DQA Integrity and "
                       "Bond's Transparency principle; World Bank requires data integrity "
@@ -390,7 +392,7 @@ DONOR_CROSSWALK = {
     "scope": {
         "dqa":  ["Validity"],
         "bond": [],
-        "eu":   [],
+        "eu":   ["Impact — coverage supports the attribution claim"],
         "wb":   ["Coverage"],
         "rationale": "Coverage matching the claim (right population/area) is part of "
                       "DQA Validity; World Bank PDO indicators require coverage to match "
@@ -399,7 +401,7 @@ DONOR_CROSSWALK = {
     "governance": {
         "dqa":  ["Integrity"],
         "bond": ["Transparency", "Accountability"],
-        "eu":   [],
+        "eu":   ["Sustainability — named ownership enables continued evidence use"],
         "wb":   ["M&E Accountability"],
         "rationale": "A named, accountable owner supports DQA Integrity and Bond's "
                       "Transparency/Accountability principle; World Bank requires a "

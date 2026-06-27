@@ -4,13 +4,21 @@ A pre-submission confidence checker for MEL (Monitoring, Evaluation & Learning) 
 
 ## What it does
 
-Evaluates one result claim across three dimensions:
+Evaluates one result claim across **two axes** (each 0–5.0), using eight sub-dimensions:
 
-- **Clarity of Claim** — Does it specify a measurable unit, timeframe, and target group?
-- **Strength of Evidence** — Is the evidence direct, recent, and verifiable?
-- **Independent Review** — Has it been peer-reviewed internally or externally?
+**Confidence axis** — how much should we trust the evidence?
+- Directness — how directly does the evidence link activities to the result?
+- Verification — how independently has the evidence been reviewed?
+- Recency — how current is the evidence relative to the reporting period?
 
-You receive a confidence label (**Strong / Moderate / Weak / Incomplete**) plus a specific checklist of what to fix before submission, and a downloadable markdown report.
+**Clarity axis** — can someone else interpret this result the same way?
+- Definition — is the unit, timeframe, and target group specified?
+- Measurement — is the collection method and sampling approach disclosed?
+- Integrity — is the data complete with a clear audit trail?
+- Scope — does the coverage match the geographic and demographic claim?
+- Governance — is there a named owner and stated decision use?
+
+You receive a dual-axis score, a 7-state diagnostic verdict (STRONG / NEEDS REFINEMENT / MISLEADING / UNDEREVIDENCED / FUNDAMENTALLY WEAK / INCOMPLETE / INVALID INPUT), a prioritised fix list, and a downloadable report. This is a heuristic pre-submission check, not an expert audit — your donor reviewer makes the final determination.
 
 ## Run locally
 

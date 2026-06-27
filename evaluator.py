@@ -15,6 +15,12 @@ import re
 from datetime import datetime
 
 # ---------------------------------------------------------------------------
+# Shared scoring thresholds — used by both evaluator and diagnostics
+# ---------------------------------------------------------------------------
+SUBMISSION_THRESHOLD = 4.0   # both axes must reach this to be "Submission-Ready"
+NEAR_THRESHOLD_BAND  = 0.1   # scores within this of SUBMISSION_THRESHOLD get a boundary notice
+
+# ---------------------------------------------------------------------------
 # Level → directness mapping (Section 4.1)
 # ---------------------------------------------------------------------------
 
@@ -396,21 +402,43 @@ _BV_DROPDOWN_SCORES = {
 }
 
 
-def compute_beneficiary_voice_bonus(beneficiary_voice: str) -> float:
+_BV_HIGH_TIERS = {
+    "Direct beneficiary feedback collected (e.g., Lean Data survey, focus groups, NPS)",
+    "Beneficiary representatives consulted (community leaders, beneficiary committees)",
+}
+
+
+def compute_beneficiary_voice_bonus(beneficiary_voice: str, method_detail: str = "") -> float:
     """
     Returns 0.0–0.5 bonus based on explicit dropdown selection.
     Anchored in Bond Evidence Principles 2024 + 60 Decibels Lean Data.
+
+    For the top two tiers, a brief method description (≥20 chars) is required to
+    receive the full bonus; without it the bonus is capped at the anecdotal level (0.1).
+    This prevents self-certification without any corroborating detail.
     """
-    return _BV_DROPDOWN_SCORES.get(beneficiary_voice, 0.0)
+    base = _BV_DROPDOWN_SCORES.get(beneficiary_voice, 0.0)
+    if beneficiary_voice in _BV_HIGH_TIERS and len(method_detail.strip()) < 20:
+        return 0.1  # cap at anecdotal level until method detail is provided
+    return base
 
 
 _TEST_PATTERNS = {"test", "abc", "xxx", "asdf", "qwerty", "lorem", "placeholder", "sample"}
+
+
+_QUALITATIVE_EVIDENCE_TYPES = {
+    "Case study",
+    "Outcome harvesting",
+    "Beneficiary narrative / testimony",
+    "Most Significant Change story",
+}
 
 
 def validate_content_quality(
     result_statement: str,
     evidence_description: str,
     verifier: str,
+    evidence_type: str = "",
 ) -> tuple:
     """
     Returns (quality_multiplier: float, issues: list[str]).
@@ -442,7 +470,8 @@ def validate_content_quality(
         multiplier *= 0.2
         issues.append("Multiple placeholder/test words detected — please provide real content")
 
-    if result and not any(c.isdigit() for c in result):
+    is_qualitative = evidence_type in _QUALITATIVE_EVIDENCE_TYPES
+    if result and not is_qualitative and not any(c.isdigit() for c in result):
         multiplier *= 0.6
         issues.append("Result statement has no numbers — quantified claims score higher")
 
@@ -1350,7 +1379,7 @@ def evaluate_submission(submission: dict) -> dict:
 
     confidence_score = round(direct_score + verify_score + recency_score, 1)
 
-    quality_multiplier, content_issues = validate_content_quality(result_stmt, ev_desc, verified_by)
+    quality_multiplier, content_issues = validate_content_quality(result_stmt, ev_desc, verified_by, ev_type)
 
     linkage_result = evaluate_logframe_linkage(
         submission.get("logframe_indicator", "") or "",
@@ -1362,9 +1391,9 @@ def evaluate_submission(submission: dict) -> dict:
     confidence_score = round(confidence_score * quality_multiplier, 1)
     confidence_label, confidence_meaning = interpret_score(confidence_score)
 
-    bv_field = submission.get("beneficiary_voice", "")
-    bv_bonus = (compute_beneficiary_voice_bonus(bv_field) if bv_field
-                else score_beneficiary_voice(ev_desc, ev_type))
+    bv_field  = submission.get("beneficiary_voice", "")
+    bv_detail = submission.get("bv_method_detail", "")
+    bv_bonus  = compute_beneficiary_voice_bonus(bv_field, bv_detail) if bv_field else 0.0
 
     direct_rationale = get_directness_rationale(ev_desc, ev_type, result_stmt, direct_level)
     direct_signals = _directness_signals(ev_desc, ev_type, result_stmt)
@@ -1424,11 +1453,11 @@ def evaluate_submission(submission: dict) -> dict:
         "governance_score":  gov_score_c,
     }
 
-    # Combined verdict (Section 3)
-    conf_high = confidence_score >= 3.5
-    clar_high = clarity_score   >= 3.5
+    # Combined verdict (Section 3) — aligned with SUBMISSION_THRESHOLD from diagnostics
+    conf_high = confidence_score >= SUBMISSION_THRESHOLD
+    clar_high = clarity_score   >= SUBMISSION_THRESHOLD
     _verdicts = {
-        (True,  True):  "Strong KPI — well-positioned for submission",
+        (True,  True):  "Strong KPI — submission-ready on both axes",
         (True,  False): "Misleading KPI — sharpen the definition before submission",
         (False, True):  "Well-defined but weak evidence — strengthen the verification chain",
         (False, False): "High risk — strengthen both axes before relying on this result",

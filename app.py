@@ -2672,6 +2672,7 @@ def _build_submission_from_session(slot: int = 1) -> dict:
         "external_review":    ext_rev,
         "attached_filenames": st.session_state.get(f"uploaded_files{s}", []),
         "beneficiary_voice":    st.session_state.get(f"beneficiary_voice{s}", ""),
+        "bv_method_detail":     st.session_state.get(f"bv_method_detail{s}", ""),
         "logframe_indicator":   st.session_state.get(f"logframe_indicator{s}", ""),
         "logframe_target":      st.session_state.get(f"logframe_target{s}", ""),
         "logframe_achievement": st.session_state.get(f"logframe_achievement{s}", ""),
@@ -2931,6 +2932,18 @@ def _render_slot_fields(slot: int):
             "The strongest evidence includes beneficiary perspectives, not just provider reports."
         ),
     )
+    _bv_sel_1 = st.session_state.get(f"beneficiary_voice{s}", "")
+    _BV_HIGH = {
+        "Direct beneficiary feedback collected (e.g., Lean Data survey, focus groups, NPS)",
+        "Beneficiary representatives consulted (community leaders, beneficiary committees)",
+    }
+    if _bv_sel_1 in _BV_HIGH:
+        st.text_input(
+            "Briefly describe the method — when conducted and approximately how many people participated",
+            key=f"bv_method_detail{s}",
+            placeholder="e.g., Phone survey with 120 farmers, March 2025",
+            help="Required to receive the full beneficiary voice bonus (≥20 characters).",
+        )
 
     prev_files = st.session_state.get(f"draft_uploaded_filenames{s}", [])
     if prev_files:
@@ -3517,7 +3530,19 @@ def _render_tab3_slot(slot: int):
             help="The strongest evidence includes beneficiary perspectives, not just provider reports.",
         )
         _bv_val = st.session_state.get(f"beneficiary_voice{s}", "")
-        _bv_score = (_evaluator.compute_beneficiary_voice_bonus(_bv_val)
+        _BV_HIGH_2 = {
+            "Direct beneficiary feedback collected (e.g., Lean Data survey, focus groups, NPS)",
+            "Beneficiary representatives consulted (community leaders, beneficiary committees)",
+        }
+        if _bv_val in _BV_HIGH_2:
+            st.text_input(
+                "Briefly describe the method — when conducted and approximately how many people participated",
+                key=f"bv_method_detail{s}",
+                placeholder="e.g., Phone survey with 120 farmers, March 2025",
+                help="Required to receive the full beneficiary voice bonus (≥20 characters).",
+            )
+        _bv_detail = st.session_state.get(f"bv_method_detail{s}", "")
+        _bv_score = (_evaluator.compute_beneficiary_voice_bonus(_bv_val, _bv_detail)
                      if hasattr(_evaluator, "compute_beneficiary_voice_bonus") else 0.0)
         if _bv_val and _bv_val not in ("No beneficiary voice captured", "Choose an option..."):
             st.caption(f"Beneficiary Voice bonus: **+{_bv_score}/0.5**")
@@ -5912,6 +5937,23 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     if _pev:
         st.info(_pev)
 
+    # Methodology disclaimer — shown for every verdict state, immediately after the badge
+    st.caption(
+        "This is a heuristic pre-submission check based on a fixed scoring rubric, "
+        "not an expert audit. Your donor reviewer makes the final determination."
+    )
+
+    # Near-boundary notice — shown when either axis is within 0.1 of the submission threshold
+    from evaluator import SUBMISSION_THRESHOLD, NEAR_THRESHOLD_BAND
+    _conf_near = abs(conf_score - SUBMISSION_THRESHOLD) <= NEAR_THRESHOLD_BAND
+    _clar_near = abs(clar_score - SUBMISSION_THRESHOLD) <= NEAR_THRESHOLD_BAND
+    if (_conf_near or _clar_near) and diag_state not in ("INVALID INPUT", "INCOMPLETE"):
+        st.caption(
+            "Note: your score is within 0.1 of the submission threshold. "
+            "A single evidence improvement could change the verdict either way — "
+            "review the breakdown below before submitting."
+        )
+
     # Single biggest-impact fix surfaced up-front (all non-STRONG states)
     if fixes and diag_state not in ("STRONG", "INVALID INPUT"):
         _top = fixes[0]
@@ -5929,12 +5971,6 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     if _ev_stmt:
         st.markdown("**Evidence statement for your report** — copy and edit before pasting into your narrative:")
         st.code(_ev_stmt, language=None)
-
-    # STRONG early exit — score + evidence statement is everything needed; no detail wall
-    if diag_state == "STRONG":
-        st.success("This result is submission-ready. Download your report above.")
-        st.divider()
-        return
 
     # INVALID INPUT early exit
     if diag_state == "INVALID INPUT":
@@ -8020,6 +8056,14 @@ def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str, 
     if la:
         lf_rows += f"<tr><td style='color:#616161;font-size:11px;padding:3px 10px 3px 0;'>Achievement</td><td style='font-size:11px;color:#1B5E20;font-weight:700;'>{la}</td></tr>"
 
+    _irc_note_html = (
+        f'<p style="font-size:11px;color:#6D4C41;background:#FFF3E0;padding:8px 12px;'
+        f'border-left:3px solid #FF6F00;margin-bottom:10px;{P}">'
+        f'<strong>Instant Report Check used:</strong> Some form fields were pre-filled '
+        f'using AI extraction from an uploaded document. Review all values to confirm '
+        f'they accurately reflect your documentation before treating this report as final.</p>'
+    ) if st.session_state.get("_irc_used") else ""
+
     return f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
 <title>Submission Readiness Card</title>
@@ -8108,12 +8152,13 @@ This check scored 8 evidence-quality dimensions anchored in:
 <strong>Bond Evidence Principles 2024</strong> &middot;
 <strong>World Bank Results Framework</strong>.
 Scoring is fully deterministic — no AI judgement was applied; all decisions are rule-based and reproducible.
+Scores reflect patterns in submitted form fields and do not constitute expert review, audit, or guarantee of donor acceptance.
 </p>
 <p style="font-size:11px;color:#424242;background:#FFF9C4;padding:8px 12px;border-left:3px solid #8A6500;margin-bottom:10px;{P}">
 <strong>Important:</strong> Guidance only — your donor makes the final call, not this tool.
 Score generated: {timestamp}.
 </p>
-
+{_irc_note_html}
 <p style="color:#616161;font-style:italic;font-size:10px;border-top:1px solid #E0E0E0;margin-top:20px;padding-top:8px;">
 Impact Integrity Check &middot; Built in Accra for MEL teams across West Africa &middot; {APP_URL.replace('https://','').rstrip('/')}
 </p>
