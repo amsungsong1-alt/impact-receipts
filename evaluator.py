@@ -31,6 +31,7 @@ EVIDENCE_TYPE_DIRECTNESS = {
     "Partner verification letters":              3,
     "Photos with metadata":                      4,
     "Tracer survey results":                     4,
+    "Baseline and endline study":                4,  # comparison design → level 4
     "Financial records":                         5,
     "Third-party audits":                        3,
     # Legacy / long-form labels (backward compat)
@@ -478,20 +479,40 @@ def validate_content_quality(
     return round(multiplier, 2), issues
 
 
+_INCREASE_KEYWORDS = re.compile(
+    r"\b(increase|increas|grow|growth|improv|rise|expand|gain|uptak|higher|more)\b",
+    re.IGNORECASE,
+)
+_DECREASE_KEYWORDS = re.compile(
+    r"\b(decrease|decreas|reduc|fall|drop|lower|fewer|less|cut|declin)\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_first_number(text: str) -> float | None:
+    """Return the first bare number in a string, stripping commas/currency symbols."""
+    text = re.sub(r"[€$£₵,]", "", text or "")
+    m = re.search(r"-?\d+(?:\.\d+)?", text)
+    return float(m.group()) if m else None
+
+
 def evaluate_logframe_linkage(
     indicator: str,
     target: str,
     achievement: str,
     result_statement: str,
+    baseline: str = "",
+    data_forthcoming: bool = False,
 ) -> dict:
     """
     Checks whether a reported result is tied to an approved logframe indicator.
     Anchored in OECD-DAC 2019 Coherence + USAID DQA Validity.
-    Returns {score, state, issues, rationale}.
+    Returns {score, state, issues, rationale, pct_of_target, direction_mismatch}.
     """
     indicator   = (indicator or "").strip()
     target      = (target or "").strip()
     achievement = (achievement or "").strip()
+    baseline_s  = (baseline or "").strip()
     result      = (result_statement or "").strip()
 
     if not indicator:
@@ -506,10 +527,32 @@ def evaluate_logframe_linkage(
                 "OECD-DAC 2019 + USAID DQA: Every reported result must trace to an "
                 "approved indicator. Score: 0.0/1.0"
             ),
+            "pct_of_target": None,
+            "direction_mismatch": False,
+        }
+
+    # Handle "data not yet collected" — honest gap, not a scoring failure
+    if data_forthcoming:
+        return {
+            "score": 0.7,
+            "state": "DATA_FORTHCOMING",
+            "issues": [
+                "Measurement not yet collected — state this explicitly in your "
+                "submission narrative so the donor understands the gap is planned, "
+                "not overlooked."
+            ],
+            "rationale": (
+                "OECD-DAC 2019 + USAID DQA — Indicator linked, measurement forthcoming. "
+                "Score: 0.7/1.0 (gap disclosed)"
+            ),
+            "pct_of_target": None,
+            "direction_mismatch": False,
         }
 
     score = 0.4
     issues = []
+    pct_of_target = None
+    direction_mismatch = False
 
     if not target:
         issues.append(
@@ -534,9 +577,41 @@ def evaluate_logframe_linkage(
             )
             score -= 0.2
 
+        # % of target achieved — works when both fields contain bare numbers or "%"
+        ach_val = _extract_first_number(achievement)
+        tgt_val = _extract_first_number(target)
+        if ach_val is not None and tgt_val is not None and tgt_val != 0:
+            pct_of_target = round(ach_val / tgt_val * 100, 1)
+
+        # Direction validation — only when a numeric baseline is available
+        base_val = _extract_first_number(baseline_s)
+        if base_val is not None and ach_val is not None:
+            is_increase_ind = bool(_INCREASE_KEYWORDS.search(indicator))
+            is_decrease_ind = bool(_DECREASE_KEYWORDS.search(indicator))
+            actual_increased = ach_val > base_val
+            actual_decreased = ach_val < base_val
+            if is_increase_ind and actual_decreased:
+                direction_mismatch = True
+                issues.append(
+                    "Direction mismatch: the indicator implies an increase, but the "
+                    "reported achievement is lower than the baseline. Review the framing "
+                    "before submission — donors will flag this."
+                )
+                score -= 0.2
+            elif is_decrease_ind and actual_increased:
+                direction_mismatch = True
+                issues.append(
+                    "Direction mismatch: the indicator implies a reduction, but the "
+                    "reported achievement is higher than the baseline. Clarify the "
+                    "direction of change."
+                )
+                score -= 0.2
+
     score = round(max(0.0, score), 2)
     if score >= 0.85:
         state = "STRONG"
+    elif direction_mismatch:
+        state = "DIRECTION_MISMATCH"
     else:
         state = "WEAK"
 
@@ -549,6 +624,8 @@ def evaluate_logframe_linkage(
             f"{'complete and consistent' if state == 'STRONG' else 'partial — gaps exist'}. "
             f"Score: {score:.1f}/1.0"
         ),
+        "pct_of_target": pct_of_target,
+        "direction_mismatch": direction_mismatch,
     }
 
 
@@ -638,6 +715,7 @@ EVIDENCE_TYPE_LADDER_TIER = {
     "Attendance sheets / participant registers": "Basic",
     "Photos with metadata": "Basic",
     "Tracer survey results": "Moderate",
+    "Baseline and endline study": "Stronger",
     "Financial records": "Stronger",
     "Third-party audits": "Stronger",
     "Partner verification letters": "Stronger",
@@ -920,6 +998,7 @@ _STRUCTURED_EV_TYPES = {
     "Financial records / receipts",
     "Government / administrative records",
     "Tracer survey results",
+    "Baseline and endline study",
     "Payroll records",
 }
 
@@ -1386,6 +1465,8 @@ def evaluate_submission(submission: dict) -> dict:
         submission.get("logframe_target", "") or "",
         submission.get("logframe_achievement", "") or "",
         result_stmt,
+        baseline=submission.get("logframe_baseline", "") or "",
+        data_forthcoming=bool(submission.get("logframe_data_forthcoming", False)),
     )
     raw_confidence_score = confidence_score
     confidence_score = round(confidence_score * quality_multiplier, 1)

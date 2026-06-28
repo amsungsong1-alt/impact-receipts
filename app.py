@@ -173,6 +173,7 @@ EVIDENCE_TYPES = [
     "Partner verification letters",
     "Photos with metadata",
     "Tracer survey results",
+    "Baseline and endline study",
     "Financial records",
     "Third-party audits",
     "Case study",
@@ -1100,14 +1101,15 @@ SECTOR_PLACEHOLDERS = {
         "verifier":             "e.g., District Nutrition Officer, Ghana Health Service Regional Nutrition Directorate, UNICEF field monitoring officer",
     },
     "Private Sector Development": {
-        "result":               "e.g., Supported 680 SMEs to access formal credit and export markets across 3 value chains in Ashanti and Bono regions between July 2024 and June 2025",
-        "target_group":         "e.g., Small and medium enterprises in cocoa processing, shea butter, and garment manufacturing; majority women-owned businesses (70%+)",
-        "geographic_scope":     "e.g., Kumasi, Obuasi, Tepa, and Sunyani (Ashanti and Bono regions)",
-        "evidence_description": "e.g., Business registration and credit disbursement records from partner financial institutions + export invoices from 3 value chain hubs + quarterly monitoring survey of participating SMEs (n=680) + AfDB project M&E reports",
-        "logframe_indicator":   "e.g., Indicator 5.1: Number of SMEs accessing formal credit or export markets for the first time through programme value chain facilitation",
-        "logframe_target":      "e.g., 600 SMEs with first-time formal credit access by Q2 2025",
-        "logframe_achievement": "e.g., 680 SMEs supported by June 2025 — 113% of target",
-        "verifier":             "e.g., NBFI/bank partner M&E lead, Ghana Export Promotion Authority officer, AfDB country office field verifier",
+        "result":               "e.g., 184 entrepreneurs across 8 cohorts increased aggregate net profit from a pre-programme baseline of net losses to GHS 313,609 post-evaluation, with 608 jobs created across Cohorts 1–8 between 2019 and 2024",
+        "target_group":         "e.g., Early-stage entrepreneurs and SME owners (Cohorts 1–8); majority youth-led businesses (under 35) with at least one product or service at market-entry stage",
+        "geographic_scope":     "e.g., Accra, Kumasi, and Takoradi (Greater Accra, Ashanti, and Western regions)",
+        "evidence_description": "e.g., Pre-evaluation (Annex 5a) and post-evaluation (Annex 6) datasets collected by independent evaluation firm across 184 participants + financial records from partner financial institutions + employment rosters verified by business mentors",
+        "logframe_indicator":   "e.g., KPI 2.3: Increase in profit levels among programme participants (target: 60% of participants reporting positive net profit post-programme)",
+        "logframe_baseline":    "e.g., -€1,314,576.78 net loss (pre-evaluation, 2019)",
+        "logframe_target":      "e.g., 60% of participants achieving positive net profit by programme end",
+        "logframe_achievement": "e.g., 50% of participants achieved positive net profit — GHS 313,609 aggregate (vs. pre-evaluation net loss)",
+        "verifier":             "e.g., Independent evaluation firm (lead evaluator), programme MEL officer, Dutch Embassy country representative",
     },
     "Other": {
         "result":               "e.g., [Action verb] [number] [target population] in [location] between [start date] and [end date]",
@@ -1185,6 +1187,7 @@ _PORTFOLIO_COLUMNS = [
     ("verifier",             False, "District Water and Sanitation Officer, Water Resource Commission inspector"),
     # --- Logframe linkage ---
     ("logframe_indicator",   False, "Indicator 2.1: Number of households with access to safely managed drinking water (SDG 6.1 aligned)"),
+    ("logframe_baseline",    False, "1,200 households with access (2019 baseline)"),
     ("logframe_target",      False, "3,000 households with access by Q4 2025"),
     ("logframe_achievement", False, "3,400 households by June 2025 — 113% of target"),
     # --- Advisory flags ---
@@ -1703,7 +1706,8 @@ _BASE_FORM_KEYS = [
     "internal_review", "internal_review_other",
     "external_review", "external_review_other",
     "verifier", "sector", "sector_other", "beneficiary_voice",
-    "logframe_indicator", "logframe_target", "logframe_achievement",
+    "logframe_indicator", "logframe_baseline", "logframe_target", "logframe_achievement",
+    "logframe_data_forthcoming",
     # evidence sub-prompt checkboxes (informational, v3.3)
     "signatures_verified", "date_stamped", "cross_ref",
     "sample_doc", "clean_data", "version_ctrl",
@@ -2674,8 +2678,10 @@ def _build_submission_from_session(slot: int = 1) -> dict:
         "beneficiary_voice":    st.session_state.get(f"beneficiary_voice{s}", ""),
         "bv_method_detail":     st.session_state.get(f"bv_method_detail{s}", ""),
         "logframe_indicator":   st.session_state.get(f"logframe_indicator{s}", ""),
+        "logframe_baseline":    st.session_state.get(f"logframe_baseline{s}", ""),
         "logframe_target":      st.session_state.get(f"logframe_target{s}", ""),
         "logframe_achievement": st.session_state.get(f"logframe_achievement{s}", ""),
+        "logframe_data_forthcoming": bool(st.session_state.get(f"logframe_data_forthcoming{s}", False)),
         "reporting_start":      _format_date(st.session_state.get(f"reporting_start{s}")),
         "reporting_end":        _format_date(st.session_state.get(f"reporting_end{s}")),
         "provenance_checklist": {
@@ -3320,24 +3326,45 @@ def _render_tab2_slot(slot: int):
         )
         _irc_widget(
             st.text_input,
+            "Pre-evaluation / baseline value",
+            f"logframe_baseline{s}", default="",
+            placeholder="e.g., 77.94 units (2019 baseline) or €-1.3M net loss (pre-program)",
+            help=(
+                "The value of this indicator before the programme began (or at the last measurement point). "
+                "Required to compute % change from baseline and to validate the direction of change."
+            ),
+        )
+        _irc_widget(
+            st.text_input,
             "Approved target",
             f"logframe_target{s}", default="",
-            placeholder=_ph.get("logframe_target", "e.g., 250 youth trained by Q4 2025"),
+            placeholder=_ph.get("logframe_target", "e.g., 60% increase by Q4 2025"),
             help=(
                 "The target as approved in the original Technical Proposal. Donors compare achievements "
                 "against approved targets — not revised internal targets."
             ),
         )
-        _irc_widget(
-            st.text_input,
-            "Actual achievement",
-            f"logframe_achievement{s}", default="",
-            placeholder=_ph.get("logframe_achievement", "e.g., [Actual number] by [date] — [%] of original target"),
+        _data_forthcoming = st.checkbox(
+            "Data not yet available for this indicator",
+            key=f"logframe_data_forthcoming{s}",
             help=(
-                "The actual delivered number, ideally with % achievement vs original target. "
-                "Must reconcile with your result statement above."
+                "Tick if measurement has not yet been collected. The gap will be disclosed in your "
+                "report rather than penalised — donors prefer honest disclosure to blank fields."
             ),
         )
+        if not _data_forthcoming:
+            _irc_widget(
+                st.text_input,
+                "Actual achievement",
+                f"logframe_achievement{s}", default="",
+                placeholder=_ph.get("logframe_achievement", "e.g., 55% achieved — 142 units vs 77.94 baseline"),
+                help=(
+                    "The actual delivered number, ideally with % achievement vs original target. "
+                    "Must reconcile with your result statement above."
+                ),
+            )
+        else:
+            st.caption("Measurement not yet collected — this will be flagged in your report.")
 
 
 def _render_tab3_slot(slot: int):
@@ -6038,14 +6065,37 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     # Logframe linkage panel (guarded for backward-compat with stale evaluator deploys)
     linkage = ev.get("logframe_linkage", {})
     if linkage:
-        lk_state = linkage.get("state", "MISSING")
-        lk_rat   = linkage.get("rationale", "")
+        lk_state  = linkage.get("state", "MISSING")
+        lk_rat    = linkage.get("rationale", "")
         lk_issues = linkage.get("issues", [])
+        pct_of_target     = linkage.get("pct_of_target")
+        direction_mismatch = linkage.get("direction_mismatch", False)
         st.markdown("#### Logframe Linkage")
+
+        # % of target badge — shown when computable
+        if pct_of_target is not None:
+            _pct_color = "#1B5E20" if pct_of_target >= 100 else ("#8A6500" if pct_of_target >= 80 else "#B71C1C")
+            st.markdown(
+                f"<span style='background:{_pct_color};color:#fff;padding:3px 10px;"
+                f"border-radius:4px;font-size:0.85rem;font-weight:700;'>"
+                f"{pct_of_target:.0f}% of target reached</span>",
+                unsafe_allow_html=True,
+            )
+
         if lk_state == "STRONG":
             st.success(f"✓ {lk_rat}")
-        elif lk_state == "WEAK":
+        elif lk_state == "DATA_FORTHCOMING":
+            st.info("Data gap disclosed — not penalised. State this in your submission narrative.")
+            for iss in lk_issues:
+                st.markdown(f"- {iss}")
+        elif lk_state in ("WEAK", "DIRECTION_MISMATCH"):
             st.warning(f"⚠️ {lk_rat}")
+            if direction_mismatch:
+                st.error(
+                    "Direction mismatch detected: the indicator implies a change in one direction "
+                    "but the baseline-to-achievement comparison shows the opposite. "
+                    "Donors will flag this — review the framing before submission."
+                )
             for iss in lk_issues:
                 st.markdown(f"- {iss}")
         else:
@@ -7282,6 +7332,33 @@ def _build_markdown_report(submission: dict, evaluation: dict, timestamp: str) -
 
     if filenames:
         lines += [f"- **Attached documents:** {', '.join(filenames)}", ""]
+
+    # Logframe comparison table — shown when baseline + target + achievement are all present
+    _lf_baseline    = submission.get("logframe_baseline", "").strip()
+    _lf_indicator   = submission.get("logframe_indicator", "").strip()
+    _lf_target      = submission.get("logframe_target", "").strip()
+    _lf_achievement = submission.get("logframe_achievement", "").strip()
+    _lf_pct         = (evaluation.get("logframe_linkage") or {}).get("pct_of_target")
+    _lf_dir_miss    = (evaluation.get("logframe_linkage") or {}).get("direction_mismatch", False)
+    _lf_forthcoming = submission.get("logframe_data_forthcoming", False)
+
+    if _lf_indicator:
+        lines += ["---", "", "## Logframe Linkage", "", f"**Indicator:** {_lf_indicator}", ""]
+        if _lf_baseline or _lf_target or _lf_achievement:
+            lines += [
+                "| | Value |",
+                "|---|---|",
+                f"| **Baseline / Pre-evaluation** | {_lf_baseline or '—'} |",
+                f"| **Approved target** | {_lf_target or '—'} |",
+                f"| **Actual achievement** | {_lf_achievement or '—'} |",
+                f"| **% of target reached** | {f'{_lf_pct:.0f}%' if _lf_pct is not None else '—'} |",
+                "",
+            ]
+        if _lf_dir_miss:
+            lines += ["> **Direction mismatch:** The indicator implies a change in one direction but the "
+                      "baseline-to-achievement comparison shows the opposite. Review framing before submission.", ""]
+        if _lf_forthcoming:
+            lines += ["> **Data gap disclosed:** Measurement not yet collected — state this in the submission narrative.", ""]
 
     lines += [
         "---",
