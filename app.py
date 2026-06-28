@@ -668,7 +668,7 @@ Return exactly this structure. Do not add or remove keys.
 
 IMPORTANT: For each field in field_sources, set "page" to the 1-based page number in the document where that content was found. If the page cannot be determined, use 0. Use "confidence": "high" if the value was explicitly stated, "medium" if inferred, "low" if uncertain.'''
 
-_UX_TAB_NAMES = ["Result Basics", "Logframe Linkage", "Evidence & Verification", "Review & Submit"]
+_UX_TAB_NAMES = ["Your Result", "Logframe", "Evidence", "Review & Score"]
 
 # ---------------------------------------------------------------------------
 # BATCH EXTRACTION PROMPT — "Score My Report" pipeline (council XVII)
@@ -1924,7 +1924,7 @@ def _go_to_screen(screen: int, reset: bool = False):
 
 def _render_tagline_footer():
     st.markdown(
-        '<div class="trust-tagline">Impact Integrity Check · Score your result before your donor does · Built in Accra</div>',
+        '<div class="trust-tagline">ImpactProof · Upload your report. Score every result. Submit with confidence. · Built in Accra</div>',
         unsafe_allow_html=True,
     )
 
@@ -3401,7 +3401,7 @@ def _render_tab1_slot(slot: int):
 def _render_tab2_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
     _render_fix_notes(slot, 1)
-    st.caption("Donor question 2 of 4: Was this result in your approved plan? Link it to your indicator — this is the first thing a USAID COR checks.")
+    st.caption("Step 2 of 3 — Link this result to your approved logframe indicator. Fills up to +1.0 on your score.")
 
     # Show result statement as read-only reference so user can reconcile without scrolling back
     _rs_ref = st.session_state.get(f"result_statement{s}", "").strip()
@@ -3523,11 +3523,12 @@ def _render_tab3_slot(slot: int):
     _minors_triggered = _minors_possibly_involved(slot)
     _compliance_needed = _pii_triggered or _safeguarding_triggered or _minors_triggered
 
-    # ── ADD MORE DETAIL (collapsed by default; auto-opens for PII/safeguarding) ──
+    # ── ADVANCED DETAILS (collapsed by default; auto-opens for PII/safeguarding) ──
     with st.expander(
-        "⚙️ Add more detail (improves your score)" + (" — ⚠️ compliance required" if _compliance_needed else ""),
+        "⚙️ Improve your score — Advanced details (up to +2.0 points)" + (" — ⚠️ compliance required" if _compliance_needed else ""),
         expanded=_compliance_needed,
     ):
+        st.caption("Filling these fields can improve your Confidence score by up to +2.0 points. Leave them blank to skip — you can always come back.")
         # Qualitative evidence checkbox + quality checks
         is_qualitative_evidence = (
             ev_type in QUALITATIVE_EVIDENCE_TYPES
@@ -4397,10 +4398,10 @@ def render_screen_0():
         _logo_b64 = base64.b64encode(_logo_path.read_bytes()).decode()
         _logo_tag = (
             f'<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">'
-            f'<img src="data:image/png;base64,{_logo_b64}" alt="Impact Integrity Check" style="height:56px;">'
+            f'<img src="data:image/png;base64,{_logo_b64}" alt="ImpactProof" style="height:56px;">'
             f'<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
-            f'<span style="color:#1B5E20;">Impact Integrity Check</span><br>'
-            f'<span style="color:#8A6500; font-weight:600;">Score your result before your donor does.</span>'
+            f'<span style="color:#1B5E20;">ImpactProof</span><br>'
+            f'<span style="color:#8A6500; font-weight:600;">Score your evidence. Prove your impact.</span>'
             f'</span>'
             f'</div>'
         )
@@ -4408,27 +4409,57 @@ def render_screen_0():
         _logo_tag = (
             '<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">'
             '<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
-            '<span style="color:#1B5E20;">Impact Integrity Check</span><br>'
-            '<span style="color:#8A6500; font-weight:400;">Score your result before your donor does.</span>'
+            '<span style="color:#1B5E20;">ImpactProof</span><br>'
+            '<span style="color:#8A6500; font-weight:400;">Score your evidence. Prove your impact.</span>'
             '</span>'
             '</div>'
         )
+    # ── Hero ──────────────────────────────────────────────────────────────
     st.markdown(
         f"""
         <div class="hero-block">
           {_logo_tag}
-          <h1>About to submit a result to your donor? Run a 4-minute quality check first.</h1>
-          <p style="font-size:0.85rem;color:#616161;margin:4px 0 0;">For MEL officers, programme leads, and consultants — the people who answer for evidence quality. Reporting to FCDO, GIZ, World Bank, EU, and 7 more donors.</p>
+          <h1 style="margin:8px 0 4px;">Upload your report. Score every result. Submit with confidence.</h1>
+          <p style="font-size:0.85rem;color:#616161;margin:0;">
+            For MEL officers, programme leads, and consultants — the people who answer for evidence quality.
+          </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.caption("First 3 checks free · No registration needed for the quick read")
+    # ── Two-path choice cards ──────────────────────────────────────────────
+    st.markdown("")
+    _path_col1, _path_col2 = st.columns(2, gap="medium")
 
-    st.markdown("**⚡ Quick Check — instant provisional scores (1 minute):**")
-    with st.container(border=True):
-        st.caption("Fill 3 fields to instantly see provisional Confidence and Clarity scores. No tabs, no email required.")
+    with _path_col1:
+        with st.container(border=True):
+            st.markdown("#### 📄 Score My Report")
+            st.caption(
+                "Upload a Word or PDF donor report. Every result scored in 60 seconds. "
+                "Download a filled Excel with Confidence & Clarity scores."
+            )
+            st.caption("First 3 uploads free · No registration needed")
+            if st.button("Upload and Score →", key="cta_score_report", type="primary",
+                         use_container_width=True):
+                _go_to_screen(3)
+
+    with _path_col2:
+        with st.container(border=True):
+            st.markdown("#### ✏️ Check One Result")
+            st.caption(
+                "Fill a short form to score one specific result in under 5 minutes. "
+                "Good for single high-stakes results before a meeting."
+            )
+            st.caption("Or check below for a 60-second instant read.")
+            if st.button("Start Form →", key="cta_top", use_container_width=True):
+                if not st.session_state.get("has_seen_tutorial"):
+                    st.session_state["tutorial_step"] = 1
+                _go_to_screen(1, reset=True)
+
+    # ── Quick Check (now secondary — inside expander) ──────────────────────
+    with st.expander("⚡ Quick Check — instant provisional scores (60 seconds)", expanded=False):
+        st.caption("Fill 3 fields to instantly see provisional Confidence and Clarity scores. No form, no email required.")
         qc_result   = st.text_area("Your result statement", key="qc_result", height=80,
                                     placeholder="e.g., Trained 250 farmers in climate-smart practices in Northern Region, Jan–Jun 2025")
         qc_ev_type  = st.selectbox("Evidence type", key="qc_ev_type",
@@ -4452,18 +4483,16 @@ def render_screen_0():
                     _qc_cl = _qc_ev.get("clarity_score", 0)
                     _qc_cl_label, _ = _evaluator.interpret_score(_qc_cl)
                     _qc_c_label,  _ = _evaluator.interpret_score(_qc_c)
-                    # Cache scores so Continue button renders on next rerun
                     st.session_state["_qc_last_scores"] = {
                         "c": _qc_c, "cl": _qc_cl, "c_lbl": _qc_c_label, "cl_lbl": _qc_cl_label,
                         "result": qc_result, "ev_type": qc_ev_type, "verifier": qc_verifier,
                     }
                     st.rerun()
                 except Exception:
-                    st.warning("Fill in your result statement and select an evidence type to get a quick read.")
+                    st.warning("Fill in your result statement and select an evidence type.")
             else:
-                st.warning("Enter a result statement and select an evidence type to run the quick check.")
+                st.warning("Enter a result statement and select an evidence type.")
 
-        # Show cached scores + Continue button (outside the qc_run if-block so Continue click works)
         _qc_scores = st.session_state.get("_qc_last_scores")
         if _qc_scores:
             st.success(
@@ -4480,34 +4509,7 @@ def render_screen_0():
                     st.session_state["tutorial_step"] = 1
                 _go_to_screen(1, reset=False)
 
-    # Full-form CTA — secondary to Quick Check
-    st.divider()
-    _s0_c1, _s0_c2 = st.columns([3, 1])
-    with _s0_c1:
-        if st.button("Check My Result Statement (full diagnosis) →", type="primary", use_container_width=True, key="cta_top"):
-            if not st.session_state.get("has_seen_tutorial"):
-                st.session_state["tutorial_step"] = 1
-            _go_to_screen(1, reset=True)
-    with _s0_c2:
-        if st.button("Pricing →", key="cta_pricing", use_container_width=True, help="View plans and pricing"):
-            st.session_state["_show_pricing"] = True
-            st.rerun()
-
-    if st.button("🚀 Try with a sample result →", key="cta_demo",
-                 help="Loads a realistic ANC result from Ashanti Region — runs in seconds",
-                 use_container_width=True):
-        _reset_all_slots()
-        for _k, _v in _DEMO_SUBMISSION.items():
-            st.session_state[_k] = _v
-        for _k, _v in _DEMO_SELECT_FIELDS.items():
-            st.session_state[_k] = _v
-        st.session_state["_form_is_resumption"] = False  # demo ≠ previous session
-        if not st.session_state.get("has_seen_tutorial"):
-            st.session_state["tutorial_step"] = 1
-        st.query_params["demo"] = "1"
-        _go_to_screen(1)
-
-    # Case study — strongest trust element, above the fold
+    # ── Case study trust element (compact) ────────────────────────────────
     st.markdown(
         """
         <div style="border-left:4px solid #8A6500;padding:8px 12px;margin:12px 0;background:transparent;">
@@ -4515,26 +4517,37 @@ def render_screen_0():
             <strong style="color:#1B5E20;">&#128204; Real case from 2024:</strong>
             An African consultancy&rsquo;s final donor report was rejected three times
             for missing M&amp;E data and logframe gaps. 40+ hours of senior staff rework.
-            Impact Integrity Check catches these issues before they reach your donor.
+            ImpactProof catches these issues before they reach your donor.
           </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    with st.expander("📂 Load a saved draft (JSON)"):
-        uploaded_json = st.file_uploader(
-            "Upload a previously saved inputs JSON",
-            type=["json"],
-            key="resume_json_upload",
-            help="Upload a JSON file previously downloaded from the Review & Submit tab.",
-        )
-        if uploaded_json is not None:
-            try:
-                data = json.loads(uploaded_json.read())
-                _load_from_inputs_json(data)
-            except Exception as exc:
-                st.error(f"Could not read the file: {exc}")
+    st.caption(
+        f"[Pricing →](#) · [Try with a sample result →](#) · "
+        f"Your data stays in your browser — never stored on our servers."
+    )
+    _footer_c1, _footer_c2 = st.columns(2)
+    with _footer_c1:
+        if st.button("Pricing →", key="cta_pricing", use_container_width=True,
+                     help="View plans and pricing"):
+            st.session_state["_show_pricing"] = True
+            st.rerun()
+    with _footer_c2:
+        if st.button("🚀 Try with a sample →", key="cta_demo",
+                     help="Loads a realistic ANC result — runs in seconds",
+                     use_container_width=True):
+            _reset_all_slots()
+            for _k, _v in _DEMO_SUBMISSION.items():
+                st.session_state[_k] = _v
+            for _k, _v in _DEMO_SELECT_FIELDS.items():
+                st.session_state[_k] = _v
+            st.session_state["_form_is_resumption"] = False
+            if not st.session_state.get("has_seen_tutorial"):
+                st.session_state["tutorial_step"] = 1
+            st.query_params["demo"] = "1"
+            _go_to_screen(1)
 
     with st.expander("More about this tool"):
         st.markdown(
@@ -4756,7 +4769,7 @@ def render_screen_1():
     )
 
     if _cur_tab == 0:
-        st.caption("Donor question 1 of 4: What did your project achieve? Define it precisely enough that a reviewer can check it against your logframe.")
+        st.caption("Step 1 of 3 — Describe what your project achieved and who benefited. Four fields, under 2 minutes.")
 
         # Sector selector always visible — gates placeholder quality for all fields below
         st.selectbox(
@@ -5555,7 +5568,7 @@ def render_screen_1():
         # --- END v3.3 ---
 
     elif _cur_tab == 2:
-        st.caption("Donor question 3 of 4: Can you prove it? Weak evidence here is the #1 cause of rejected results.")
+        st.caption("Step 3 of 3 — Describe your evidence. This is the most important step: weak evidence is the #1 cause of rejected results.")
         for slot in range(1, active + 1):
             if active > 1:
                 st.markdown(f"---\n#### Result {slot}")
@@ -6208,6 +6221,25 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         st.divider()
         return
 
+    # --- Full breakdown expander — all detail panels (council XVIII) ---
+    # The verdict, top fixes, and download are already shown above.
+    # Everything else lives in this single expander to reduce default noise.
+    _s2_breakdown_label = (
+        "✅ Reference breakdown — no action required" if diag_state == "STRONG"
+        else "🔍 See full breakdown — scores, evidence ladder, donor readiness"
+    )
+    _s2_breakdown_open = st.session_state.get(f"_s2_breakdown_open_{card_idx}", diag_state == "STRONG")
+    if st.button(
+        ("▼ Hide breakdown" if _s2_breakdown_open else "▶ " + _s2_breakdown_label),
+        key=f"s2_breakdown_toggle_{card_idx}",
+        use_container_width=True,
+    ):
+        st.session_state[f"_s2_breakdown_open_{card_idx}"] = not _s2_breakdown_open
+        st.rerun()
+
+    if not st.session_state.get(f"_s2_breakdown_open_{card_idx}", diag_state == "STRONG"):
+        return  # User hasn't opened breakdown — show nothing more
+
     # --- Four Funder Questions summary (top of report) ---
     ev_top      = (submission.get("evidence") or [{}])[0]
     ev_type_top = ev_top.get("type", "") or "Not specified"
@@ -6546,12 +6578,12 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             return "✅" if s >= 4.0 else "⚠️" if s >= 3.0 else "🔴"
         _tf = fixes[0]["message"] if fixes else "No major gaps — ready to refine."
         _wa_text = (
-            f"📊 Impact Integrity Check — Pre-Submission Check\n"
+            f"📊 ImpactProof — Evidence Quality Check\n"
             f"Confidence: {conf_score}/5.0 {_share_icon(conf_score)}  ·  "
             f"Clarity: {clar_score}/5.0 {_share_icon(clar_score)}\n"
             f"Top fix: {_tf}\n"
             f"Verdict: {verdict}\n"
-            f"Checked with: Impact Integrity Check ({APP_URL}/)"
+            f"Checked with: ImpactProof ({APP_URL}/)"
         )
         _wa_url = "https://wa.me/?text=" + urllib.parse.quote(_wa_text)
         st.markdown(
@@ -6690,15 +6722,7 @@ def render_screen_2():
         ):
             _go_to_screen(3)
 
-    # Unfair advantage exit moment — name the advantage explicitly
-    _donor_label = st.session_state.get("donor_selected", "")
-    _donor_ref = _donor_label if _donor_label and _donor_label not in ("(No donor specified)", "") else "your donor"
-    st.markdown(
-        f"<p style='color:#1B5E20;font-weight:600;font-size:0.95rem;margin:8px 0 16px;'>"
-        f"✓ You've seen your result the way your {_donor_ref} reviewer will — before they do. "
-        f"<em>That's the advantage.</em></p>",
-        unsafe_allow_html=True,
-    )
+    # (Unfair advantage message removed — council XVIII: marketing copy at result stage is noise)
 
     # Primary download — 2–3 page Readiness Card (shareable with MEL lead / donor)
     timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -6813,7 +6837,7 @@ def render_screen_2():
 
     with st.expander("📚 Methodology & Citations", expanded=False):
         st.markdown("""
-**Impact Integrity Check v3.0 scoring methodology is anchored in:**
+**ImpactProof scoring methodology is anchored in:**
 
 - **Data Quality Standards** — adapted from USAID ADS 201.3.5.7, OECD-DAC 2019 evaluation criteria, and FCDO DQA guidance. Used for all Confidence and Clarity sub-scores.
 
@@ -6825,7 +6849,7 @@ def render_screen_2():
 
 **Why this matters for your donor:** Every sub-score traces to a named, citable standard. Hover over any score to see its specific anchor.
 
-*Impact-Receipts is a pre-submission verification tool, not an audit. It does not replace formal evaluation but identifies gaps that would weaken external review.*
+*ImpactProof is a pre-submission verification tool, not an audit. It does not replace formal evaluation but identifies gaps that would weaken external review.*
 """)
         st.markdown("**Donor framework crosswalk** — how each sub-score maps to the standards your donor audits against:")
         st.markdown(
@@ -6835,10 +6859,10 @@ def render_screen_2():
 
     st.divider()
 
-    # Navigation buttons — after content, before secondary downloads
-    _nav_c1, _nav_c2, _nav_c3 = st.columns(3)
+    # Navigation buttons — simplified to 2 (council XVIII: remove LinkedIn, reduce noise)
+    _nav_c1, _nav_c2 = st.columns(2)
     with _nav_c1:
-        if st.button("← Edit this result", key="back_to_form"):
+        if st.button("← Edit this result", key="back_to_form", use_container_width=True):
             st.session_state["evaluations"] = None
             _go_to_screen(1)
     with _nav_c2:
@@ -6848,13 +6872,6 @@ def render_screen_2():
             st.session_state["current_tab"] = 0
             st.query_params["tab"] = "0"
             _go_to_screen(1, reset=True)
-    with _nav_c3:
-        app_url = APP_URL
-        li_url  = f"https://www.linkedin.com/sharing/share-offsite/?url={urllib.parse.quote(app_url, safe='')}"
-        st.markdown(
-            f"<a href='{li_url}' target='_blank' style='font-size:0.85rem;'>Share on LinkedIn</a>",
-            unsafe_allow_html=True,
-        )
 
     # Stage 2 Engagement Card — shown only for weak results
     if evs and evs[0].get("diagnostic_state", "") in ("FUNDAMENTALLY WEAK", "UNDEREVIDENCED"):
@@ -6862,7 +6879,7 @@ def render_screen_2():
         with st.container(border=True):
             st.markdown("#### Want someone to look at this with you?")
             _s2_wa_url = "https://wa.me/233503648195?text=" + urllib.parse.quote(
-                "Hi, I've just run an Impact Integrity Check check and would like "
+                "Hi, I've just run an ImpactProof check and would like "
                 "a deeper review of my result before submission. Can we talk?"
             )
             st.markdown(
@@ -7430,7 +7447,7 @@ def _build_donor_template_docx(template: dict, submission: dict, evaluation: dic
 
     doc = _docx.Document()
     doc.add_heading(f"{template['label']} Report", level=0)
-    doc.add_paragraph(f"Generated by Impact Integrity Check: {timestamp}")
+    doc.add_paragraph(f"Generated by ImpactProof: {timestamp}")
 
     for section in template["sections"]:
         doc.add_heading(section["heading"], level=1)
@@ -7616,7 +7633,7 @@ def _build_markdown_report(submission: dict, evaluation: dict, timestamp: str) -
     filenames  = submission.get("attached_filenames", [])
 
     lines = [
-        "# Impact Integrity Check — Evaluation Report",
+        "# ImpactProof — Evidence Quality Report",
         f"**Generated:** {timestamp}",
         f"**Confidence Score:** {conf_score}/5.0 ({conf_label})",
         f"**Clarity Score:** {clar_score}/5.0 ({clar_label})",
@@ -8722,7 +8739,7 @@ Score generated: {timestamp}.
 </p>
 {_irc_note_html}
 <p style="color:#616161;font-style:italic;font-size:10px;border-top:1px solid #E0E0E0;margin-top:20px;padding-top:8px;">
-Impact Integrity Check &middot; Built in Accra for MEL teams across West Africa &middot; {APP_URL.replace('https://','').rstrip('/')}
+ImpactProof &middot; Built in Accra for MEL teams across West Africa &middot; {APP_URL.replace('https://','').rstrip('/')}
 </p>
 </body></html>"""
 
@@ -9579,7 +9596,7 @@ def _build_portfolio_verification_summary_html(results_df, warnings: list, times
 
 def main():
     st.set_page_config(
-        page_title="Impact Integrity Check",
+        page_title="ImpactProof",
         page_icon="✅",
         layout="centered",
         initial_sidebar_state="collapsed",

@@ -271,7 +271,7 @@ def _build_sheet2(wb, rows, evaluations, org_name, document_name):
     # Title
     ws.merge_cells("A1:C1")
     title = ws["A1"]
-    title.value = "Internal Evidence Quality Record"
+    title.value = "ImpactProof — Internal Evidence Quality Record"
     title.fill  = _fill(_HEADER_BG)
     title.font  = _font(bold=True, colour=_HEADER_FG, size=14)
     title.alignment = Alignment(horizontal="center", vertical="center")

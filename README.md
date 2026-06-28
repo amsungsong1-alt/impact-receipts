@@ -1,6 +1,6 @@
-# Impact-Receipts
+# ImpactProof
 
-A pre-submission confidence checker for MEL (Monitoring, Evaluation & Learning) managers. Stress-test a reported result before submitting it.
+Upload your donor report. Score every result. Submit with confidence.
 
 ## What it does
 
