@@ -5210,20 +5210,11 @@ def render_screen_1():
                                     _irc_set("learning_notes",     _fri.get("learning_and_adaptation"))
                                     _irc_set("limitations_notes",  _fri.get("limitations"))
                                     _irc_set("additional_context", _fri.get("result_owner_and_decision"))
-                                    try:
-                                        _attr_raw = _irc_to_str(_fri.get("attribution_vs_contribution",""))
-                                        if _attr_raw and _attr_raw != "Not found":
-                                            _attr_mt = _irc_match_option(_attr_raw, ["Yes","No","Not sure"])
-                                            if _attr_mt: st.session_state["attribution_contribution"] = _attr_mt; _irc_filled += 1
-                                    except Exception:
-                                        pass
-                                    try:
-                                        _disagg_raw = _irc_to_str(_fri.get("disaggregation_status",""))
-                                        if _disagg_raw and _disagg_raw != "Not found":
-                                            _disagg_mt = _irc_match_option(_disagg_raw, ["Yes — fully disaggregated","Partially disaggregated","No"])
-                                            if _disagg_mt: st.session_state["disaggregation_status"] = _disagg_mt; _irc_filled += 1
-                                    except Exception:
-                                        pass
+                                    # attribution_contribution and disaggregation_status are
+                                    # advisory flags on the report page (Screen 2) — they must
+                                    # only be set by explicit user selection, never by IRC
+                                    # auto-extraction, to avoid stale values persisting across
+                                    # sessions and appearing pre-filled without user confirmation.
 
                                     # --- Beneficiary voice ---
                                     try:
