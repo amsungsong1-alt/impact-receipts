@@ -582,3 +582,84 @@ def _build_overview_chart_b64(conf, clar, eth, comp):
         return _b64.b64encode(buf.read()).decode()
     except Exception:
         return ""
+
+
+# ---------------------------------------------------------------------------
+# Chat help system prompt builder (council XV)
+# ---------------------------------------------------------------------------
+
+def build_chat_system_prompt(ev: dict, submission: dict, donor: str = "") -> str:
+    """Build a grounded system prompt for the score-explanation chat assistant.
+
+    Injects the user's actual scores + the full _SCORING_GUIDE rubric so Claude
+    can explain results accurately without hallucinating. The assistant is
+    explicitly scoped to rubric-based Q&A only.
+    """
+    conf_score  = ev.get("confidence_score", 0)
+    clar_score  = ev.get("clarity_score", 0)
+    verdict     = ev.get("verdict", "")
+    conf_comp   = ev.get("confidence_components", {})
+    clar_comp   = ev.get("clarity_components", {})
+    linkage     = ev.get("logframe_linkage", {})
+    pct_target  = linkage.get("pct_of_target")
+    dir_miss    = linkage.get("direction_mismatch", False)
+
+    # --- User's scores block ---
+    score_block = f"""
+CURRENT SUBMISSION SCORES
+Confidence: {conf_score}/5.0
+  - Directness: {conf_comp.get('direct_score', '?')}/2.0 (level {conf_comp.get('direct_level', '?')}/5)
+  - Verification: {conf_comp.get('verify_score', '?')}/2.0 (level {conf_comp.get('verify_level', '?')}/5)
+  - Recency: {conf_comp.get('recency_score', '?')}/1.0 (level {conf_comp.get('recency_level', '?')}/5)
+  - Beneficiary Voice bonus: +{ev.get('beneficiary_voice_bonus', 0)}/0.5
+Clarity: {clar_score}/5.0
+  - Definition: {clar_comp.get('definition_score', '?')}/1.25
+  - Measurement: {clar_comp.get('measurement_score', '?')}/1.25
+  - Integrity: {clar_comp.get('integrity_score', '?')}/1.0
+  - Scope: {clar_comp.get('scope_score', '?')}/0.75
+  - Governance: {clar_comp.get('governance_score', '?')}/0.75
+Verdict: {verdict}
+Logframe: {linkage.get('state', 'MISSING')}{'  |  ' + str(round(pct_target, 1)) + '% of target reached' if pct_target is not None else ''}
+{'⚠️ Direction mismatch flagged' if dir_miss else ''}
+
+SUBMISSION CONTEXT
+Result statement: {(submission.get('result_statement') or '')[:300]}
+Evidence type: {(submission.get('evidence') or [{}])[0].get('type', 'not specified')}
+Internal review: {submission.get('internal_review', 'not specified')}
+External review: {submission.get('external_review', 'not specified')}
+Donor selected: {donor or 'not specified'}
+""".strip()
+
+    # --- Scoring rubric block (concise version of _SCORING_GUIDE) ---
+    rubric_lines = ["SCORING RUBRIC (answer ONLY from this)"]
+    for key, g in _SCORING_GUIDE.items():
+        rubric_lines.append(
+            f"\n[{g['label']} — axis: {g['axis']}, max {g['max_score']}]\n"
+            f"Definition: {g['definition']}\n"
+            f"Why it matters: {g['why_it_matters']}\n"
+            f"Weak: {g['weak_example']}\n"
+            f"Strong: {g['strong_example']}\n"
+            f"Improve by: " + "; ".join(g['improve_actions'])
+        )
+    rubric_block = "\n".join(rubric_lines)
+
+    # --- Donor block (if selected) ---
+    donor_block = ""
+    if donor and donor in DONOR_PROFILES:
+        prof = DONOR_PROFILES[donor]
+        donor_block = f"\nDONOR PROFILE — {prof['label']}\nFrameworks: {[h for _, h in prof['frameworks']]}"
+
+    return f"""You are the Impact Integrity Check score-explanation assistant.
+Your ONLY job is to help the user understand how their submission was scored by this tool.
+
+RULES — strictly enforced:
+1. Answer only from the SCORING RUBRIC and CURRENT SUBMISSION SCORES provided below.
+2. If asked for general MEL program advice, politely decline: "I can only explain how the scoring rubric works."
+3. Never suggest providing false, exaggerated, or misleading information to improve a score.
+4. Keep answers concise — 3-5 sentences unless a list is genuinely clearer.
+5. When asked "what if I change X?", describe the likely score impact using the rubric logic.
+
+{score_block}
+
+{rubric_block}
+{donor_block}"""

@@ -1693,6 +1693,8 @@ def _init_session_state():
         "report_notes":        "",
         "_tab1_auto_advanced": False,
         "_tab2_auto_advanced": False,
+        # --- chat help (council XV) ---
+        "chat_messages":       [],
         # --- END v3.3 ---
     }
     for key, default in defaults.items():
@@ -1774,7 +1776,7 @@ def _reset_all_slots():
     for k in ["active_slots", "evaluations", "submissions_snapshot",
               "evaluation", "submission_snapshot", "error_message", "active_slots_run",
               "_tab1_auto_advanced", "_tab2_auto_advanced",
-              "_results_email_sent", "current_tab"]:
+              "_results_email_sent", "current_tab", "chat_messages"]:
         st.session_state.pop(k, None)
 
 
@@ -5911,6 +5913,86 @@ _PLAIN_ENGLISH_VERDICT = {
 }
 
 
+def _render_help_chat(submission: dict, ev: dict, donor: str = "", card_idx: int = 0):
+    """Score-explanation chat assistant (council XV).
+
+    Scoped strictly to rubric Q&A using the user's actual scores as context.
+    Gated behind paid tier. Chat history lives in st.session_state for the session.
+    """
+    from diagnostics import build_chat_system_prompt
+
+    is_paid     = st.session_state.get("is_paid", False)
+    free_used   = st.session_state.get("free_checks_used", 0)
+    has_access  = is_paid or free_used < FREE_CHECKS_LIMIT
+
+    if not has_access:
+        st.info(
+            "Score chat is available on the **Professional plan**. "
+            "Upgrade to ask questions about your score and get rubric-based guidance."
+        )
+        if st.button("Upgrade to Professional →", key=f"chat_upgrade_{card_idx}", type="primary"):
+            st.session_state["_show_pricing"] = True
+            st.rerun()
+        return
+
+    # Chat history key — per card_idx to support multi-result submissions
+    hist_key = f"chat_messages_{card_idx}" if card_idx else "chat_messages"
+    if hist_key not in st.session_state:
+        st.session_state[hist_key] = []
+
+    msgs = st.session_state[hist_key]
+
+    # Scope notice (shown once at top)
+    st.caption(
+        "Ask about your score, any of the 8 scoring criteria, or your donor's requirements. "
+        "This assistant answers from the scoring rubric only — not general MEL advice."
+    )
+
+    # Render existing conversation
+    for msg in msgs:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # Chat input
+    prompt = st.chat_input("Ask about your score…", key=f"chat_input_{card_idx}")
+    if not prompt:
+        return
+
+    # Append user message and show it immediately
+    msgs.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # Build system prompt with live scores + rubric
+    system_prompt = build_chat_system_prompt(ev, submission, donor)
+
+    # Call Claude Haiku (fast, cheap for Q&A)
+    _api_key = (
+        st.secrets.get("ANTHROPIC_API_KEY", "")
+        if hasattr(st, "secrets") else
+        __import__("os").environ.get("ANTHROPIC_API_KEY", "")
+    )
+    if not _api_key:
+        reply = "Score chat is not available right now — API key not configured."
+    else:
+        try:
+            import anthropic as _anthropic_mod
+            _client = _anthropic_mod.Anthropic(api_key=_api_key)
+            _resp = _client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=512,
+                system=system_prompt,
+                messages=[{"role": m["role"], "content": m["content"]} for m in msgs],
+            )
+            reply = _resp.content[0].text if _resp.content else "No response received."
+        except Exception as exc:
+            reply = f"Could not reach the scoring assistant right now. ({type(exc).__name__})"
+
+    msgs.append({"role": "assistant", "content": reply})
+    with st.chat_message("assistant"):
+        st.markdown(reply)
+
+
 def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: str = ""):
     conf_score   = ev.get("confidence_score", 0)
     clar_score   = ev.get("clarity_score", 0)
@@ -6097,6 +6179,10 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             )
             for iss in lk_issues:
                 st.markdown(f"- {iss}")
+
+    # Score-explanation chat assistant (council XV)
+    with st.expander("💬 Ask about your score", expanded=False):
+        _render_help_chat(submission, ev, donor=donor, card_idx=card_idx)
 
     # Reporting period validation on Screen 2
     rp_start_str = submission.get("reporting_start", "")
