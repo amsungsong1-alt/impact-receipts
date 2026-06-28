@@ -32,6 +32,10 @@ EVIDENCE_TYPE_DIRECTNESS = {
     "Photos with metadata":                      4,
     "Tracer survey results":                     4,
     "Baseline and endline study":                4,  # comparison design → level 4
+    # Qualitative evidence types — explicitly mapped so they don't rely on keyword fallback
+    "Case study":                                3,  # structured narrative; programme-record equivalent
+    "Outcome harvesting":                        4,  # structured participatory change collection; comparison implied
+    "Beneficiary narrative or testimony":        2,  # perception-based; no causal mechanism
     "Financial records":                         5,
     "Third-party audits":                        3,
     # Legacy / long-form labels (backward compat)
@@ -715,7 +719,10 @@ EVIDENCE_TYPE_LADDER_TIER = {
     "Attendance sheets / participant registers": "Basic",
     "Photos with metadata": "Basic",
     "Tracer survey results": "Moderate",
+    "Beneficiary narrative or testimony": "Moderate",  # testimonial-equivalent
+    "Case study": "Moderate",                          # structured but narrative
     "Baseline and endline study": "Stronger",
+    "Outcome harvesting": "Stronger",                  # triangulated, participatory, rigorous
     "Financial records": "Stronger",
     "Third-party audits": "Stronger",
     "Partner verification letters": "Stronger",

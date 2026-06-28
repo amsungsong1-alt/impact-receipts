@@ -996,6 +996,7 @@ SECTOR_PLACEHOLDERS = {
         "geographic_scope":     "e.g., Tamale, Yendi, Savelugu, Karaga, and Kumbungu districts",
         "evidence_description": "e.g., Borehole functionality reports from 25 sites + water quality test results from district lab + GPS-tagged photos of completed structures",
         "logframe_indicator":   "e.g., Indicator 2.1: Number of households with access to safely managed drinking water",
+        "logframe_baseline":    "e.g., 3,200 households with access (2021 CWSA district baseline survey)",
         "logframe_target":      "e.g., 12,000 households with access by Q4 2025",
         "logframe_achievement": "e.g., 12,000 people reached by June 2025 — 100% of target",
         "verifier":             "e.g., District Water and Sanitation Officer, Water Resource Commission inspector",
@@ -1006,6 +1007,7 @@ SECTOR_PLACEHOLDERS = {
         "geographic_scope":     "e.g., New Juaben, Suhum, and Akropong health districts",
         "evidence_description": "e.g., Patient records from 3 health facilities + immunization registers signed by district health officer + cold chain monitoring logs + MUAC screening results",
         "logframe_indicator":   "e.g., Indicator 1.3: % of children under 5 fully immunized in target districts",
+        "logframe_baseline":    "e.g., 62% immunization coverage (2022 DHIMS2 district baseline)",
         "logframe_target":      "e.g., 85% immunization coverage in 3 districts by Dec 2025",
         "logframe_achievement": "e.g., 8,500 children vaccinated by Sept 2025 — 100% of district target",
         "verifier":             "e.g., District Health Officer, Regional Health Directorate field supervisor, UNICEF field monitor",
@@ -1016,6 +1018,7 @@ SECTOR_PLACEHOLDERS = {
         "geographic_scope":     "e.g., Cape Coast, Mfantsiman, and Ekumfi districts (15 schools)",
         "evidence_description": "e.g., Pre/post standardized EGRA test results + enrollment registers + teacher observation logs certified by GES inspector + sample of student work",
         "logframe_indicator":   "e.g., Indicator 3.2: % of students achieving minimum reading proficiency (EGRA standard)",
+        "logframe_baseline":    "e.g., 28% of students at grade-level literacy (2023 GES baseline EGRA assessment)",
         "logframe_target":      "e.g., 60% of students at grade-level literacy by June 2025",
         "logframe_achievement": "e.g., 1,200 students with improved literacy scores by June 2025 — 100% of target",
         "verifier":             "e.g., Ghana Education Service district inspector, headteacher certification, external EGRA assessor",
@@ -1026,6 +1029,7 @@ SECTOR_PLACEHOLDERS = {
         "geographic_scope":     "e.g., Tamale, Yendi, and Savelugu districts (Northern Region)",
         "evidence_description": "e.g., Signed attendance sheets from 12 training sessions across 3 districts + District Agriculture Officer verification + farmer cooperative records + pre/post yield measurement data",
         "logframe_indicator":   "e.g., Indicator 2.4: Number of smallholder farmers trained in climate-smart agricultural practices",
+        "logframe_baseline":    "e.g., 0 farmers trained (programme start, Jan 2024); avg yield 0.42 t/ha (MOFA 2022 baseline)",
         "logframe_target":      "e.g., 400 farmers trained by Q4 2025",
         "logframe_achievement": "e.g., 487 farmers trained by June 2025 — 122% of target",
         "verifier":             "e.g., District Agriculture Officer, USAID Feed the Future field monitor, partner org M&E lead",
@@ -1036,6 +1040,7 @@ SECTOR_PLACEHOLDERS = {
         "geographic_scope":     "e.g., Accra (Greater Accra Region) and Kumasi (Ashanti Region) — 4 training centres",
         "evidence_description": "e.g., Signed attendance sheets for all training modules + COTVET certificates issued to 245 graduates + 3-month tracer survey (n=200) + employer sign-off letters confirming placement",
         "logframe_indicator":   "e.g., Indicator 1.2: Number of unemployed youth completing accredited vocational training and securing employment within 3 months",
+        "logframe_baseline":    "e.g., 18% youth employment rate in target districts (2023 GSS Labour Force Report baseline)",
         "logframe_target":      "e.g., 250 youth trained and 60% employed within 3 months by Q2 2025",
         "logframe_achievement": "e.g., 250 trained by June 2025; 170 (68%) employed within 3 months — exceeds 60% target",
         "verifier":             "e.g., COTVET assessor, Mastercard Foundation programme officer, employer partner HR records",
@@ -1046,6 +1051,7 @@ SECTOR_PLACEHOLDERS = {
         "geographic_scope":     "e.g., Keta, Anloga, Ada East, and Ada West districts (Volta Region)",
         "evidence_description": "e.g., Installation completion logs + GPS coordinates of 50 stations + community management committee minutes + EPA certification of each station + monthly rainfall data reports",
         "logframe_indicator":   "e.g., Indicator 4.1: Number of community-managed climate early-warning systems established and operational",
+        "logframe_baseline":    "e.g., 3 functional early-warning stations in target area (2022 EPA district assessment baseline)",
         "logframe_target":      "e.g., 50 weather stations operational by Dec 2025",
         "logframe_achievement": "e.g., 50 weather stations operational by Dec 2025 — 100% of target",
         "verifier":             "e.g., Environmental Protection Agency inspector, Meteorological Service Department officer, community committee chair",
@@ -1056,6 +1062,7 @@ SECTOR_PLACEHOLDERS = {
         "geographic_scope":     "e.g., 6 selected districts in Ashanti, Eastern, and Western regions",
         "evidence_description": "e.g., Training attendance records + pre/post knowledge assessments + signed certificates of completion + post-training participatory budget reports from 4 districts (verified by District Coordinating Directors)",
         "logframe_indicator":   "e.g., Indicator 3.3: Number of district officials demonstrating improved participatory budgeting skills (post-test score ≥70%)",
+        "logframe_baseline":    "e.g., 12 officials with participatory budgeting training (2023 pre-programme assessment baseline)",
         "logframe_target":      "e.g., 150 district officials trained by Aug 2025",
         "logframe_achievement": "e.g., 180 officials trained by Aug 2025 — 120% of target",
         "verifier":             "e.g., District Coordinating Director, NCCE observer, civil society partner M&E lead, auditor-general representative",
@@ -1066,6 +1073,7 @@ SECTOR_PLACEHOLDERS = {
         "geographic_scope":     "e.g., Greater Accra, Ashanti, Northern, and Volta regions (48 districts)",
         "evidence_description": "e.g., Merchant onboarding records from MoMo/GhIPSS platform data + quarterly transaction logs + enumerator-administered post-adoption survey (n=1,200) verified by GIFEC officer",
         "logframe_indicator":   "e.g., Indicator 2.3: Number of MSEs actively using digital financial or business services at least once per month",
+        "logframe_baseline":    "e.g., 1,400 MSEs with active digital payment accounts (2022 BoG GIFEC survey baseline)",
         "logframe_target":      "e.g., 12,000 MSEs with active digital payment accounts by Q4 2025",
         "logframe_achievement": "e.g., 12,000 MSEs onboarded by June 2025 — 100% of target",
         "verifier":             "e.g., Ghana Investment Fund for Electronic Communications (GIFEC) officer, GhIPSS data verification, World Bank Ghana Digital Acceleration Project field monitor",
@@ -1076,6 +1084,7 @@ SECTOR_PLACEHOLDERS = {
         "geographic_scope":     "e.g., Sissala East, Sissala West, Wa East, and Wa West districts (Upper West Region)",
         "evidence_description": "e.g., Installation completion certificates signed by certified NABCB technicians + GPS-tagged photos of each system + 3-month post-installation functionality audit by district energy officer + household income surveys (n=350)",
         "logframe_indicator":   "e.g., Indicator 1.4: Number of off-grid households with access to reliable clean energy (Tier 3+ on SE4ALL Multi-Tier Framework)",
+        "logframe_baseline":    "e.g., 0 households with Tier 3+ energy access in target communities (2023 GEC off-grid baseline)",
         "logframe_target":      "e.g., 3,500 households with solar home systems by Dec 2025",
         "logframe_achievement": "e.g., 3,500 systems installed and operational by Dec 2025 — 100% of target",
         "verifier":             "e.g., Ghana Energy Commission inspector, Electricity Company of Ghana off-grid officer, GIZ Renewable Energy officer",
@@ -1086,6 +1095,7 @@ SECTOR_PLACEHOLDERS = {
         "geographic_scope":     "e.g., Sefwi Wiawso, Bibiani-Anhwiaso-Bekwai, and Suaman districts (Western North Region)",
         "evidence_description": "e.g., Pre/post community governance meeting attendance registers + baseline and endline participatory assessments (n=300 women) + key informant interviews with 30 community leaders (triangulated with civil society observer data)",
         "logframe_indicator":   "e.g., Indicator 3.1: Percentage of community governance decision-making roles held by women in target communities",
+        "logframe_baseline":    "e.g., 11% of governance roles held by women (2022 NCCE community assessment baseline)",
         "logframe_target":      "e.g., 40% of governance roles held by women in 30 communities by Q2 2025",
         "logframe_achievement": "e.g., Women's participation increased by 42 pp across 30 communities by June 2025 — exceeds 40% target",
         "verifier":             "e.g., District Gender Desk Officer, National Commission for Civic Education (NCCE) observer, FCDO programme officer",
@@ -1096,6 +1106,7 @@ SECTOR_PLACEHOLDERS = {
         "geographic_scope":     "e.g., Tolon, Kumbungu, Nanton, Mion, and Sagnarigu districts (Northern Region)",
         "evidence_description": "e.g., MUAC measurements from 1,200 children at baseline and endline + health facility nutrition register data + mother/caregiver 24-hour dietary recall surveys + Ghana Health Service district nutrition reports",
         "logframe_indicator":   "e.g., Indicator 4.2: Prevalence of stunting (height-for-age < −2 SD) among children 6–59 months in target districts",
+        "logframe_baseline":    "e.g., 32% stunting prevalence in target districts (2022 GHS-NHS district nutrition baseline)",
         "logframe_target":      "e.g., Reduce stunting prevalence from 32% to 24% by Dec 2025 (8 pp reduction)",
         "logframe_achievement": "e.g., Stunting reduced from 32% to 24% across 5 districts by Dec 2025 — meets 8 pp target",
         "verifier":             "e.g., District Nutrition Officer, Ghana Health Service Regional Nutrition Directorate, UNICEF field monitoring officer",
@@ -1117,6 +1128,7 @@ SECTOR_PLACEHOLDERS = {
         "geographic_scope":     "e.g., Ashanti Region — Kumasi, Obuasi, and Bekwai districts",
         "evidence_description": "e.g., Type of records + who collected them + how they were verified + any third-party validation",
         "logframe_indicator":   "e.g., Indicator [X.X]: [Indicator name from approved Technical Proposal or logframe]",
+        "logframe_baseline":    "e.g., [Baseline value] ([year] [data source] baseline)",
         "logframe_target":      "e.g., [Number + unit + deadline from logframe]",
         "logframe_achievement": "e.g., [Actual delivered number] by [date] — [%] of original target",
         "verifier":             "e.g., [Implementing partner M&E lead], [government line ministry], [external evaluator]",
@@ -2952,6 +2964,12 @@ def _render_slot_fields(slot: int):
             placeholder="e.g., Phone survey with 120 farmers, March 2025",
             help="Required to receive the full beneficiary voice bonus (≥20 characters).",
         )
+        _bv_detail_1 = st.session_state.get(f"bv_method_detail{s}", "")
+        _bv_chars_1  = len(_bv_detail_1.strip())
+        if _bv_chars_1 >= 20:
+            st.caption("✓ Full beneficiary voice bonus unlocked: +0.5")
+        else:
+            st.caption(f"Add {20 - _bv_chars_1} more characters to unlock the full +0.5 bonus (currently +0.1).")
 
     prev_files = st.session_state.get(f"draft_uploaded_filenames{s}", [])
     if prev_files:
@@ -3574,7 +3592,14 @@ def _render_tab3_slot(slot: int):
         _bv_score = (_evaluator.compute_beneficiary_voice_bonus(_bv_val, _bv_detail)
                      if hasattr(_evaluator, "compute_beneficiary_voice_bonus") else 0.0)
         if _bv_val and _bv_val not in ("No beneficiary voice captured", "Choose an option..."):
-            st.caption(f"Beneficiary Voice bonus: **+{_bv_score}/0.5**")
+            if _bv_val in _BV_HIGH_2:
+                _bv_chars = len(_bv_detail.strip())
+                if _bv_chars >= 20:
+                    st.caption(f"✓ Beneficiary Voice bonus: **+{_bv_score}/0.5** — full bonus unlocked.")
+                else:
+                    st.caption(f"Beneficiary Voice bonus: **+{_bv_score}/0.5** · Add {20 - _bv_chars} more characters to unlock +0.5.")
+            else:
+                st.caption(f"Beneficiary Voice bonus: **+{_bv_score}/0.5**")
 
         st.divider()
         st.text_area(
@@ -4693,6 +4718,13 @@ def render_screen_1():
                     "Specify donor name",
                     key="donor_other",
                     placeholder="e.g., DFID, KfW, Bill & Melinda Gates Foundation",
+                )
+            _PARTIAL_DONORS = {"GIZ", "World Bank", "AfDB"}
+            if _donor_val in _PARTIAL_DONORS:
+                st.caption(
+                    f"Note: donor-specific guidance for {_donor_val} is partially implemented — "
+                    "some dimensions show generic USAID DQA standards as the closest equivalent. "
+                    "Full coverage coming in a future update."
                 )
             if _donor_val in DONOR_GUIDANCE:
                 _dg = DONOR_GUIDANCE[_donor_val]
@@ -7484,6 +7516,16 @@ def _build_markdown_report(submission: dict, evaluation: dict, timestamp: str) -
     if not fixes:
         lines += ["This check found no further fixes to address.", ""]
 
+    # Append last 3 chat exchanges as a due-diligence record
+    _card_idx = submission.get("_card_idx", 0)
+    _hist_key = f"chat_messages_{_card_idx}" if _card_idx else "chat_messages"
+    _chat_msgs = st.session_state.get(_hist_key, []) or st.session_state.get("chat_messages", [])
+    if _chat_msgs:
+        lines += ["---", "", "## Score Discussion (session)", ""]
+        for _m in _chat_msgs[-6:]:  # last 3 exchanges (user + assistant × 3)
+            _role = "You" if _m["role"] == "user" else "Scoring Assistant"
+            lines += [f"**{_role}:** {_m['content']}", ""]
+
     lines += [
         "---",
         "",
@@ -7626,13 +7668,16 @@ def _evaluate_portfolio(df):
                 "Scope":        clar_comp.get("scope_score", 0),
                 "Governance":   clar_comp.get("governance_score", 0),
             }
+            _linkage = ev.get("logframe_linkage", {})
             result_row = {
-                "indicator_name":   label,
+                "indicator_name":    label,
                 "logframe_indicator": sub.get("logframe_indicator", ""),
-                "confidence_score": ev.get("confidence_score", 0),
-                "clarity_score":    ev.get("clarity_score", 0),
-                "verdict":          ev.get("verdict", ""),
-                "top_fix":          (ev.get("fixes") or [{}])[0].get("message", "") if ev.get("fixes") else "",
+                "confidence_score":  ev.get("confidence_score", 0),
+                "clarity_score":     ev.get("clarity_score", 0),
+                "verdict":           ev.get("verdict", ""),
+                "top_fix":           (ev.get("fixes") or [{}])[0].get("message", "") if ev.get("fixes") else "",
+                "pct_of_target":     _linkage.get("pct_of_target"),        # float or None
+                "direction_mismatch": _linkage.get("direction_mismatch", False),
             }
             for dim, max_val in _PORTFOLIO_SUBSCORE_DIMENSIONS:
                 pct = round(min(sub_scores[dim] / max_val, 1.0) * 100, 1) if max_val else 0.0

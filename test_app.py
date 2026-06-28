@@ -625,6 +625,22 @@ def run():
             f"should NOT apply ×0.6 penalty; got multiplier={_mult}"
         )
 
+    # 7. Qualitative evidence type ladder tier (council XVI Fix 1)
+    #    EVIDENCE_TYPE_LADDER_TIER must now classify these three types correctly.
+    _ladder_cases = [
+        ("Case study", "Moderate"),
+        ("Outcome harvesting", "Stronger"),
+        ("Beneficiary narrative or testimony", "Moderate"),
+        ("Baseline and endline study", "Stronger"),
+    ]
+    for _ev_type, _expected_tier in _ladder_cases:
+        _ladder = evaluator.get_evidence_ladder(_ev_type, "some evidence description from field", "Evaluator")
+        _actual_tier = _ladder.get("dominant_tier")
+        if _actual_tier != _expected_tier:
+            failures.append(
+                f"Evidence ladder tier for '{_ev_type}': expected {_expected_tier!r}, got {_actual_tier!r}"
+            )
+
     # -----------------------------------------------------------------------
 
     if failures:
@@ -634,7 +650,7 @@ def run():
         raise SystemExit(1)
 
     print(f"PASS: {len(CASES)} golden submissions evaluated, all scores match.")
-    print("PASS: boundary tests — threshold alignment, BV bonus gating, qualitative exemption.")
+    print("PASS: boundary tests — threshold alignment, BV bonus gating, qualitative exemption, evidence ladder tiers.")
 
 
 if __name__ == "__main__":
