@@ -8257,7 +8257,12 @@ def _render_score_my_report_tab():
         # Extract document text
         with st.spinner("Reading document..."):
             try:
-                doc_text = _extract_text_from_file(uploaded_doc)
+                _raw_bytes = uploaded_doc.read()
+                _fname_lower = uploaded_doc.name.lower()
+                doc_text, _doc_err = _extract_text_from_file(_fname_lower, _raw_bytes)
+                if _doc_err:
+                    st.error(f"Could not read the document: {_doc_err}")
+                    return
             except Exception as exc:
                 st.error(f"Could not read the document: {exc}")
                 return
