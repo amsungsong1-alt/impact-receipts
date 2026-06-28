@@ -485,7 +485,7 @@ def build_donor_crosswalk_html(profile_key: str) -> str:
 
     return (
         "<table style='width:100%;font-size:0.8rem;'>"
-        f"<tr><th>Impact Integrity sub-score</th>{header_cells}</tr>"
+        f"<tr><th>ImpactProof sub-score</th>{header_cells}</tr>"
         + "".join(rows_html)
         + "</table>"
     )
@@ -649,7 +649,7 @@ Donor selected: {donor or 'not specified'}
         prof = DONOR_PROFILES[donor]
         donor_block = f"\nDONOR PROFILE — {prof['label']}\nFrameworks: {[h for _, h in prof['frameworks']]}"
 
-    return f"""You are the Impact Integrity Check score-explanation assistant.
+    return f"""You are the ImpactProof score-explanation assistant.
 Your ONLY job is to help the user understand how their submission was scored by this tool.
 
 RULES — strictly enforced:

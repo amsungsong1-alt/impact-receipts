@@ -284,7 +284,7 @@ def _build_sheet2(wb, rows, evaluations, org_name, document_name):
         ("Results scored",  str(n)),
         ("Generated",       timestamp),
         ("Methodology",     "USAID ADS 201, Bond Evidence Principles 2024, OECD-DAC 2019"),
-        ("Scoring engine",  "Impact Integrity Check — deterministic rule-based rubric"),
+        ("Scoring engine",  "ImpactProof — deterministic rule-based rubric"),
         ("Disclaimer",      "Scores reflect evidence patterns in the submitted document. "
                             "This is a pre-submission quality check, not a donor audit. "
                             "All auto-populated fields must be reviewed before treating "

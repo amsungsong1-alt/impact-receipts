@@ -8,7 +8,7 @@ import os
 import random
 
 
-_APP_NAME = "Impact Integrity Check"
+_APP_NAME = "ImpactProof"
 
 
 def _get_secret(name: str, default: str = "") -> str:
@@ -58,7 +58,7 @@ def send_otp_email(to_email: str, code: str) -> tuple[bool, str]:
                 "subject": f"Your {_APP_NAME} verification code: {code}",
                 "html": (
                     "<div style='font-family:sans-serif;'>"
-                    "<p>Your Impact Integrity Check verification code is:</p>"
+                    "<p>Your ImpactProof verification code is:</p>"
                     f"<p style='font-size:28px;font-weight:700;letter-spacing:6px;'>{code}</p>"
                     "<p style='color:#424242;font-size:0.875rem;'>This code expires in 10 minutes. "
                     "If you didn't request this, you can safely ignore this email.</p>"

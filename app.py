@@ -1,5 +1,5 @@
 """
-app.py — Impact-Receipts: Pre-submission confidence check for MEL teams.
+app.py — ImpactProof: Pre-submission evidence quality scorer for MEL teams.
 
 Run with:  streamlit run app.py
 
@@ -487,7 +487,7 @@ SECURE_HANDLING_CHECKLIST_MAP = {
 # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
 # --- UX: INSTANT REPORT CHECK (v3.2) ---
-INSTANT_CHECK_SYSTEM_PROMPT = r'''You are an expert MEL (Monitoring, Evaluation, and Learning) data extraction engine for the Impact Integrity Check tool. Your job is to read donor-funded project progress reports and extract structured data to pre-fill a submission verification form.
+INSTANT_CHECK_SYSTEM_PROMPT = r'''You are an expert MEL (Monitoring, Evaluation, and Learning) data extraction engine for ImpactProof. Your job is to read donor-funded project progress reports and extract structured data to pre-fill a submission verification form.
 
 ## YOUR TASK
 
@@ -2670,7 +2670,7 @@ def _normalize_draft_json(data: dict) -> dict:
 def _load_from_inputs_json(data: dict):
     data = _normalize_draft_json(data)
     if "slots" not in data:
-        st.error("Invalid file format — missing 'slots' key. Please upload a file exported by Impact-Receipts.")
+        st.error("Invalid file format — missing 'slots' key. Please upload a file exported by ImpactProof.")
         return
 
     active = int(data.get("active_slots", 1))
@@ -4993,7 +4993,7 @@ def render_screen_1():
                         _draft_data = json.loads(_irc_file.read())
                         if not ("slots" in _draft_data or "active_slots" in _draft_data
                                 or "result_statement" in _draft_data):
-                            st.error("This JSON doesn't look like an Impact-Receipts draft. "
+                            st.error("This JSON doesn't look like an ImpactProof draft. "
                                      "Please upload a file downloaded via 'Download Draft (JSON)' "
                                      "or 'Save Inputs (JSON)'.")
                         else:
@@ -6203,7 +6203,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     if diag_state == "INVALID INPUT":
         st.error("Input Quality Issue Detected")
         st.markdown(
-            "Your responses appear to be placeholder text. Impact-Receipts scores **real** "
+            "Your responses appear to be placeholder text. ImpactProof scores **real** "
             "reported results. Please return to Screen 1 and provide genuine content."
         )
         for issue in content_issues:
@@ -6900,7 +6900,7 @@ def render_screen_2():
         st.download_button(
             label="💾 Save Inputs (JSON)",
             data=_build_inputs_json(timestamp),
-            file_name=f"impact-receipts-inputs-{timestamp}.json",
+            file_name=f"impactproof-inputs-{timestamp}.json",
             mime="application/json",
             use_container_width=True,
             help="Save your form inputs as JSON so you can reload them later for iteration.",
@@ -8655,7 +8655,7 @@ h2{{color:#1B5E20;font-size:13px;font-weight:700;border-bottom:1px solid #8A6500
 
 <!-- ═══ HEADER ═══ -->
 <h1>Submission Readiness Card</h1>
-<p style="color:#616161;font-size:10px;margin:2px 0 16px;">Impact Integrity Check &middot; {timestamp}{donor_note}{(' &middot; ' + user_email) if user_email else ''}</p>
+<p style="color:#616161;font-size:10px;margin:2px 0 16px;">ImpactProof &middot; {timestamp}{donor_note}{(' &middot; ' + user_email) if user_email else ''}</p>
 
 <!-- Result -->
 <table border="0" cellspacing="0" cellpadding="0" width="100%" style="margin-bottom:10px;{P}"><tr>
@@ -9088,7 +9088,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Impact Integrity Check — Report</title>
+<title>ImpactProof — Report</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet"/>
 {_vega_scripts}
 <style>
@@ -9107,7 +9107,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
 </style>
 </head>
 <body>
-<h1>Impact Integrity Check — Evaluation Report</h1>
+<h1>ImpactProof — Evaluation Report</h1>
 <p style="color:#616161;font-size:0.88rem;">Generated: {timestamp}</p>
 {_lite_note}
 {_meta_html}
@@ -9178,7 +9178,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
 
 <div class="footer">
   Evaluated using {METHODOLOGY_STACK}.<br/>
-  Contact: <a href="https://wa.me/233503648195">WhatsApp +233 50 364 8195</a> &nbsp;&middot;&nbsp; <a href="{APP_URL}/">Impact Integrity Check</a>
+  Contact: <a href="https://wa.me/233503648195">WhatsApp +233 50 364 8195</a> &nbsp;&middot;&nbsp; <a href="{APP_URL}/">ImpactProof</a>
 </div>
 </body>
 </html>"""
@@ -9245,7 +9245,7 @@ def _build_review_summary_docx(submission: dict, evaluation: dict, review_info: 
     fixes      = evaluation.get("fixes", [])
 
     doc = _docx.Document()
-    doc.add_heading("Impact Integrity Check — Review Summary", level=0)
+    doc.add_heading("ImpactProof — Review Summary", level=0)
     doc.add_paragraph(f"Generated: {timestamp}")
 
     doc.add_heading("Result Statement", level=1)

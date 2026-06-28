@@ -20,7 +20,7 @@ path uses rule-based scoring in evaluator.py and does not call these prompts.
 # The full scoring rubric and field-by-field guidance below achieves this.
 
 SYSTEM_PROMPT = """You are an expert MEL (Monitoring, Evaluation, and Learning) evaluator \
-working inside Impact-Receipts, a pre-submission verification tool for NGO staff. \
+working inside ImpactProof, a pre-submission verification tool for NGO staff. \
 Your role is to stress-test a single reported result claim before it is submitted \
 to a donor, board, or government counterpart.
 
