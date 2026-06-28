@@ -670,6 +670,88 @@ IMPORTANT: For each field in field_sources, set "page" to the 1-based page numbe
 
 _UX_TAB_NAMES = ["Result Basics", "Logframe Linkage", "Evidence & Verification", "Review & Submit"]
 
+# ---------------------------------------------------------------------------
+# BATCH EXTRACTION PROMPT — "Score My Report" pipeline (council XVII)
+# Extracts ALL results from a donor report and maps to the 29-column
+# portfolio schema, including review_status metadata per field.
+# ---------------------------------------------------------------------------
+BATCH_EXTRACTION_SYSTEM_PROMPT = r'''You are an expert MEL evidence quality extraction engine.
+Your job: read a donor-funded project progress report and extract EVERY reportable result
+(KPIs, indicators, outcomes) as structured JSON ready for batch quality scoring.
+
+## OUTPUT FORMAT
+Return a JSON object with one key "results" — an array, one object per result found.
+Return ONLY the JSON. No preamble, no markdown fences, no explanation.
+
+Each result object must follow this schema exactly:
+
+{
+  "indicator_name": "<indicator code + name from logframe — e.g. KPI 2.1: Number of households reached>",
+  "result_statement": "<achievement sentence: number + target group + timeframe + % of target if available>",
+  "target_group": "<defined population — age, gender, role, occupation>",
+  "timeframe": "<bounded date range — e.g. January–June 2025>",
+  "geographic_scope": "<location(s) — districts, regions, country>",
+  "sector": "<one of: WASH | Health & Nutrition | Education & Skills | Agriculture & Livelihoods | Youth Employment & TVET | Climate Resilience | Governance & Accountability | Digital Economy & Technology | Energy & Clean Energy | Gender & Social Inclusion | Nutrition & Food Security | Private Sector Development | Other>",
+  "primary_donor": "<donor name or Not found>",
+  "evidence_type": "<one of: Attendance sheets / participant registers | Raw datasets or survey exports | Partner verification letters | Photos with metadata | Tracer survey results | Baseline and endline study | Financial records | Third-party audits | Case study | Outcome harvesting | Beneficiary narrative or testimony | Other>",
+  "evidence_description": "<verbatim or near-verbatim quote from document describing what data was collected, how, and by whom>",
+  "evidence_date": "<YYYY/MM/DD — date evidence was collected, or Not found>",
+  "internal_review": "<one of: Reviewed by MEL Officer | Reviewed by Program Manager | Collected only (no review) | Not reviewed | Not found>",
+  "external_review": "<one of: Verified by independent third party | External partner review | No external review | Not found>",
+  "verifier": "<name or role of independent reviewer — NOT the implementing org, or Not found>",
+  "logframe_indicator": "<exact indicator text from logframe or Technical Proposal, or Not found>",
+  "logframe_baseline": "<pre-intervention value with unit and year — e.g. 32% (2022 baseline) — or Not found>",
+  "logframe_target": "<approved target from logframe — e.g. 85% by Dec 2025 — or Not found>",
+  "logframe_achievement": "<actual reported achievement — e.g. 91% by June 2025 — 107% of target — or Not found>",
+  "learning_notes": "<what the team learned and how the programme adapted — or Not found>",
+  "limitations_notes": "<what the data does NOT show or cannot confirm — or Not found>",
+  "additional_context": "<result owner name/role AND what decision this result informs — or Not found>",
+  "beneficiary_voice": "<one of: Direct beneficiary feedback collected (e.g., Lean Data survey, focus groups, NPS) | Beneficiary representatives consulted (community leaders, beneficiary committees) | Anecdotal beneficiary quotes only (uncollected, not systematic) | No beneficiary voice captured | Not applicable to this result type | Not found>",
+  "bv_method_detail": "<describe how beneficiary feedback was collected, when, and n= if stated — or Not found>",
+  "provenance_sampling": "<Yes | No | Not applicable | Not found — was sampling/selection method documented?>",
+  "provenance_dedup": "<Yes | No | Not applicable | Not found — was double-counting explicitly checked?>",
+  "provenance_tool": "<Yes | No | Not applicable | Not found — is the data collection tool named (e.g., KoboToolbox)?>",
+  "provenance_independent": "<Yes | No | Not applicable | Not found — was data collected by someone independent of programme staff?>",
+  "provenance_recall": "<Yes | No | Not applicable | Not found — was recall-period risk acknowledged or mitigated?>",
+  "provenance_traceable": "<Yes or 'Yes — an auditor could retrieve the original records' | No | Not applicable | Not found — could an auditor trace back to original records?>",
+  "field_confidence": {
+    "<field_name>": "high|medium|low|not_found"
+  }
+}
+
+## EXTRACTION RULES
+
+1. EXTRACT ALL RESULTS — do not limit to one. A quarterly progress report may have 5–20 reportable results.
+   Each KPI row in a logframe table = one result. Each "Output X.Y" or "Indicator X.Y" row = one result.
+
+2. NEVER INVENT — extract only what is explicitly stated or directly inferable. If absent, return "Not found".
+   Do NOT return null or omit fields — always return the string "Not found".
+
+3. PROVENANCE FIELDS — these are often buried in methodology sections.
+   - provenance_sampling: look for "random sampling", "purposive sampling", "census", "convenience sample"
+   - provenance_dedup: look for "double-counting", "de-duplication", "unique beneficiaries"
+   - provenance_tool: look for "KoboToolbox", "ODK", "CommCare", "survey form", "data collection tool"
+   - provenance_independent: look for "independent enumerators", "external data collectors", "third-party data collection"
+   - provenance_recall: look for "recall period", "recall bias", "data collected same day"
+   - provenance_traceable: look for "original records", "source documents", "audit trail", "auditor", "verifiable"
+
+4. LOGFRAME BASELINE — look in annexes, baseline reports, or logframe tables for pre-intervention values.
+   Format: "<value> (<year> baseline)" e.g. "32% stunting prevalence (2022 Ghana Health Service baseline)".
+
+5. FIELD CONFIDENCE — for each extracted field, return "high" if explicitly stated, "medium" if inferred,
+   "low" if uncertain, "not_found" if the field was absent. Include ALL field names in field_confidence.
+
+6. SECTOR — infer from programme focus, not document title. A health programme reporting
+   on water access should use "WASH", not "Health & Nutrition".
+
+7. RESULT STATEMENT — must contain: (a) a number, (b) a defined population, (c) a timeframe.
+   Include % achievement vs target if stated. Prefer Executive Summary or logframe achievement rows.
+
+8. ORDER results by logframe/KPI numbering if available (e.g., KPI 2.1 before KPI 2.2).
+   If no numbering, use document order.
+
+Return ONLY the JSON. Start your response with { and end with }.'''
+
 # IRC field map: extracted key → session_state key
 # Excludes selectbox widgets (sector, donor_selected) that render before tab1
 _IRC_FIELD_MAP = {
@@ -7410,6 +7492,118 @@ def _generate_evidence_statement(submission: dict) -> str:
     return " ".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# Score My Report — batch document extraction + scoring pipeline (council XVII)
+# ---------------------------------------------------------------------------
+
+def _extract_all_results_from_document(document_text: str, api_key: str,
+                                        max_chars: int = 80000) -> tuple[list[dict], str]:
+    """Call Claude with BATCH_EXTRACTION_SYSTEM_PROMPT to extract all results.
+
+    Returns (results_list, error_message).  error_message is "" on success.
+    Each item in results_list is a raw dict from the JSON response.
+    """
+    import anthropic as _anthr
+    import json as _json
+
+    text = document_text[:max_chars]
+    try:
+        client = _anthr.Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=8192,
+            system=BATCH_EXTRACTION_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": f"Document text:\n\n{text}"}],
+        )
+        raw = resp.content[0].text.strip() if resp.content else ""
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        data = _json.loads(raw)
+        results = data.get("results", [])
+        if not isinstance(results, list):
+            return [], "Extraction returned unexpected format."
+        return results, ""
+    except _json.JSONDecodeError as e:
+        return [], f"Could not parse extraction response as JSON: {e}"
+    except Exception as e:
+        return [], f"Extraction failed: {type(e).__name__}: {e}"
+
+
+def _batch_results_to_portfolio_df(raw_results: list[dict]) -> tuple["pd.DataFrame", list[dict]]:
+    """Convert raw extraction dicts to a portfolio DataFrame and field status tracker.
+
+    Returns (df, statuses) where statuses is a parallel list of {field: STATUS_*} dicts.
+    """
+    import pandas as pd
+    from excel_report import STATUS_CONFIRMED, STATUS_AUTO_POPULATED, STATUS_NOT_FOUND
+
+    _NOT_FOUND_VALUES = {"Not found", "not found", "NOT FOUND", "", None}
+
+    rows = []
+    statuses = []
+    for r in raw_results:
+        confidence = r.get("field_confidence", {})
+        row = {}
+        status = {}
+        for col_name, _, _ in _PORTFOLIO_COLUMNS:
+            # Map extraction field names to portfolio column names
+            val = r.get(col_name, "Not found")
+            if val is None or str(val).strip() in _NOT_FOUND_VALUES:
+                val = ""
+                status[col_name] = STATUS_NOT_FOUND
+            else:
+                conf = confidence.get(col_name, "medium")
+                status[col_name] = STATUS_CONFIRMED if conf == "high" else STATUS_AUTO_POPULATED
+            # geographic_scope may be a list
+            if isinstance(val, list):
+                val = "; ".join(str(v) for v in val)
+            row[col_name] = str(val)
+        # Overall review status — NOT_FOUND if any critical field is missing
+        critical = ["result_statement", "evidence_description", "evidence_type"]
+        overall = STATUS_AUTO_POPULATED
+        if any(status.get(k) == STATUS_NOT_FOUND for k in critical):
+            overall = STATUS_NOT_FOUND
+        status["_overall"] = overall
+        rows.append(row)
+        statuses.append(status)
+
+    col_names = [c[0] for c in _PORTFOLIO_COLUMNS]
+    df = pd.DataFrame(rows, columns=col_names) if rows else pd.DataFrame(columns=col_names)
+    return df, statuses
+
+
+def _score_report_from_document(document_text: str, api_key: str) -> tuple[
+    "pd.DataFrame", list[dict], list[dict], str
+]:
+    """Full pipeline: document text → scored portfolio DataFrame.
+
+    Returns (input_df, evaluations, field_statuses, error_message).
+    evaluations[i] is the result of evaluator.evaluate_submission(row_i).
+    """
+    raw_results, err = _extract_all_results_from_document(document_text, api_key)
+    if err:
+        return None, [], [], err
+    if not raw_results:
+        return None, [], [], "No results found in document."
+
+    input_df, statuses = _batch_results_to_portfolio_df(raw_results)
+    _, warnings = _evaluate_portfolio(input_df)
+
+    # Run evaluation per row
+    evaluations = []
+    for _, row in input_df.iterrows():
+        sub = _portfolio_row_to_submission(row.to_dict())
+        try:
+            ev = _evaluator.evaluate_submission(sub)
+        except Exception:
+            ev = {"confidence_score": 0, "clarity_score": 0,
+                  "verdict": "Could not evaluate", "fixes": []}
+        evaluations.append(ev)
+
+    return input_df, evaluations, statuses, ""
+
+
 def _build_markdown_report(submission: dict, evaluation: dict, timestamp: str) -> str:
     conf_score = evaluation.get("confidence_score", 0)
     clar_score = evaluation.get("clarity_score", 0)
@@ -8002,6 +8196,169 @@ def _validate_import_rows(submissions: list) -> list:
 # Screen 3 — Portfolio / Framework Dashboard
 # ---------------------------------------------------------------------------
 
+def _render_score_my_report_tab():
+    """Score My Report — document-in, scored-Excel-out pipeline (council XVII)."""
+    import pandas as pd
+    from excel_report import build_scored_excel, STATUS_AUTO_POPULATED, STATUS_NOT_FOUND
+
+    st.markdown("### Score My Report")
+    st.caption(
+        "Upload a Word or PDF donor report. The app extracts every reportable result, "
+        "scores each one on Confidence and Clarity, and downloads a filled Excel workbook "
+        "with colour-coded scores — one row per result."
+    )
+
+    _api_key = (
+        st.secrets.get("ANTHROPIC_API_KEY", "")
+        if hasattr(st, "secrets") else
+        __import__("os").environ.get("ANTHROPIC_API_KEY", "")
+    )
+    if not _api_key:
+        st.error("Score My Report requires an Anthropic API key. Configure ANTHROPIC_API_KEY in secrets.")
+        return
+
+    uploaded_doc = st.file_uploader(
+        "Upload your donor report (Word or PDF)",
+        type=["pdf", "docx", "txt"],
+        key="smr_upload",
+    )
+
+    if not uploaded_doc:
+        st.info("Upload a Word or PDF progress report to extract and score all results automatically.")
+        return
+
+    org_name = st.text_input(
+        "Organisation name (optional — appears in the Excel header)",
+        key="smr_org_name",
+        placeholder="e.g., Action Aid Ghana",
+    )
+
+    run_btn = st.button("Extract and Score All Results", type="primary", key="smr_run")
+    _smr_state = st.session_state.get("smr_results")
+
+    if run_btn:
+        # Extract document text
+        with st.spinner("Reading document..."):
+            try:
+                doc_text = _extract_text_from_file(uploaded_doc)
+            except Exception as exc:
+                st.error(f"Could not read the document: {exc}")
+                return
+        if not doc_text or len(doc_text.strip()) < 100:
+            st.error("The document appears to be empty or image-based. Export as a text-based DOCX and try again.")
+            return
+
+        with st.spinner("Extracting all results... (15–45 seconds)"):
+            input_df, evaluations, statuses, err = _score_report_from_document(doc_text, _api_key)
+
+        if err:
+            st.error(f"Extraction failed: {err}")
+            return
+        if input_df is None or input_df.empty:
+            st.warning("No reportable results were found in the document. Try a progress report with a logframe or KPI table.")
+            return
+
+        st.session_state["smr_results"] = {
+            "input_df": input_df,
+            "evaluations": evaluations,
+            "statuses": statuses,
+            "doc_name": uploaded_doc.name,
+            "org_name": org_name,
+        }
+        _smr_state = st.session_state["smr_results"]
+
+    if not _smr_state:
+        return
+
+    input_df   = _smr_state["input_df"]
+    evaluations = _smr_state["evaluations"]
+    statuses   = _smr_state["statuses"]
+    doc_name   = _smr_state.get("doc_name", "")
+    org_name   = _smr_state.get("org_name", "") or org_name
+
+    n = len(evaluations)
+    strong  = sum(1 for ev in evaluations if ev.get("confidence_score", 0) >= 4.0 and ev.get("clarity_score", 0) >= 4.0)
+    medium  = sum(1 for ev in evaluations if 2.5 <= ev.get("confidence_score", 0) < 4.0 or 2.5 <= ev.get("clarity_score", 0) < 4.0)
+    weak    = n - strong - medium
+
+    st.success(f"Extracted and scored **{n} result{'s' if n != 1 else ''}** from {doc_name}.")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Submission-ready", strong, help="Both axes ≥ 4.0")
+    c2.metric("Needs improvement", medium, help="At least one axis 2.5–3.9")
+    c3.metric("High risk", weak, help="One or both axes < 2.5")
+
+    st.caption(
+        "⚠️ **Review required:** Auto-populated fields are shown in amber in the Excel. "
+        "Confirm extracted values match your documentation before treating scores as final."
+    )
+
+    # Preview table
+    with st.expander("Preview extracted results", expanded=True):
+        preview_rows = []
+        for i, (_, row) in enumerate(input_df.iterrows()):
+            ev = evaluations[i]
+            stat = statuses[i]
+            auto_count = sum(1 for v in stat.values() if v == STATUS_AUTO_POPULATED)
+            not_found  = sum(1 for v in stat.values() if v == STATUS_NOT_FOUND)
+            preview_rows.append({
+                "Indicator": row.get("indicator_name", "") or row.get("result_statement", "")[:60],
+                "Confidence": ev.get("confidence_score", 0),
+                "Clarity": ev.get("clarity_score", 0),
+                "Verdict": ev.get("verdict", ""),
+                "Auto-populated fields": auto_count,
+                "Not found fields": not_found,
+            })
+        st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
+
+    # Downloads
+    st.divider()
+    _ts = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M")
+    dl_c1, dl_c2 = st.columns(2)
+
+    with dl_c1:
+        try:
+            rows_list = [row.to_dict() for _, row in input_df.iterrows()]
+            excel_bytes = build_scored_excel(
+                rows_list, evaluations, statuses,
+                org_name=org_name, document_name=doc_name,
+            )
+            st.download_button(
+                "📥 Download Scored Excel",
+                data=excel_bytes,
+                file_name=f"evidence_quality_record_{_ts}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="smr_excel_dl",
+                type="primary",
+                use_container_width=True,
+                help="Sheet 1: all results with scores. Sheet 2: portfolio gap summary.",
+            )
+        except Exception as exc:
+            st.error(f"Could not generate Excel: {exc}")
+
+    with dl_c2:
+        try:
+            _port_rows = []
+            for _, row in input_df.iterrows():
+                r = {k: row.get(k, "") for k in [c[0] for c in _PORTFOLIO_COLUMNS]}
+                _port_rows.append(r)
+            csv_bytes = pd.DataFrame(_port_rows).to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 Download as Portfolio CSV",
+                data=csv_bytes,
+                file_name=f"portfolio_data_{_ts}.csv",
+                mime="text/csv",
+                key="smr_csv_dl",
+                use_container_width=True,
+                help="Same data in CSV format — re-uploadable into the Portfolio tab.",
+            )
+        except Exception as exc:
+            st.error(f"Could not generate CSV: {exc}")
+
+    if st.button("Clear results and upload a different report", key="smr_clear"):
+        st.session_state.pop("smr_results", None)
+        st.rerun()
+
+
 def render_screen_3():
     import pandas as pd
 
@@ -8009,126 +8366,132 @@ def render_screen_3():
         _go_to_screen(0)
 
     st.markdown("## 📊 Portfolio Analysis")
-    st.caption(
-        "Each result you score in the main form counts as one row. "
-        "Upload your full logframe as a CSV to analyse all your indicators at once — "
-        "the heatmap shows which are weakest."
-    )
 
-    _tmpl_c1, _tmpl_c2 = st.columns(2)
-    with _tmpl_c1:
-        st.download_button(
-            "📥 Minimal template (7 required columns)",
-            data=_portfolio_minimal_template_csv(),
-            file_name="portfolio_template_minimal.csv",
-            mime="text/csv",
-            key="portfolio_minimal_template_dl",
-            help="Start here — fill the 7 required columns, upload, and see your heatmap.",
-        )
-    with _tmpl_c2:
-        st.download_button(
-            "📥 Full template (29 columns)",
-            data=_portfolio_template_csv(),
-            file_name="impact_receipts_portfolio_template.csv",
-            mime="text/csv",
-            key="portfolio_template_dl",
-            help="Includes provenance, beneficiary voice, and governance fields for higher scores.",
-        )
-    with st.expander("Column reference & accepted values"):
-        st.caption(_PORTFOLIO_REVIEW_HINT)
+    _s3_tab_smr, _s3_tab_csv = st.tabs(["📄 Score My Report", "📊 CSV Portfolio"])
 
-    uploaded = st.file_uploader(
-        "Upload your completed logframe (CSV or Excel)",
-        type=["csv", "xlsx", "xls"],
-        key="portfolio_upload",
-    )
+    with _s3_tab_smr:
+        _render_score_my_report_tab()
 
-    if uploaded is not None:
-        try:
-            if uploaded.name.lower().endswith((".xlsx", ".xls")):
-                df = pd.read_excel(uploaded)
-            else:
-                df = pd.read_csv(uploaded)
-        except Exception as exc:
-            st.error(f"Could not read the file: {exc}")
-            df = None
-
-        if df is not None:
-            results_df, warnings = _evaluate_portfolio(df)
-            st.session_state["portfolio_results"] = results_df
-            st.session_state["portfolio_warnings"] = warnings
-
-    results_df = st.session_state.get("portfolio_results")
-    warnings = st.session_state.get("portfolio_warnings") or []
-
-    for w in warnings:
-        st.warning(w)
-
-    if results_df is not None and not results_df.empty:
-        dims = [d for d, _ in _PORTFOLIO_SUBSCORE_DIMENSIONS]
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Indicators evaluated", len(results_df))
-        with col2:
-            st.metric("Avg Confidence", f"{results_df['confidence_score'].mean():.1f}/5.0")
-        with col3:
-            st.metric("Avg Clarity", f"{results_df['clarity_score'].mean():.1f}/5.0")
-
-        weakest_dim = results_df[dims].mean().idxmin()
-        weakest_dim_pct = results_df[dims].mean().min()
-        st.markdown(
-            f"**Systemic gap:** *{weakest_dim}* is your portfolio's weakest sub-score "
-            f"on average ({weakest_dim_pct:.0f}% of target) — start here for the biggest "
-            f"improvement across multiple indicators."
-        )
-
-        st.markdown("#### Heatmap — weakest indicators & sub-scores")
+    with _s3_tab_csv:
         st.caption(
-            "For rows using a qualitative evidence type (case study, outcome harvesting, "
-            "beneficiary narrative or testimony), the \"Measurement\" column reflects "
-            "Sourcing & Triangulation (case/respondent selection, triangulation, and bias "
-            "mitigation) instead of measurement precision."
-        )
-        if st.session_state.get("lite_mode", False):
-            st.caption(
-                "Heatmap hidden in low-bandwidth mode — see the results table "
-                "below for the same data."
-            )
-        else:
-            st.altair_chart(_portfolio_heatmap_chart(results_df), use_container_width=True, key="portfolio_heatmap")
-
-        st.markdown("#### Results table")
-        st.dataframe(
-            results_df[["indicator_name", "confidence_score", "clarity_score", "verdict", "top_fix"]],
-            use_container_width=True,
+            "Upload your full logframe as a CSV to analyse all your indicators at once — "
+            "the heatmap shows which are weakest."
         )
 
-        st.download_button(
-            "Download results (CSV)",
-            data=results_df.to_csv(index=False).encode("utf-8"),
-            file_name="impact_receipts_portfolio_results.csv",
-            mime="text/csv",
-            key="portfolio_results_dl",
-        )
-
-        with st.expander("Report handoff details"):
-            st.text_input("Prepared by (your name)", key="report_prepared_by")
-            st.selectbox("Status", _REPORT_STATUS_OPTIONS, key="report_status")
-            st.text_area("Notes for reviewer (optional)", key="report_notes", height=80)
-
-        _timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        _portfolio_summary_html = _build_portfolio_verification_summary_html(results_df, warnings, _timestamp)
-        _portfolio_summary_pdf  = _html_to_pdf_bytes(_portfolio_summary_html)
-        if _portfolio_summary_pdf:
+        _tmpl_c1, _tmpl_c2 = st.columns(2)
+        with _tmpl_c1:
             st.download_button(
-                "📋 Download Verification Summary (PDF)",
-                data=_portfolio_summary_pdf,
-                file_name=f"portfolio_verification_summary_{_timestamp}.pdf",
-                mime="application/pdf",
-                key="portfolio_verification_summary_pdf_btn",
+                "📥 Minimal template (7 required columns)",
+                data=_portfolio_minimal_template_csv(),
+                file_name="portfolio_template_minimal.csv",
+                mime="text/csv",
+                key="portfolio_minimal_template_dl",
+                help="Start here — fill the 7 required columns, upload, and see your heatmap.",
             )
-        else:
-            st.caption("PDF: install xhtml2pdf to enable one-click PDF download.")
+        with _tmpl_c2:
+            st.download_button(
+                "📥 Full template (29 columns)",
+                data=_portfolio_template_csv(),
+                file_name="impact_receipts_portfolio_template.csv",
+                mime="text/csv",
+                key="portfolio_template_dl",
+                help="Includes provenance, beneficiary voice, and governance fields for higher scores.",
+            )
+        with st.expander("Column reference & accepted values"):
+            st.caption(_PORTFOLIO_REVIEW_HINT)
+
+        uploaded = st.file_uploader(
+            "Upload your completed logframe (CSV or Excel)",
+            type=["csv", "xlsx", "xls"],
+            key="portfolio_upload",
+        )
+
+        if uploaded is not None:
+            try:
+                if uploaded.name.lower().endswith((".xlsx", ".xls")):
+                    df = pd.read_excel(uploaded)
+                else:
+                    df = pd.read_csv(uploaded)
+            except Exception as exc:
+                st.error(f"Could not read the file: {exc}")
+                df = None
+
+            if df is not None:
+                results_df, warnings = _evaluate_portfolio(df)
+                st.session_state["portfolio_results"] = results_df
+                st.session_state["portfolio_warnings"] = warnings
+
+        results_df = st.session_state.get("portfolio_results")
+        warnings = st.session_state.get("portfolio_warnings") or []
+
+        for w in warnings:
+            st.warning(w)
+
+        if results_df is not None and not results_df.empty:
+            dims = [d for d, _ in _PORTFOLIO_SUBSCORE_DIMENSIONS]
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Indicators evaluated", len(results_df))
+            with col2:
+                st.metric("Avg Confidence", f"{results_df['confidence_score'].mean():.1f}/5.0")
+            with col3:
+                st.metric("Avg Clarity", f"{results_df['clarity_score'].mean():.1f}/5.0")
+
+            weakest_dim = results_df[dims].mean().idxmin()
+            weakest_dim_pct = results_df[dims].mean().min()
+            st.markdown(
+                f"**Systemic gap:** *{weakest_dim}* is your portfolio's weakest sub-score "
+                f"on average ({weakest_dim_pct:.0f}% of target) — start here for the biggest "
+                f"improvement across multiple indicators."
+            )
+
+            st.markdown("#### Heatmap — weakest indicators & sub-scores")
+            st.caption(
+                "For rows using a qualitative evidence type (case study, outcome harvesting, "
+                "beneficiary narrative or testimony), the \"Measurement\" column reflects "
+                "Sourcing & Triangulation (case/respondent selection, triangulation, and bias "
+                "mitigation) instead of measurement precision."
+            )
+            if st.session_state.get("lite_mode", False):
+                st.caption(
+                    "Heatmap hidden in low-bandwidth mode — see the results table "
+                    "below for the same data."
+                )
+            else:
+                st.altair_chart(_portfolio_heatmap_chart(results_df), use_container_width=True, key="portfolio_heatmap")
+
+            st.markdown("#### Results table")
+            st.dataframe(
+                results_df[["indicator_name", "confidence_score", "clarity_score", "verdict", "top_fix"]],
+                use_container_width=True,
+            )
+
+            st.download_button(
+                "Download results (CSV)",
+                data=results_df.to_csv(index=False).encode("utf-8"),
+                file_name="impact_receipts_portfolio_results.csv",
+                mime="text/csv",
+                key="portfolio_results_dl",
+            )
+
+            with st.expander("Report handoff details"):
+                st.text_input("Prepared by (your name)", key="report_prepared_by")
+                st.selectbox("Status", _REPORT_STATUS_OPTIONS, key="report_status")
+                st.text_area("Notes for reviewer (optional)", key="report_notes", height=80)
+
+            _timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            _portfolio_summary_html = _build_portfolio_verification_summary_html(results_df, warnings, _timestamp)
+            _portfolio_summary_pdf  = _html_to_pdf_bytes(_portfolio_summary_html)
+            if _portfolio_summary_pdf:
+                st.download_button(
+                    "📋 Download Verification Summary (PDF)",
+                    data=_portfolio_summary_pdf,
+                    file_name=f"portfolio_verification_summary_{_timestamp}.pdf",
+                    mime="application/pdf",
+                    key="portfolio_verification_summary_pdf_btn",
+                )
+            else:
+                st.caption("PDF: install xhtml2pdf to enable one-click PDF download.")
 
     st.divider()
     st.markdown(f"### {_TREND_COPY['header']}")
