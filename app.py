@@ -7513,12 +7513,69 @@ def _generate_evidence_statement(submission: dict) -> str:
 # Score My Report — batch document extraction + scoring pipeline (council XVII)
 # ---------------------------------------------------------------------------
 
+def _recover_partial_json_results(raw: str) -> list[dict]:
+    """Walk character-by-character through a potentially truncated JSON response
+    and return every complete result object found inside the "results" array.
+
+    This handles the case where max_tokens cuts the response mid-string,
+    producing an unterminated JSON document.
+    """
+    import json as _json
+
+    # Locate the results array
+    results_key = raw.find('"results"')
+    if results_key == -1:
+        return []
+    array_start = raw.find('[', results_key)
+    if array_start == -1:
+        return []
+
+    # Walk through characters tracking brace depth to find complete objects
+    depth = 0
+    in_string = False
+    escape_next = False
+    obj_start = -1
+    complete_results = []
+
+    for i in range(array_start + 1, len(raw)):
+        ch = raw[i]
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == '\\' and in_string:
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == '{':
+            if depth == 0:
+                obj_start = i
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0 and obj_start != -1:
+                try:
+                    obj = _json.loads(raw[obj_start:i + 1])
+                    complete_results.append(obj)
+                except _json.JSONDecodeError:
+                    pass
+                obj_start = -1
+
+    return complete_results
+
+
 def _extract_all_results_from_document(document_text: str, api_key: str,
-                                        max_chars: int = 80000) -> tuple[list[dict], str]:
+                                        max_chars: int = 60000) -> tuple[list[dict], str]:
     """Call Claude with BATCH_EXTRACTION_SYSTEM_PROMPT to extract all results.
 
     Returns (results_list, error_message).  error_message is "" on success.
     Each item in results_list is a raw dict from the JSON response.
+
+    If the response is truncated (hits max_tokens), _recover_partial_json_results()
+    salvages every complete result object from the partial output.
     """
     import anthropic as _anthr
     import json as _json
@@ -7536,13 +7593,22 @@ def _extract_all_results_from_document(document_text: str, api_key: str,
         # Strip markdown fences if present
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-        data = _json.loads(raw)
-        results = data.get("results", [])
-        if not isinstance(results, list):
-            return [], "Extraction returned unexpected format."
-        return results, ""
-    except _json.JSONDecodeError as e:
-        return [], f"Could not parse extraction response as JSON: {e}"
+
+        # Try clean parse first
+        try:
+            data = _json.loads(raw)
+            results = data.get("results", [])
+            if isinstance(results, list) and results:
+                return results, ""
+        except _json.JSONDecodeError:
+            pass
+
+        # Response was likely truncated — recover complete objects
+        recovered = _recover_partial_json_results(raw)
+        if recovered:
+            return recovered, ""
+
+        return [], "Could not extract any complete results from the document. The response may have been too large. Try uploading a shorter document or a document with fewer indicators."
     except Exception as e:
         return [], f"Extraction failed: {type(e).__name__}: {e}"
 
