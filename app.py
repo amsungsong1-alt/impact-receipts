@@ -8834,6 +8834,108 @@ def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str, 
         f'they accurately reflect your documentation before treating this report as final.</p>'
     ) if st.session_state.get("_irc_used") else ""
 
+    # ── Change A: Verdict rationale (council XXI) ─────────────────────────────
+    _conf_subs = [
+        ("Directness",   round(conf_comp.get("direct_score", 0), 1),  2.0),
+        ("Verification", round(conf_comp.get("verify_score", 0), 1),  2.0),
+        ("Recency",      round(conf_comp.get("recency_score", 0), 1), 1.0),
+    ]
+    _sorted_conf = sorted(_conf_subs, key=lambda x: x[1] / x[2])
+    _weakest_c   = _sorted_conf[0]
+    _verdict_rationale_html = ""
+    if conf_score < 3.0:
+        _verdict_rationale_html = (
+            f'<p style="font-size:11px;color:#616161;font-style:italic;margin:0 0 12px;">'
+            f'Your Confidence of {conf_score}/5.0 is driven primarily by '
+            f'<strong>{_weakest_c[0]}</strong> at {_weakest_c[1]}/{_weakest_c[2]:.1f}. '
+            f'Addressing the priority fixes below is the fastest path to re-scoring.'
+            f'</p>'
+        )
+    elif clar_score < 3.0:
+        _clar_subs = [
+            ("Definition",  round(clar_comp.get("definition_score", 0), 2),  1.25),
+            ("Measurement", round(clar_comp.get("measurement_score", 0), 2), 1.25),
+            ("Integrity",   round(clar_comp.get("integrity_score", 0), 2),   1.0),
+            ("Scope",       round(clar_comp.get("scope_score", 0), 2),       0.75),
+            ("Governance",  round(clar_comp.get("governance_score", 0), 2),  0.75),
+        ]
+        _weakest_l = min(_clar_subs, key=lambda x: x[1] / x[2])
+        _verdict_rationale_html = (
+            f'<p style="font-size:11px;color:#616161;font-style:italic;margin:0 0 12px;">'
+            f'Your Clarity of {clar_score}/5.0 is driven primarily by '
+            f'<strong>{_weakest_l[0]}</strong> at {_weakest_l[1]}/{_weakest_l[2]:.1f}. '
+            f'Addressing the priority fixes below is the fastest path to re-scoring.'
+            f'</p>'
+        )
+
+    # ── Change B: Recency anomaly warning (council XXI) ───────────────────────
+    _recency_level = conf_comp.get("recency_level", 5)
+    _recency_score = round(conf_comp.get("recency_score", 1.0), 1)
+    _recency_warning_html = ""
+    if _recency_level <= 1 and _recency_score <= 0.2 and ev_date:
+        _recency_warning_html = (
+            f'<p style="font-size:11px;color:#6D4C41;background:#FFF3E0;padding:8px 12px;'
+            f'border-left:3px solid #FF6F00;margin:8px 0;{P}">'
+            f'<strong>⚠️ Evidence date may be incorrect:</strong> Your evidence date '
+            f'({ev_date}) is scoring as very old or outside your reporting period, '
+            f'which is penalising your Recency score ({_recency_score}/1.0). '
+            f'This may be a data entry error — correct the evidence date and re-score.'
+            f'</p>'
+        )
+        # Suppress the evidence statement when date is clearly anomalous
+        ev_stmt_block = (
+            f'<p style="font-size:11px;color:#6D4C41;font-style:italic;margin:12px 0;">'
+            f'Evidence statement not generated — evidence date appears incorrect. '
+            f'Correct the date and re-score to generate this.'
+            f'</p>'
+        )
+
+    # ── Change D: Per-sub-score rationales for bar rows (council XXI) ─────────
+    from diagnostics import _DIRECTNESS_TIPS, _VERIFICATION_TIPS  # noqa: E402
+    _direct_level  = conf_comp.get("direct_level", 0)
+    _verify_level  = conf_comp.get("verify_level", 0)
+
+    def _recency_rationale(level: int) -> str:
+        return {
+            0: "Evidence date could not be parsed — check the date format",
+            1: "Evidence >12 months from reporting period — refresh or flag explicitly",
+            2: "Evidence 7–12 months from reporting period — within acceptable range for some donors",
+            3: "Evidence 4–6 months from reporting period — acceptable",
+            4: "Evidence 1–3 months from reporting period — good recency",
+            5: "Evidence within reporting month — maximum recency",
+        }.get(level, "")
+
+    def _clarity_rationale(score: float, max_v: float, label: str) -> str:
+        pct = (score / max_v * 100) if max_v else 0
+        if pct >= 90:
+            return f"{label} at or near maximum"
+        if pct >= 60:
+            return f"{label} acceptable — minor gaps present"
+        return f"{label} below threshold — primary Clarity gap"
+
+    def bar_row_with_note(val, max_v, label, note: str = ""):
+        """Score row with optional rationale note below the bar."""
+        pct = min(int((val / max_v) * 100), 100) if max_v else 0
+        bar_color = "#1B5E20" if pct >= 70 else ("#F57F17" if pct >= 50 else "#B71C1C")
+        score_str = f"{val} / {max_v}"
+        filled = max(0, round(pct / 10))
+        empty  = 10 - filled
+        bar_txt = f"<font color='{bar_color}'>{'&#9632;' * filled}</font><font color='#E0E0E0'>{'&#9632;' * empty}</font>"
+        note_cell = (
+            f"<td colspan='3' style='font-size:9px;color:#757575;font-style:italic;"
+            f"padding:0 0 5px 0;'>{note}</td>"
+        ) if note else ""
+        row = (
+            f"<tr>"
+            f"<td width='130' style='font-size:11px;color:#424242;padding:3px 0;'>{label}</td>"
+            f"<td width='100' style='font-size:10px;padding:3px 4px;letter-spacing:1px;'>{bar_txt}</td>"
+            f"<td width='55' style='font-size:11px;font-weight:700;color:{bar_color};padding:3px 0;{P}'>{score_str}</td>"
+            f"</tr>"
+        )
+        if note_cell:
+            row += f"<tr>{note_cell}</tr>"
+        return row
+
     return f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
 <title>Submission Readiness Card</title>
@@ -8872,6 +8974,9 @@ h2{{color:#1B5E20;font-size:13px;font-weight:700;border-bottom:1px solid #8A6500
 </td>
 </tr></table>
 
+<!-- Verdict rationale (council XXI) -->
+{_verdict_rationale_html}
+
 <!-- Priority fixes -->
 <h2>Priority fixes before submission</h2>
 <table border="0" cellspacing="0" cellpadding="0" width="100%" style="margin-bottom:12px;">
@@ -8887,18 +8992,19 @@ h2{{color:#1B5E20;font-size:13px;font-weight:700;border-bottom:1px solid #8A6500
 
 <p style="font-size:11px;font-weight:700;color:#424242;margin:8px 0 4px;">CONFIDENCE</p>
 <table border="0" cellspacing="0" cellpadding="0" style="margin-bottom:10px;">
-{bar_row(round(conf_comp.get('direct_score',0),1), 2.0, 'Directness')}
-{bar_row(round(conf_comp.get('verify_score',0),1), 2.0, 'Verification')}
-{bar_row(round(conf_comp.get('recency_score',0),1), 1.0, 'Recency')}
+{bar_row_with_note(round(conf_comp.get('direct_score',0),1), 2.0, 'Directness', _DIRECTNESS_TIPS.get(_direct_level,'')[:90])}
+{bar_row_with_note(round(conf_comp.get('verify_score',0),1), 2.0, 'Verification', _VERIFICATION_TIPS.get(_verify_level,'')[:90])}
+{bar_row_with_note(round(conf_comp.get('recency_score',0),1), 1.0, 'Recency', _recency_rationale(_recency_level))}
 </table>
+{_recency_warning_html}
 
 <p style="font-size:11px;font-weight:700;color:#424242;margin:8px 0 4px;">CLARITY</p>
 <table border="0" cellspacing="0" cellpadding="0" style="margin-bottom:10px;">
-{bar_row(round(clar_comp.get('definition_score',0),2), 1.25, def_label)}
-{bar_row(round(clar_comp.get('measurement_score',0),2), 1.25, meas_label)}
-{bar_row(round(clar_comp.get('integrity_score',0),2), 1.0, 'Integrity')}
-{bar_row(round(clar_comp.get('scope_score',0),2), 0.75, 'Scope')}
-{bar_row(round(clar_comp.get('governance_score',0),2), 0.75, 'Governance')}
+{bar_row_with_note(round(clar_comp.get('definition_score',0),2), 1.25, def_label, _clarity_rationale(clar_comp.get('definition_score',0),1.25,'Definition'))}
+{bar_row_with_note(round(clar_comp.get('measurement_score',0),2), 1.25, meas_label, _clarity_rationale(clar_comp.get('measurement_score',0),1.25,'Measurement'))}
+{bar_row_with_note(round(clar_comp.get('integrity_score',0),2), 1.0, 'Integrity', _clarity_rationale(clar_comp.get('integrity_score',0),1.0,'Integrity'))}
+{bar_row_with_note(round(clar_comp.get('scope_score',0),2), 0.75, 'Scope', _clarity_rationale(clar_comp.get('scope_score',0),0.75,'Scope'))}
+{bar_row_with_note(round(clar_comp.get('governance_score',0),2), 0.75, 'Governance', _clarity_rationale(clar_comp.get('governance_score',0),0.75,'Governance'))}
 </table>
 
 {'<h2>Logframe Linkage</h2><table border="0" cellspacing="0" cellpadding="0" style="margin-bottom:10px;">' + lf_rows + '</table>' if lf_rows else ''}

@@ -1151,16 +1151,38 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict) -> li
     verify_score  = confidence_components.get("verify_score", 0)
     recency_score = confidence_components.get("recency_score", 0)
     verify_level  = confidence_components.get("verify_level", 0)
+    _ev_type      = confidence_components.get("ev_type", "")
+
+    # Evidence types that already ARE a primary record — suggesting attendance sheets is wrong
+    _ALREADY_STRUCTURED = {
+        "Raw datasets or survey exports",
+        "Baseline and endline study",
+        "Financial records",
+        "Third-party audits",
+        "Tracer survey results",
+        "Case study",
+        "Outcome harvesting",
+    }
 
     # Confidence triggers
     if direct_score < (3 / 5) * 2.0:
         _gain = round(2.0 - direct_score, 2)
-        fixes.append({
-            "dimension": "confidence",
-            "message": (
+        if _ev_type in _ALREADY_STRUCTURED:
+            # Evidence type is already a strong primary source — don't suggest attendance sheets
+            _dir_msg = (
+                f"Your evidence type ({_ev_type}) is already a strong primary source. "
+                "The main Directness gap is the absence of an explicit causal or comparison statement — "
+                "add a sentence noting what comparison group, baseline, or theory of change "
+                "links this evidence to the reported result."
+            )
+        else:
+            _dir_msg = (
                 "Add a primary record — signed attendance sheets, payroll records, or a "
                 "KoboToolbox export — so your evidence directly ties to the claim."
-            ),
+            )
+        fixes.append({
+            "dimension": "confidence",
+            "message": _dir_msg,
             "score_impact": f"+up to {_gain} on Confidence",
             "score_impact_value": _gain,
         })
@@ -1498,6 +1520,7 @@ def evaluate_submission(submission: dict) -> dict:
         "provenance_adjustment": provenance_adjustment,
         "direct_rationale": direct_rationale,
         "verify_rationale": verify_rationale,
+        "ev_type":       ev_type,  # passed through for evidence-type-aware fix messages
         "direct_overattribution_flag": (
             direct_signals["strong_causal_claim"]
             and not (direct_signals["triangulated"] or direct_signals["comparison_evidence"] or direct_signals["causal_link"])
