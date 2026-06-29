@@ -2194,7 +2194,7 @@ def _render_paywall(irc_context: bool = False):
     if not irc_context:
         st.markdown("### You've used your 3 free checks.")
         st.markdown(
-            "Fixed the gaps? Upgrade to re-score and see the improvement:\n\n"
+            "Improved your evidence? Upgrade to re-score and see the impact:\n\n"
             "- **Re-score after every fix** — see exactly how much each change moves your score\n"
             "- **⚡ Instant Report Check** — upload your draft report and auto-fill all fields in seconds\n"
             "- **Downloadable PDF report** — shareable with your supervisor or donor\n\n"
@@ -2245,6 +2245,12 @@ def _render_paywall(irc_context: bool = False):
             else:
                 _detail = last_payment_error()
                 st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
+
+    st.caption(
+        "Paid securely via Paystack — MTN MoMo, Telecel, Visa/Mastercard. "
+        "If you are charged but not unlocked, contact us within 24 hours: "
+        "WhatsApp [+233 50 364 8195](https://wa.me/233503648195) · info@impact-receipts.com"
+    )
 
 
 def _subscore_chart(items):
@@ -3966,6 +3972,14 @@ def _render_email_gate_inline(form_key_suffix: str = "") -> None:
             "No password needed. We use your email to save your paid access."
         )
         with st.form(f"email_gate_form{form_key_suffix}"):
+            # Privacy disclosure shown before email submission
+            st.caption(
+                "By continuing, you confirm that ImpactProof (a product of Impact-Receipts) "
+                "may store your email and usage count to manage your account. "
+                "No document content or result text is stored on our servers. "
+                "Processed by Supabase (Ireland) and Paystack (Nigeria). "
+                "Contact: info@impact-receipts.com"
+            )
             _gate_email = st.text_input("Email address", placeholder="you@organisation.org")
             _submit_label = "Send verification code" if otp_enabled() else "Continue →"
             if st.form_submit_button(_submit_label, use_container_width=True):
@@ -5695,7 +5709,7 @@ def render_screen_1():
         _email_gate_check = st.session_state.get("user_email", "")
         _u_gate = get_user(_email_gate_check) if _email_gate_check else None
         _checks_gate = (_u_gate or {}).get("free_checks_used", 0)
-        _paid_gate = st.session_state.get("is_paid") or is_still_paid(_u_gate)
+        _paid_gate = is_still_paid(_u_gate)  # DB-authoritative; session state is display-only
         if not _paid_gate and _checks_gate >= FREE_CHECKS_LIMIT:
             st.warning("You've used your free checks — upgrade below to score this result.")
 
@@ -5709,7 +5723,7 @@ def render_screen_1():
         _email_now = st.session_state.get("user_email", "")
         _u_now = get_user(_email_now) if _email_now else None
         _checks_now = (_u_now or {}).get("free_checks_used", 0)
-        _paid_now = st.session_state.get("is_paid") or is_still_paid(_u_now)
+        _paid_now = is_still_paid(_u_now)  # DB-authoritative; session state is display-only
         _report_allowed = _paid_now or _checks_now < FREE_CHECKS_LIMIT
         # Cache for Screen 2 download gate — scoring itself is always free
         st.session_state["_report_allowed"] = _report_allowed
@@ -9845,10 +9859,19 @@ def main():
     if st.session_state.get("_show_pricing"):
         render_pricing_page()
         return
-    screen = st.session_state["screen"]
-    {0: render_screen_0, 1: render_screen_1, 2: render_screen_2, 3: render_screen_3}.get(
-        screen, render_screen_0
-    )()
+    try:
+        screen = st.session_state["screen"]
+        {0: render_screen_0, 1: render_screen_1, 2: render_screen_2, 3: render_screen_3}.get(
+            screen, render_screen_0
+        )()
+    except Exception as _top_exc:
+        import logging as _logging
+        _logging.error("Unhandled top-level exception", exc_info=True)
+        st.error(
+            "Something went wrong rendering the app. Please refresh the page. "
+            "If the problem persists, contact us: "
+            "[WhatsApp +233 50 364 8195](https://wa.me/233503648195) · info@impact-receipts.com"
+        )
 
 
 if __name__ == "__main__":
