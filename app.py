@@ -3999,6 +3999,12 @@ def _render_email_gate_inline(form_key_suffix: str = "") -> None:
                             st.session_state["_otp_sent_at"] = time.time()
                             st.session_state["_otp_attempts"] = 0
                             st.rerun()
+                        elif _err.startswith("DOMAIN_NOT_VERIFIED:"):
+                            # Resend is in test mode — domain not yet verified.
+                            # Fall back gracefully to simple email entry so
+                            # users are not blocked. Verify a domain at
+                            # resend.com/domains to enable OTP for all addresses.
+                            _complete_email_login(_e)
                         else:
                             st.error(f"Could not send verification email: {_err}")
                     else:

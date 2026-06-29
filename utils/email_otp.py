@@ -69,6 +69,12 @@ def send_otp_email(to_email: str, code: str) -> tuple[bool, str]:
         )
         if resp.status_code in (200, 201):
             return True, ""
+        # 403 with "verify a domain" means the Resend account is in test mode
+        # and can only send to the account owner's address.  Signal this with a
+        # special prefix so callers can fall back to simple email entry rather
+        # than blocking the user entirely.
+        if resp.status_code == 403 and "domain" in resp.text.lower():
+            return False, "DOMAIN_NOT_VERIFIED:" + resp.text[:200]
         return False, f"Email service returned {resp.status_code}: {resp.text[:200]}"
     except Exception as e:
         return False, str(e)
