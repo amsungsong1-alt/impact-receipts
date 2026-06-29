@@ -4216,14 +4216,15 @@ def render_pricing_page():
         st.rerun()
 
     st.markdown("## Pricing")
-    st.caption("Check your result before your donor does. First 3 checks always free.")
+    st.caption("Score your evidence. Prove your impact. First 3 checks always free.")
 
     # ROI micro-copy
     st.markdown(
         "<div style='background:#F1F8E9;border-left:4px solid #1B5E20;padding:10px 16px;"
         "border-radius:6px;font-size:0.9rem;margin-bottom:20px;'>"
         "💡 <strong>At GHS 50/month, one avoided donor rejection pays for a full year of Professional.</strong> "
-        "A USAID quarterly report cycle takes 40+ hours. One rejection costs all of it again."
+        "A USAID quarterly report cycle takes 40+ hours to rework after rejection. "
+        "Upload your QPR and score every KPI in 60 seconds before it goes out."
         "</div>",
         unsafe_allow_html=True,
     )
@@ -4238,12 +4239,13 @@ def render_pricing_page():
             "<h3 style='color:#212121;margin:0 0 4px;'>Starter</h3>"
             "<p style='font-size:2rem;font-weight:700;color:#212121;margin:0;'>Free</p>"
             "<p style='font-size:0.8rem;color:#616161;margin:4px 0 16px;'>No card needed</p>"
-            "<p style='font-size:0.85rem;color:#424242;margin-bottom:12px;font-style:italic;'>Try one check</p>"
+            "<p style='font-size:0.85rem;color:#424242;margin-bottom:12px;font-style:italic;'>Try the tool on your next result</p>"
             "<hr style='border:none;border-top:1px solid #E0E0E0;margin:12px 0;'/>"
             "<ul style='padding-left:16px;font-size:0.85rem;color:#424242;margin:0;line-height:1.8;'>"
             "<li>3 free checks</li>"
-            "<li>Quick Check (instant score)</li>"
-            "<li>Provisional Confidence &amp; Clarity scores</li>"
+            "<li>Quick Check — instant provisional score</li>"
+            "<li>Full Confidence &amp; Clarity diagnostic</li>"
+            "<li>Actionable fix list (top 3)</li>"
             "</ul>"
             "</div>",
             unsafe_allow_html=True,
@@ -4257,18 +4259,20 @@ def render_pricing_page():
             f"<div style='border:3px solid #1B5E20;border-radius:10px;padding:20px;height:100%;background:#F9FFF9;{_pca}'>"
             "<p style='background:#1B5E20;color:white;font-size:0.7rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;"
             "display:inline-block;padding:2px 8px;border-radius:20px;margin:0 0 8px;'>Most popular</p>"
-            "<p style='font-size:0.75rem;color:#616161;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;'>For M&amp;E practitioners reporting regularly</p>"
+            "<p style='font-size:0.75rem;color:#616161;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;'>For MEL practitioners reporting regularly</p>"
             "<h3 style='color:#1B5E20;margin:0 0 4px;'>Professional</h3>"
             "<p style='font-size:2rem;font-weight:700;color:#1B5E20;margin:0;'>GHS 50<span style='font-size:1rem;font-weight:400;'>/mo</span></p>"
             "<p style='font-size:0.8rem;color:#616161;margin:4px 0 16px;'>~£3.50 · or GHS 500/year (2 months free)</p>"
-            "<p style='font-size:0.85rem;color:#424242;margin-bottom:12px;font-style:italic;'>Check every result before submission</p>"
+            "<p style='font-size:0.85rem;color:#424242;margin-bottom:12px;font-style:italic;'>Score every result before every submission</p>"
             "<hr style='border:none;border-top:1px solid #C8E6C9;margin:12px 0;'/>"
             "<ul style='padding-left:16px;font-size:0.85rem;color:#424242;margin:0;line-height:1.8;'>"
             "<li><strong>Unlimited checks</strong></li>"
-            "<li>Readiness Card PDF (shareable)</li>"
-            "<li>Donor-specific fixes (USAID, FCDO, GIZ…)</li>"
-            "<li>Full diagnostic report</li>"
-            "<li>Logframe linkage scoring</li>"
+            "<li><strong>Score My Report</strong> — upload a Word/PDF, score all results at once, download scored Excel</li>"
+            "<li>Instant Report Check — auto-fill form from uploaded document</li>"
+            "<li>Readiness Card PDF (shareable with supervisor or donor)</li>"
+            "<li>Donor-specific fixes (USAID, FCDO, GIZ, World Bank…)</li>"
+            "<li>Full diagnostic report with logframe linkage scoring</li>"
+            "<li>Score chat — 'Ask about your score' on every result</li>"
             "</ul>"
             "</div>",
             unsafe_allow_html=True,
@@ -4280,18 +4284,19 @@ def render_pricing_page():
     with _t3:
         st.markdown(
             f"<div style='border:2px solid #8A6500;border-radius:10px;padding:20px;height:100%;{_pca}'>"
-            "<p style='font-size:0.75rem;color:#616161;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;'>For MEL consulting firms</p>"
+            "<p style='font-size:0.75rem;color:#616161;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;'>For MEL consulting firms &amp; programme teams</p>"
             "<h3 style='color:#8A6500;margin:0 0 4px;'>Agency</h3>"
             "<p style='font-size:2rem;font-weight:700;color:#8A6500;margin:0;'>GHS 200<span style='font-size:1rem;font-weight:400;'>/mo</span></p>"
-            "<p style='font-size:0.8rem;color:#616161;margin:4px 0 16px;'>~£13 · multiple clients</p>"
-            "<p style='font-size:0.85rem;color:#424242;margin-bottom:12px;font-style:italic;'>Quality-check your entire client portfolio</p>"
+            "<p style='font-size:0.8rem;color:#616161;margin:4px 0 16px;'>~£13 · multiple clients or indicators</p>"
+            "<p style='font-size:0.85rem;color:#424242;margin-bottom:12px;font-style:italic;'>Quality-check your entire reporting portfolio</p>"
             "<hr style='border:none;border-top:1px solid #E8D5A3;margin:12px 0;'/>"
             "<ul style='padding-left:16px;font-size:0.85rem;color:#424242;margin:0;line-height:1.8;'>"
             "<li>Everything in Professional</li>"
-            "<li><strong>Portfolio analysis</strong> — heatmap across all indicators</li>"
+            "<li><strong>Portfolio analysis</strong> — indicator heatmap, systemic gap report</li>"
+            "<li><strong>Portfolio Q&amp;A chat</strong> — 'Which KPI needs the most work across all results?'</li>"
+            "<li>Donor framework crosswalk reports (USAID DQA, Bond, OECD-DAC, World Bank)</li>"
             "<li>Up to 5 team seats</li>"
             "<li>Priority support</li>"
-            "<li>Donor framework crosswalk reports</li>"
             "</ul>"
             "</div>",
             unsafe_allow_html=True,
