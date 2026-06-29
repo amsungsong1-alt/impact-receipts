@@ -1870,7 +1870,8 @@ def _reset_all_slots():
     for k in ["active_slots", "evaluations", "submissions_snapshot",
               "evaluation", "submission_snapshot", "error_message", "active_slots_run",
               "_tab1_auto_advanced", "_tab2_auto_advanced",
-              "_results_email_sent", "current_tab", "chat_messages"]:
+              "_results_email_sent", "current_tab", "chat_messages",
+              "smr_chat_messages"]:
         st.session_state.pop(k, None)
 
 
@@ -8279,6 +8280,65 @@ def _validate_import_rows(submissions: list) -> list:
 # Screen 3 — Portfolio / Framework Dashboard
 # ---------------------------------------------------------------------------
 
+def _render_portfolio_chat(input_df, evaluations: list, statuses: list) -> None:
+    """Portfolio-level chat assistant for the Score My Report tab (council XIX).
+
+    Knows all N results' scores simultaneously — enables cross-result questions
+    like "which KPI needs the most work?" and "what's my systemic gap?"
+    Reuses the same Haiku + session-state pattern as _render_help_chat().
+    """
+    from diagnostics import build_portfolio_chat_system_prompt
+
+    hist_key = "smr_chat_messages"
+    if hist_key not in st.session_state:
+        st.session_state[hist_key] = []
+    msgs = st.session_state[hist_key]
+
+    st.caption(
+        "Ask about any of your scored results or your portfolio as a whole. "
+        "Examples: 'Which result needs the most work?' · 'What's my systemic gap?' · "
+        "'Which results can I submit now?' — answers are based solely on the scores shown above."
+    )
+
+    for msg in msgs:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    prompt = st.chat_input("Ask about your results…", key="smr_chat_input")
+    if not prompt:
+        return
+
+    msgs.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    _api_key = (
+        st.secrets.get("ANTHROPIC_API_KEY", "")
+        if hasattr(st, "secrets") else
+        __import__("os").environ.get("ANTHROPIC_API_KEY", "")
+    )
+    if not _api_key:
+        reply = "Portfolio chat is not available — API key not configured."
+    else:
+        try:
+            import anthropic as _anthr
+            _client = _anthr.Anthropic(api_key=_api_key)
+            system_prompt = build_portfolio_chat_system_prompt(input_df, evaluations, statuses)
+            _resp = _client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=512,
+                system=system_prompt,
+                messages=[{"role": m["role"], "content": m["content"]} for m in msgs],
+            )
+            reply = _resp.content[0].text if _resp.content else "No response received."
+        except Exception as exc:
+            reply = f"Could not reach the assistant right now. ({type(exc).__name__})"
+
+    msgs.append({"role": "assistant", "content": reply})
+    with st.chat_message("assistant"):
+        st.markdown(reply)
+
+
 def _render_score_my_report_tab():
     """Score My Report — document-in, scored-Excel-out pipeline (council XVII)."""
     import pandas as pd
@@ -8380,6 +8440,21 @@ def _render_score_my_report_tab():
         "Confirm extracted values match your documentation before treating scores as final."
     )
 
+    # Score interpretation guide
+    with st.expander("📖 How to read these scores", expanded=False):
+        st.markdown(
+            "**Confidence (0–5)** — How much should we trust the evidence?\n\n"
+            "- ≥ 4.0 🟢 Submission-ready &nbsp;·&nbsp; 2.5–3.9 🟡 Needs work &nbsp;·&nbsp; < 2.5 🔴 High risk\n\n"
+            "**Clarity (0–5)** — Can someone else interpret this result the same way?\n\n"
+            "- Same thresholds apply.\n\n"
+            "**Auto-populated fields** — Extracted by AI from your document. May contain errors. "
+            "Open the Excel and review every amber cell before sharing.\n\n"
+            "**Not found fields** — Missing from your document. Fill them manually in the Excel, "
+            "or upload a more complete version and re-score.\n\n"
+            "**What to do next:** Download the Excel → review amber cells → "
+            "address the top-3 results with lowest scores → re-upload the CSV to re-score if needed."
+        )
+
     # Preview table
     with st.expander("Preview extracted results", expanded=True):
         preview_rows = []
@@ -8442,8 +8517,28 @@ def _render_score_my_report_tab():
         except Exception as exc:
             st.error(f"Could not generate CSV: {exc}")
 
+    # Portfolio chat — payment-gated, context-aware of all N results (council XIX)
+    st.divider()
+    _smr_is_paid = (
+        st.session_state.get("is_paid", False)
+        or st.session_state.get("free_checks_used", 0) < FREE_CHECKS_LIMIT
+    )
+    with st.expander("💬 Ask about your results", expanded=False):
+        if not _smr_is_paid:
+            st.info(
+                "Portfolio Q&A is available on the **Professional plan**. "
+                "Upgrade to ask questions across all your scored results — "
+                "'Which KPI needs the most work?' 'What is my systemic gap?'"
+            )
+            if st.button("Upgrade to Professional →", key="smr_chat_upgrade", type="primary"):
+                st.session_state["_show_pricing"] = True
+                st.rerun()
+        else:
+            _render_portfolio_chat(input_df, evaluations, statuses)
+
     if st.button("Clear results and upload a different report", key="smr_clear"):
         st.session_state.pop("smr_results", None)
+        st.session_state.pop("smr_chat_messages", None)
         st.rerun()
 
 

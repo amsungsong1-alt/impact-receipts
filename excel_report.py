@@ -19,9 +19,72 @@ try:
     from openpyxl import Workbook
     from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
+    from openpyxl.comments import Comment
     _OPENPYXL_OK = True
 except ImportError:
     _OPENPYXL_OK = False
+
+
+# ---------------------------------------------------------------------------
+# Column-level help notes — shown as hover comments on header cells
+# ---------------------------------------------------------------------------
+_COLUMN_NOTES: dict[str, str] = {
+    "Confidence (0–5)": (
+        "CONFIDENCE — how much should we trust the evidence?\n"
+        "Score >=4.0 = Submission-ready (green)\n"
+        "2.5–3.9 = Needs improvement (amber)\n"
+        "<2.5 = High risk (red)\n\n"
+        "Made up of:\n"
+        "  Directness  — how directly does evidence link to the result?\n"
+        "  Verification — was evidence independently reviewed?\n"
+        "  Recency     — how current is the evidence?"
+    ),
+    "Clarity (0–5)": (
+        "CLARITY — can someone else interpret this result the same way?\n"
+        "Score >=4.0 = Submission-ready (green)\n"
+        "2.5–3.9 = Needs improvement (amber)\n"
+        "<2.5 = High risk (red)\n\n"
+        "Made up of:\n"
+        "  Definition   — who/what/where/when specified?\n"
+        "  Measurement  — collection method and sampling disclosed?\n"
+        "  Integrity    — complete data with audit trail?\n"
+        "  Scope        — coverage matches the claim?\n"
+        "  Governance   — named owner and decision use stated?"
+    ),
+    "Verdict": (
+        "VERDICT — combined judgement across both axes:\n"
+        "  'Strong KPI — submission-ready on both axes' = both >=4.0\n"
+        "  'Misleading KPI'  = strong evidence, unclear claim\n"
+        "  'Well-defined but weak evidence' = clear claim, weak evidence\n"
+        "  'High risk'       = both axes need significant work"
+    ),
+    "% of Target": (
+        "% OF TARGET = Actual Achievement / Approved Target * 100\n"
+        "Calculated automatically from the logframe columns.\n"
+        "Blank if either target or achievement was not found in the document."
+    ),
+    "Direction Mismatch": (
+        "DIRECTION MISMATCH:\n"
+        "  'Yes' = the indicator implies a change in one direction\n"
+        "  (e.g. 'increase in employment') but the baseline-to-achievement\n"
+        "  comparison shows the OPPOSITE direction.\n"
+        "  Donors will flag this — review the result framing before submitting."
+    ),
+    "Fix 1": "TOP PRIORITY FIX — the single action that would most improve this result's score. Address this before submitting.",
+    "Fix 2": "SECOND PRIORITY FIX — address after Fix 1.",
+    "Fix 3": "THIRD PRIORITY FIX — address after Fixes 1 and 2.",
+    "Review Status": (
+        "REVIEW STATUS — did ImpactProof find this field with high confidence?\n\n"
+        "  CONFIRMED (green)       = extracted with high confidence.\n"
+        "                           Still verify before sharing with donors.\n\n"
+        "  AUTO_POPULATED (amber)  = AI extracted, medium confidence.\n"
+        "                           REVIEW REQUIRED — check against source document.\n\n"
+        "  NOT_FOUND (red)         = field was absent from the document.\n"
+        "                           Fill manually before sharing.\n\n"
+        "Do NOT share this Excel with donors until all amber and red cells\n"
+        "have been reviewed and confirmed."
+    ),
+}
 
 # ---------------------------------------------------------------------------
 # Colour palette (hex, no leading #)
@@ -174,6 +237,12 @@ def _build_sheet1(wb: "Workbook", rows, evaluations, field_statuses):
         cell.alignment = Alignment(wrap_text=True, vertical="center", horizontal="center")
         cell.border  = _border_thin()
         ws.column_dimensions[get_column_letter(col_idx)].width = width
+        # Add hover note for score columns that have guidance text
+        if _OPENPYXL_OK and header in _COLUMN_NOTES:
+            note = Comment(_COLUMN_NOTES[header], author="ImpactProof")
+            note.width  = 340
+            note.height = 150
+            cell.comment = note
 
     ws.row_dimensions[1].height = 28
 
@@ -380,3 +449,18 @@ def _build_sheet2(wb, rows, evaluations, org_name, document_name):
         c2.fill = _score_fill(avg * (5.0 / dim_maxes[dim]))
         c2.font = _font(size=9)
         ws.cell(row=gap_row, column=3, value=assessment).font = _font(size=9)
+
+    # "What to do" guidance row at the bottom of the gaps table
+    gap_row += 2
+    ws.merge_cells(f"A{gap_row}:C{gap_row}")
+    action_cell = ws.cell(row=gap_row, column=1,
+        value=(
+            "WHAT TO DO: Fix results in 'Systemic gap' rows first — these affect multiple indicators. "
+            "Open Sheet 1, filter by the weakest dimension, and review the Fix 1 column for each result. "
+            "Amber cells = auto-populated by AI, review before sharing. "
+            "Red cells = not found in document, fill manually."
+        )
+    )
+    action_cell.font = _font(size=9, bold=True, colour=_RED_DARK)
+    action_cell.alignment = Alignment(wrap_text=True)
+    ws.row_dimensions[gap_row].height = 55

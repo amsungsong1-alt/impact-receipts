@@ -663,3 +663,68 @@ RULES — strictly enforced:
 
 {rubric_block}
 {donor_block}"""
+
+
+def build_portfolio_chat_system_prompt(
+    input_df,
+    evaluations: list[dict],
+    statuses: list[dict],
+) -> str:
+    """System prompt for the portfolio-level chat in the Score My Report tab.
+
+    Injects all N result scores so Claude can compare across results and identify
+    systemic patterns, unlike build_chat_system_prompt() which covers one result.
+    """
+    from excel_report import STATUS_AUTO_POPULATED, STATUS_NOT_FOUND
+
+    n = len(evaluations)
+
+    # Per-result context block
+    result_lines = []
+    for i, ev in enumerate(evaluations):
+        try:
+            row = input_df.iloc[i].to_dict() if i < len(input_df) else {}
+        except Exception:
+            row = {}
+        stat = statuses[i] if i < len(statuses) else {}
+        auto_count = sum(1 for v in stat.values() if v == STATUS_AUTO_POPULATED)
+        not_found  = sum(1 for v in stat.values() if v == STATUS_NOT_FOUND)
+        fixes = ev.get("fixes", [])
+        conf  = ev.get("confidence_score", 0)
+        clar  = ev.get("clarity_score", 0)
+        name  = str(row.get("indicator_name") or row.get("result_statement") or "")[:70]
+        result_lines.append(
+            f"  Result {i + 1}: {name}\n"
+            f"    Confidence: {conf}/5.0  Clarity: {clar}/5.0\n"
+            f"    Verdict: {ev.get('verdict', '')}\n"
+            f"    Top fix: {fixes[0]['message'] if fixes else 'none'}\n"
+            f"    Field status: {auto_count} auto-populated  {not_found} not found"
+        )
+
+    scores_block = f"PORTFOLIO SCORES ({n} results from uploaded report):\n" + "\n".join(result_lines)
+
+    # Concise rubric (dimension names + max values — keep tokens low for Haiku)
+    rubric_lines = ["SCORING RUBRIC (8 dimensions):"]
+    for key, g in _SCORING_GUIDE.items():
+        rubric_lines.append(
+            f"  {g['label']} (axis: {g['axis']}, max {g['max_score']}): "
+            f"{g['definition']}"
+        )
+    rubric_block = "\n".join(rubric_lines)
+
+    return f"""You are the ImpactProof portfolio scoring assistant.
+You have the scores for ALL {n} results extracted from the uploaded donor report.
+
+YOUR JOB: Help the user understand their portfolio quality and decide what to fix first.
+
+RULES — strictly enforced:
+1. Answer ONLY from the scores and rubric provided below.
+2. Compare across results when asked ("which is weakest?", "systemic gaps?").
+3. Never suggest providing false or exaggerated information to improve scores.
+4. Keep answers to 3–5 sentences unless a ranked list is clearly better.
+5. When a result has many auto-populated or not-found fields, flag that its scores
+   may not be reliable until those fields are reviewed.
+
+{scores_block}
+
+{rubric_block}"""
