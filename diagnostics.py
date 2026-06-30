@@ -9,6 +9,20 @@ of the modular refactor so it can be imported and tested headlessly.
 from evaluator import SUBMISSION_THRESHOLD, NEAR_THRESHOLD_BAND  # single source of truth
 
 # ---------------------------------------------------------------------------
+# DRCA Stack — reproducibility guarantee (Council XXIV chairman's verdict)
+# Surfaces on Screen 2, Screen 3, and Page 1 of the Readiness Card PDF.
+# ---------------------------------------------------------------------------
+
+REPRODUCIBILITY_STATEMENT = (
+    "Scoring is fully deterministic and rule-based — no AI judgement is applied to scores. "
+    "The same submitted data always produces the same scores across sessions and model versions. "
+    "All decisions are reproducible and anchored to USAID ADS 201 · FCDO Evaluation Policy 2025 "
+    "· Bond Evidence Principles 2024 · World Bank Results Framework."
+)
+
+STANDARDS_ANCHOR = "USAID ADS 201 · FCDO 2025 · Bond Evidence Principles 2024 · World Bank RF"
+
+# ---------------------------------------------------------------------------
 # 7-state diagnostic badge + 3-state readiness band
 # ---------------------------------------------------------------------------
 
