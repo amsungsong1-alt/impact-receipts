@@ -2257,9 +2257,25 @@ def _render_paywall(irc_context: bool = False):
 
     st.caption(
         "Paid securely via Paystack — MTN MoMo, Telecel, Visa/Mastercard. "
-        "If you are charged but not unlocked, contact us within 24 hours: "
-        "WhatsApp [+233 50 364 8195](https://wa.me/233503648195) · info@impact-receipts.com"
+        "If you are charged but not unlocked, contact us within 24 hours."
     )
+    # Payment support WhatsApp CTA — server-side notification (council XXIV)
+    _ps_email  = st.session_state.get("user_email", "")
+    _ps_wa_key = "wa_payment_support_clicked"
+    _ps_col1, _ps_col2 = st.columns([2, 1])
+    with _ps_col1:
+        st.caption("info@impact-receipts.com · WhatsApp +233 50 364 8195")
+    with _ps_col2:
+        if st.button("WhatsApp support →", key="wa_payment_support_btn", use_container_width=True):
+            from utils.whatsapp import notify_founder
+            notify_founder("payment_support", user_email=_ps_email)
+            st.session_state[_ps_wa_key] = True
+    if st.session_state.get(_ps_wa_key):
+        from utils.whatsapp import build_wa_url
+        st.link_button("Open WhatsApp →",
+                       build_wa_url("payment_support", _ps_email),
+                       use_container_width=True)
+        st.success("✓ Payment support notified — we'll resolve within 4 hours.")
 
 
 def _subscore_chart(items):
@@ -4418,17 +4434,37 @@ def render_pricing_page():
             "</div>",
             unsafe_allow_html=True,
         )
-        st.markdown(
-            "<a href='https://wa.me/233503648195?text=Hi%2C+I%27m+interested+in+the+Agency+plan' "
-            "target='_blank' style='display:block;text-align:center;background:#8A6500;color:white;"
-            "padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:700;font-size:0.9rem;"
-            "margin-top:8px;'>Talk to us →</a>",
-            unsafe_allow_html=True,
-        )
+        _ag_email  = st.session_state.get("user_email", "")
+        _ag_wa_key = "wa_agency_plan_clicked"
+        if st.button("Talk to us →", key="wa_agency_btn", use_container_width=True):
+            from utils.whatsapp import notify_founder
+            notify_founder("agency_plan", user_email=_ag_email)
+            st.session_state[_ag_wa_key] = True
+        if st.session_state.get(_ag_wa_key):
+            from utils.whatsapp import build_wa_url
+            st.link_button("Open WhatsApp →",
+                           build_wa_url("agency_plan", _ag_email),
+                           use_container_width=True)
+            st.success("✓ We've been notified — we'll reply within 24 hours.")
 
     st.divider()
-    st.caption("All prices in GHS (Ghana Cedis). Paid via Paystack (card, MoMo, bank). "
-               "Cancel anytime. Questions? WhatsApp: +233 50 364 8195")
+    _pq_email  = st.session_state.get("user_email", "")
+    _pq_wa_key = "wa_pricing_q_clicked"
+    _pq_col1, _pq_col2 = st.columns([2, 1])
+    with _pq_col1:
+        st.caption("All prices in GHS (Ghana Cedis). Paid via Paystack (card, MoMo, bank). "
+                   "Cancel anytime.")
+    with _pq_col2:
+        if st.button("Questions? WhatsApp →", key="wa_pricing_q_btn", use_container_width=True):
+            from utils.whatsapp import notify_founder
+            notify_founder("pricing_questions", user_email=_pq_email)
+            st.session_state[_pq_wa_key] = True
+    if st.session_state.get(_pq_wa_key):
+        from utils.whatsapp import build_wa_url
+        st.link_button("Open WhatsApp →",
+                       build_wa_url("pricing_questions", _pq_email),
+                       use_container_width=True)
+        st.caption("✓ Notified — we'll reply within 24 hours.")
 
 
 def _render_ph_landing():
@@ -4724,17 +4760,38 @@ def render_screen_0():
             <div class="gtm-card">
               <p><strong>Want a deeper check?</strong></p>
               <p class="gtm-sub">I personally review results for MEL teams before their submission deadline.</p>
-              <div class="gtm-btn-gold">
-                <a href="https://wa.me/233503648195" target="_blank">Book a free first review with the founder</a>
-              </div>
-            </div>
-            <div class="gold-info-box" style="margin-top:10px;">
-              &#128172; Questions? Chat on WhatsApp: <a href="https://wa.me/233503648195">+233 50 364 8195</a>
-              &mdash; <em>MEL practitioner in Accra, built this to close a gap I kept hitting.</em>
             </div>
             """,
             unsafe_allow_html=True,
         )
+        # Landing review WhatsApp CTA — server-side notification (council XXIV)
+        _lr_email  = st.session_state.get("user_email", "")
+        _lr_wa_key = "wa_landing_review_clicked"
+        if st.button("📱 Book a free first review with the founder",
+                     key="wa_landing_review_btn", use_container_width=True):
+            from utils.whatsapp import notify_founder
+            notify_founder("landing_review", user_email=_lr_email)
+            st.session_state[_lr_wa_key] = True
+        if st.session_state.get(_lr_wa_key):
+            from utils.whatsapp import build_wa_url
+            st.link_button("Open WhatsApp →",
+                           build_wa_url("landing_review", _lr_email),
+                           use_container_width=True)
+            st.success("✓ Notified — the founder will reach out within 24 hours.")
+
+        _pq2_email  = st.session_state.get("user_email", "")
+        _pq2_wa_key = "wa_s0_questions_clicked"
+        st.caption("💬 Questions? MEL practitioner in Accra, built this to close a gap I kept hitting.")
+        if st.button("Chat on WhatsApp →", key="wa_s0_questions_btn", use_container_width=True):
+            from utils.whatsapp import notify_founder
+            notify_founder("pricing_questions", user_email=_pq2_email)
+            st.session_state[_pq2_wa_key] = True
+        if st.session_state.get(_pq2_wa_key):
+            from utils.whatsapp import build_wa_url
+            st.link_button("Open WhatsApp +233 50 364 8195 →",
+                           build_wa_url("pricing_questions", _pq2_email),
+                           use_container_width=True)
+
         st.caption("📄 Already have a draft report? Use ⚡ Instant Report Check inside the form to upload it — AI pre-fills all fields. (Paid feature.)")
 
     _render_tagline_footer()
@@ -7351,18 +7408,25 @@ def render_screen_2():
         st.divider()
         with st.container(border=True):
             st.markdown("#### Want someone to look at this with you?")
-            _s2_wa_url = "https://wa.me/233503648195?text=" + urllib.parse.quote(
-                "Hi, I've just run an ImpactProof check and would like "
-                "a deeper review of my result before submission. Can we talk?"
-            )
-            st.markdown(
-                f'<a href="{_s2_wa_url}" target="_blank" style="display:inline-block;'
-                f'background:#1B5E20;color:white;padding:8px 18px;border-radius:8px;'
-                f'text-decoration:none;font-weight:700;font-size:0.85rem;'
-                f'text-align:center;width:100%;box-sizing:border-box;">'
-                f'📱 Book a free first review with the founder on WhatsApp</a>',
-                unsafe_allow_html=True,
-            )
+            _s2_ev0       = evs[0]
+            _s2_rd        = {
+                "conf":    _s2_ev0.get("confidence_score", "?"),
+                "clar":    _s2_ev0.get("clarity_score", "?"),
+                "verdict": _s2_ev0.get("diagnostic_state", ""),
+            }
+            _s2_email     = st.session_state.get("user_email", "")
+            _s2_wa_key    = "wa_s2_weak_clicked"
+            if st.button("📱 Book a free first review with the founder",
+                         key="wa_weak_review_btn", type="primary",
+                         use_container_width=True):
+                from utils.whatsapp import notify_founder
+                notify_founder("weak_result_review", user_email=_s2_email, result_data=_s2_rd)
+                st.session_state[_s2_wa_key] = True
+            if st.session_state.get(_s2_wa_key):
+                from utils.whatsapp import build_wa_url
+                _s2_wa_url = build_wa_url("weak_result_review", _s2_email, _s2_rd)
+                st.link_button("Open WhatsApp to send →", _s2_wa_url, use_container_width=True)
+                st.success("✓ The founder has been notified — you'll hear back within 24 hours.")
             st.caption("Download your report above and share it before the call.")
 
     _render_tutorial(3)
@@ -10674,9 +10738,28 @@ def main():
         _logging.error("Unhandled top-level exception", exc_info=True)
         st.error(
             "Something went wrong rendering the app. Please refresh the page. "
-            "If the problem persists, contact us: "
-            "[WhatsApp +233 50 364 8195](https://wa.me/233503648195) · info@impact-receipts.com"
+            "If the problem persists, contact us: info@impact-receipts.com"
         )
+        # Error support WhatsApp CTA — server-side notification (council XXIV)
+        _err_email  = st.session_state.get("user_email", "")
+        _err_wa_key = "wa_error_support_clicked"
+        if st.button("📱 Report this error on WhatsApp", key="wa_error_support_btn"):
+            try:
+                from utils.whatsapp import notify_founder
+                notify_founder("error_support", user_email=_err_email,
+                               result_data={"verdict": type(_top_exc).__name__})
+            except Exception:
+                pass
+            st.session_state[_err_wa_key] = True
+        if st.session_state.get(_err_wa_key):
+            try:
+                from utils.whatsapp import build_wa_url
+                st.link_button("Open WhatsApp →",
+                               build_wa_url("error_support", _err_email),
+                               use_container_width=True)
+                st.caption("✓ Error reported — we'll investigate and get back to you shortly.")
+            except Exception:
+                st.markdown("[WhatsApp +233 50 364 8195](https://wa.me/233503648195)")
 
 
 if __name__ == "__main__":

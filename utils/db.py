@@ -159,6 +159,47 @@ def clear_user_draft(email: str) -> None:
         pass
 
 
+def log_wa_event(
+    context_id: str,
+    user_email: str,
+    direction: str,
+    phone: str,
+    body: str,
+    success: bool,
+) -> None:
+    """
+    Write a WhatsApp interaction row to the `wa_conversations` table.
+
+    Required table (run once in Supabase SQL editor):
+        create table if not exists wa_conversations (
+          id          bigserial primary key,
+          created_at  timestamptz default now(),
+          context_id  text,
+          user_email  text,
+          direction   text,
+          phone       text,
+          body        text,
+          success     boolean
+        );
+
+    Degrades gracefully — never raises an exception.
+    """
+    try:
+        c = _get_client()
+        if not c:
+            return
+        c.table("wa_conversations").insert({
+            "context_id": context_id or "",
+            "user_email": user_email or "",
+            "direction":  direction or "",
+            "phone":      phone or "",
+            "body":       (body or "")[:500],
+            "success":    bool(success),
+        }).execute()
+    except Exception:
+        pass
+
+
 def save_example(field_name: str, sector: str, value: str) -> None:
     """Store an anonymised field example."""
     if not field_name or not value:
