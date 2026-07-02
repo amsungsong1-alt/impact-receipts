@@ -3552,7 +3552,7 @@ def _render_tab3_slot(slot: int):
     elif _ed_val:
         _smart_extract_ev_type(_ed_val, f"evidence_type{s}")  # auto-suggest type from keywords
 
-    st.caption("📊 **Affects Directness score** (max 2.0/2.0 — your evidence quality ceiling for Confidence)")
+    st.caption("📊 **Affects Directness score** (max 2.0 — the system uses this to determine your evidence ceiling. Systematic Reviews and RCTs unlock the highest Directness score.)")
     _irc_widget(
         st.radio, "Primary evidence type (select your strongest source)", f"evidence_type{s}", default=EVIDENCE_TYPES[1],
         options=EVIDENCE_TYPES[1:],  # skip placeholder — radio shows all options at once
@@ -4560,7 +4560,7 @@ def render_screen_0():
             f'<img src="data:image/png;base64,{_logo_b64}" alt="ImpactProof" style="height:56px;">'
             f'<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
             f'<span style="color:#1B5E20;">ImpactProof</span><br>'
-            f'<span style="color:#8A6500; font-weight:600;">Score your evidence. Prove your impact.</span>'
+            f'<span style="color:#8A6500; font-weight:600;">Decide what to fix. Prove your impact.</span>'
             f'</span>'
             f'</div>'
         )
@@ -4569,7 +4569,7 @@ def render_screen_0():
             '<div style="display:flex; align-items:center; gap:14px; margin-bottom:12px;">'
             '<span style="font-size:0.9rem; font-weight:600; line-height:1.2;">'
             '<span style="color:#1B5E20;">ImpactProof</span><br>'
-            '<span style="color:#8A6500; font-weight:400;">Score your evidence. Prove your impact.</span>'
+            '<span style="color:#8A6500; font-weight:400;">Decide what to fix. Prove your impact.</span>'
             '</span>'
             '</div>'
         )
@@ -4578,12 +4578,12 @@ def render_screen_0():
         f"""
         <div class="hero-block">
           {_logo_tag}
-          <h1 style="margin:8px 0 4px;">Upload your report. Score every result. Submit with confidence.</h1>
+          <h1 style="margin:8px 0 4px;">Know what to fix, in what order, before your donor does.</h1>
           <p style="font-size:0.85rem;color:#616161;margin:0 0 6px;">
             For MEL officers, programme leads, and consultants — the people who answer for evidence quality.
           </p>
           <p style="font-size:0.8rem;color:#8A6500;margin:0;font-style:italic;">
-            Unlike a chatbot, ImpactProof scores are deterministic — anchored to USAID ADS 201, Bond Evidence Principles 2024, FCDO, and World Bank standards. Same result, same score, every time.
+            Unlike a chatbot that generates suggestions, ImpactProof makes determinations — evidence quality decisions anchored to USAID ADS 201, Bond Evidence Principles 2024, FCDO, and World Bank standards. Traceable. Reproducible. Auditable.
           </p>
         </div>
         """,
@@ -4598,8 +4598,9 @@ def render_screen_0():
         with st.container(border=True):
             st.markdown("#### 📄 Score My Report")
             st.caption(
-                "Upload a Word or PDF donor report. Every result scored in 60 seconds. "
-                "Download a filled Excel with Confidence & Clarity scores."
+                "Upload a Word or PDF donor report. ImpactProof identifies every result, "
+                "determines evidence strength, and ranks what to fix first — all in 60 seconds. "
+                "Download a filled Excel with scores and ranked priorities."
             )
             st.caption("First 3 uploads free · No registration needed")
             if st.button("Upload and Score →", key="cta_score_report", type="primary",
@@ -4610,14 +4611,26 @@ def render_screen_0():
         with st.container(border=True):
             st.markdown("#### ✏️ Check One Result")
             st.caption(
-                "Fill a short form to score one specific result in under 5 minutes. "
-                "Good for results going to a DQA or donor review — gives you a citable Readiness Card."
+                "Fill a short form and get a determination: submission-ready, needs work, or high risk "
+                "— with a ranked fix list ordered by score impact."
             )
             st.caption("Or check below for a 60-second instant read.")
             if st.button("Start Form →", key="cta_top", use_container_width=True):
                 if not st.session_state.get("has_seen_tutorial"):
                     st.session_state["tutorial_step"] = 1
                 _go_to_screen(1, reset=True)
+
+    # ── Council XXVI — Decision Intelligence strip ─────────────────────────
+    _di_c1, _di_c2, _di_c3 = st.columns(3)
+    with _di_c1:
+        st.metric("Decision type", "Rule-based",
+                  help="No AI randomness — same inputs always produce the same determination.")
+    with _di_c2:
+        st.metric("Frameworks", "4 donor standards",
+                  help="USAID ADS 201 · FCDO 2025 · Bond 2024 · World Bank RF")
+    with _di_c3:
+        st.metric("Fix routing", "Ranked by impact",
+                  help="Each fix is ranked by score impact — the highest-leverage action is always first.")
 
     # ── Quick Check (now secondary — inside expander) ──────────────────────
     with st.expander("⚡ Quick Check — instant provisional scores (60 seconds)", expanded=False):
@@ -4743,13 +4756,14 @@ def render_screen_0():
                 <strong style="color:#1565C0;">Why not just use ChatGPT?</strong>
               </p>
               <p style="margin:0 0 4px; font-size:0.85rem; color:#374151;">
-                ChatGPT gives an opinion. ImpactProof gives a score. The difference:
+                ChatGPT generates suggestions. ImpactProof makes determinations. The difference:
               </p>
               <ul style="margin:4px 0 0 16px; font-size:0.85rem; color:#374151; padding:0;">
-                <li>Every score traces to a <strong>named standard</strong> (USAID ADS 201.3.5.7, Bond 2024, FCDO)</li>
-                <li>The same result <strong>always produces the same score</strong> — no LLM randomness</li>
+                <li><strong>ImpactProof decides — ChatGPT suggests.</strong> Our scoring engine determines evidence quality against named donor standards and routes you to your highest-impact fix. A chatbot gives you a paragraph. We give you a determination and a ranked fix queue.</li>
+                <li>Every determination traces to a <strong>named standard</strong> (USAID ADS 201.3.5.7, Bond 2024, FCDO)</li>
+                <li>The same result <strong>always produces the same determination</strong> — no LLM randomness</li>
                 <li>The output is a <strong>citable PDF with a reference ID</strong>, not a chat screenshot</li>
-                <li>Score My Report scores <strong>10+ results in 60 seconds</strong> against the same rubric — consistently</li>
+                <li>Score My Report determines <strong>10+ results in 60 seconds</strong> against the same rubric — consistently</li>
               </ul>
             </div>
             """,
@@ -5791,7 +5805,7 @@ def render_screen_1():
         # --- END v3.3 ---
 
     elif _cur_tab == 2:
-        st.caption("Step 3 of 3 — Describe your evidence. This is the most important step: weak evidence is the #1 cause of rejected results.")
+        st.caption("Step 3 of 3 — Describe your evidence. This is where the system makes its core determination: what your evidence is worth to a donor, and how to improve it.")
         for slot in range(1, active + 1):
             if active > 1:
                 st.markdown(f"---\n#### Result {slot}")
@@ -5886,10 +5900,13 @@ def render_screen_1():
             _banner_cl = round(_tab3_ev.get("clarity_score", 0) * 20, 1)
             if _banner_c >= 75 and _banner_cl >= 75:
                 st.success("✅ Strong Submission — Your result meets quality thresholds for donor submission.")
+                st.caption("Decision: Submission-ready — proceed to generate your Pre-Submission Audit Card.")
             elif _banner_c >= 50 or _banner_cl >= 50:
                 st.warning("⚠️ Submission Needs Work — Address the items below before submitting.")
+                st.caption("Decision: Needs work — address the top fix before generating your Audit Card.")
             else:
                 st.error("🔴 High Risk — Your donor will likely query or reject this result. Fix critical issues first.")
+                st.caption("Decision: High risk — act on all critical fixes before submission.")
         except Exception:
             st.session_state.pop("_tab3_ev_cache", None)
 
@@ -5942,7 +5959,7 @@ def render_screen_1():
             pass
         # Submit is always enabled — paywall moves to the Download button on Screen 2
         if st.button(
-            "Run Diagnostic & Get Report →",
+            "Get Determination & Fix Queue →",
             type="primary",
             use_container_width=True,
         ):
@@ -6755,6 +6772,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     if diag_state == "STRONG":
         st.success("✅ Your result is submission-ready. The full breakdown is below for reference — no action required.")
     st.markdown("### What Donors Want to Know")
+    st.caption("ImpactProof checked your evidence against these 4 donor questions. Each maps to a scored sub-criterion.")
     fq_col1, fq_col2 = st.columns(2)
     with fq_col1:
         st.markdown("**1. What has changed?**")
@@ -7188,7 +7206,7 @@ def render_screen_2():
     st.markdown(
         "<h2 style='color:#1B5E20;margin-bottom:4px;'>Your Confidence Snapshot</h2>"
         "<p style='color:#8A6500;font-style:italic;font-size:0.95rem;margin-bottom:8px;'>"
-        "Your scores and what to fix.</p>",
+        "Evidence quality determination — what the evidence is worth to your donor, and what to fix first.</p>",
         unsafe_allow_html=True,
     )
     # Council XXIV — DRCA reproducibility badge (always visible, not in expander)
@@ -7226,6 +7244,7 @@ def render_screen_2():
                 "✗", f"Not ready — {_top_fix_msg.rstrip('.')} before submitting.",
                 "#FEF3F2", "#B71C1C"
             )
+        st.caption("📋 Determination:")
         st.markdown(
             f'<div style="background:{_bv_bg};border-left:4px solid {_bv_border};'
             f'border-radius:8px;padding:14px 20px;margin:0 0 16px 0;'
@@ -7277,7 +7296,7 @@ def render_screen_2():
                 key="pdf_card_btn",
                 help="Cite this card in your donor submission — includes scores, methodology anchor, and priority fixes. Reference ID: " + _ref_id,
             )
-            st.caption(f"Ref: {_ref_id} · Anchored to USAID ADS 201 · Bond 2024 · FCDO 2025")
+            st.caption(f"Ref: {_ref_id} · Decision record anchored to USAID ADS 201 · Bond 2024 · FCDO 2025 · Same inputs → same determination, always.")
         elif _card_html:
             st.download_button(
                 f"⬇️ Download Pre-Submission Audit Card (HTML)  [{_ref_id}]",
@@ -7324,19 +7343,36 @@ def render_screen_2():
         _render_result_card(sub, ev, card_idx=i,
                             donor=st.session_state.get("donor_selected", ""))
 
-    # Suggested fixes — inline list, not expander
+    # Ranked fix queue — ordered by score impact (Council XXVI)
     _all_fixes = []
     for _ev in evs:
         _all_fixes.extend(_ev.get("fixes", []))
     if _all_fixes:
-        st.markdown("### Suggested fixes")
-        for _fix in _all_fixes[:5]:
+        st.markdown("### Ranked fix queue — ordered by score impact")
+        for _fi, _fix in enumerate(_all_fixes[:5], 1):
             _fix_msg    = _fix.get("message", "")
             _fix_impact = _fix.get("score_impact", "")
-            if _fix_impact:
-                st.markdown(f"- {_fix_msg} *({_fix_impact})*")
+            _fix_val    = _fix.get("score_impact_value", 0)
+            if _fix_impact and _fix_val:
+                st.markdown(f"**{_fi}.** {_fix_msg} — *adds {_fix_val:.2f} pts · {_fix_impact}*")
+            elif _fix_impact:
+                st.markdown(f"**{_fi}.** {_fix_msg} *({_fix_impact})*")
             else:
-                st.markdown(f"- {_fix_msg}")
+                st.markdown(f"**{_fi}.** {_fix_msg}")
+        # Projected score if all fixes acted on (deterministic — from fix score_impact_values)
+        if len(evs) == 1:
+            try:
+                from council import _calculate_projected_scores
+                _proj_c, _proj_cl = _calculate_projected_scores(evs[0])
+                _cur_c  = evs[0].get("confidence_score", 0)
+                _cur_cl = evs[0].get("clarity_score", 0)
+                if _proj_c > _cur_c or _proj_cl > _cur_cl:
+                    st.info(
+                        f"**If you act on all {len(_all_fixes[:5])} fixes:** "
+                        f"Projected Confidence → {_proj_c}/5.0 · Projected Clarity → {_proj_cl}/5.0"
+                    )
+            except Exception:
+                pass
 
     # Optional reporting flags — moved here from Tab 2 so users can fill after seeing scores
     with st.expander("📝 Optional reporting flags (no score impact)", expanded=False):
@@ -8882,10 +8918,10 @@ def _render_score_my_report_tab():
 
     st.markdown("### Score My Report")
     st.markdown(
-        "Upload your donor report. Every result is extracted, scored against "
-        "**USAID ADS 201** and **Bond Evidence Principles**, and delivered as a "
-        "colour-coded **Excel audit workbook** — one row per result, deterministic scores. "
-        "Use it before a DQA, before submission, or before a partner review meeting."
+        "Upload your donor report. ImpactProof extracts every result, makes a determination for each "
+        "(submission-ready / needs work / high risk), and delivers a colour-coded "
+        "**Excel decision audit** — one row per result, traceable to named donor standards. "
+        "Use it to know exactly where to focus before a DQA, before submission, or before a partner review meeting."
     )
     st.caption(
         "Anchored to: USAID ADS 201 · FCDO 2025 · Bond Evidence Principles 2024 · World Bank RF  "
@@ -9043,6 +9079,12 @@ def _render_score_my_report_tab():
             _narr_lines.append(f"• {_recency_weak} result{'s' if _recency_weak > 1 else ''} ha{'ve' if _recency_weak > 1 else 's'} evidence date issues — check dates against reporting period end")
 
         st.info("\n".join(_narr_lines))
+        if _weakest_pct < 80:
+            st.caption(
+                f"**System decision:** Fix {_weakest_dim} first — it is your portfolio's highest-leverage action "
+                f"({_weakest_pct}% of target across all results). Improving it will lift your average Confidence score "
+                f"more than any other single action."
+            )
         st.caption(
             "Each score is traceable to named sub-criteria (USAID ADS 201.3.5.7 for Validity, Integrity, Precision, "
             "Reliability, Timeliness). Re-running this check with the same document produces identical scores — "
@@ -9055,8 +9097,10 @@ def _render_score_my_report_tab():
     )
 
     # Score interpretation guide
-    with st.expander("📖 How to read these scores", expanded=False):
+    with st.expander("📖 How to read your determination", expanded=False):
         st.markdown(
+            "Each result receives a determination, not just a score. The determination tells you whether "
+            "a donor is likely to accept, query, or reject the result based on evidence quality alone.\n\n"
             "**Confidence (0–5)** — How much should we trust the evidence?\n\n"
             "- ≥ 4.0 🟢 Submission-ready &nbsp;·&nbsp; 2.5–3.9 🟡 Needs work &nbsp;·&nbsp; < 2.5 🔴 High risk\n\n"
             "**Clarity (0–5)** — Can someone else interpret this result the same way?\n\n"
@@ -9142,8 +9186,9 @@ def _render_score_my_report_tab():
         if not _smr_is_paid:
             st.info(
                 "Portfolio Q&A is available on the **Professional plan**. "
-                "Upgrade to ask questions across all your scored results — "
-                "'Which KPI needs the most work?' 'What is my systemic gap?'"
+                "Ask the system direct decision questions: 'Which KPI needs the most work?', "
+                "'What is my systemic gap?', 'Which results are at risk of a donor query?' "
+                "— the system routes you to the highest-leverage actions across your entire portfolio."
             )
             if st.button("Upgrade to Professional →", key="smr_chat_upgrade", type="primary"):
                 st.session_state["_show_pricing"] = True
@@ -9163,7 +9208,7 @@ def render_screen_3():
     if st.button("← Back to Home", key="portfolio_back"):
         _go_to_screen(0)
 
-    st.markdown("## 📊 Portfolio Analysis")
+    st.markdown("## 📊 Portfolio Decision Audit")
 
     _s3_tab_smr, _s3_tab_csv = st.tabs(["📄 Score My Report", "📊 CSV Portfolio"])
 
@@ -9238,9 +9283,9 @@ def render_screen_3():
             weakest_dim = results_df[dims].mean().idxmin()
             weakest_dim_pct = results_df[dims].mean().min()
             st.markdown(
-                f"**Systemic gap:** *{weakest_dim}* is your portfolio's weakest sub-score "
-                f"on average ({weakest_dim_pct:.0f}% of target) — start here for the biggest "
-                f"improvement across multiple indicators."
+                f"**System determination — highest-leverage action:** *{weakest_dim}* is your portfolio's "
+                f"most critical gap ({weakest_dim_pct:.0f}% of target on average). Prioritise this "
+                f"sub-criterion across all indicators for the greatest combined score uplift."
             )
 
             st.markdown("#### Heatmap — weakest indicators & sub-scores")

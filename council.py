@@ -332,13 +332,14 @@ def _calculate_projected_scores(ev: dict) -> tuple[float, float]:
 # Main runner
 # ---------------------------------------------------------------------------
 
-def _call_haiku(system_prompt: str, user_msg: str, api_key: str, max_tokens: int = 200) -> str:
-    """Single Claude Haiku call. Returns response text or an error string."""
+def _call_haiku(system_prompt: str, user_msg: str, api_key: str, max_tokens: int = 200,
+                model: str = "claude-haiku-4-5-20251001") -> str:
+    """Single Claude API call. Returns response text or an error string."""
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
         resp   = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=model,
             max_tokens=max_tokens,
             system=system_prompt,
             messages=[{"role": "user", "content": user_msg}],
@@ -716,7 +717,8 @@ _COMPETITIVE_DEBATE_MEMBERS = [
 _COMPETITIVE_DEBATE_MEMBERS_BY_ID = {m["id"]: m for m in _COMPETITIVE_DEBATE_MEMBERS}
 
 
-def debate_competitive_position(question: str, product_context: str, api_key: str) -> dict:
+def debate_competitive_position(question: str, product_context: str, api_key: str,
+                                chairman_model: str = "claude-haiku-4-5-20251001") -> dict:
     """
     Run the 5 council members (Contrarian, Expansionist, Executor, First Principle,
     Outsider) to debate a product/competitive positioning question.
@@ -787,7 +789,8 @@ Output valid JSON:
 COUNCIL VERDICTS:
 {verdicts_block}"""
 
-    raw = _call_haiku(chair_prompt, "Produce the chairman's synthesis now.", api_key, max_tokens=500)
+    raw = _call_haiku(chair_prompt, "Produce the chairman's synthesis now.", api_key, max_tokens=500,
+                      model=chairman_model)
     clean = re.sub(r"```(?:json)?|```", "", raw).strip()
     try:
         parsed = json.loads(clean)
