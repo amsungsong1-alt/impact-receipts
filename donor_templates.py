@@ -226,4 +226,144 @@ DONOR_DIAGNOSTICS = {
             ),
         },
     },
+    "Mastercard Foundation": {
+        "Directness": {
+            "low": (
+                "Mastercard Foundation's Young Africa Works strategy requires employment OUTCOMES — "
+                "not training completion. Reporting training headcount as the primary result without "
+                "6-month employment data scores low on Directness. "
+                "Fix: document employment status at 6 months post-programme for ≥60% of participants "
+                "using a structured tracer survey. Reference your employment outcome indicator "
+                "(not the training output indicator) in your result statement."
+            ),
+            "high": (
+                "Employment outcome evidence meets Young Africa Works standards. Ensure your tracer "
+                "survey covers 6-month and 12-month intervals and is documented in your MEL Plan."
+            ),
+        },
+        "Verification": {
+            "low": (
+                "MCF requires employment placement data verified independently — self-reported "
+                "participant data is insufficient. Fix: obtain employer verification letters or "
+                "payroll records for at least a sample of placed participants, collected by an "
+                "enumerator independent of the programme delivery team."
+            ),
+            "high": (
+                "Independent employment verification meets MCF standards. Retain verifier contact "
+                "details — MCF programme officers request a data trail during portfolio reviews."
+            ),
+        },
+        "BeneficiaryVoice": {
+            "low": (
+                "MCF Young Africa Works requires a minimum 70% women participation across all "
+                "programme activities, with gender-disaggregated outcome data. No beneficiary "
+                "voice evidence detected. Fix: add a gender-disaggregated post-programme survey "
+                "capturing women participants' employment status at 6 and 12 months. Report "
+                "women's outcomes separately — stating the women's participation rate explicitly "
+                "(target: 70%+)."
+            ),
+            "high": (
+                "Gender-disaggregated beneficiary evidence meets MCF Young Africa Works standards. "
+                "Confirm women's participation rate is stated explicitly (70%+ required)."
+            ),
+        },
+        "Recency": {
+            "low": (
+                "MCF treats 6-month and 12-month employment outcomes as separate reporting milestones. "
+                "Evidence older than 12 months from the current reporting period does not count as "
+                "current. Fix: reference a tracer survey completed within 12 months and note which "
+                "interval (6-month or 12-month) it corresponds to."
+            ),
+            "high": (
+                "Evidence recency meets MCF Young Africa Works reporting timeliness requirements."
+            ),
+        },
+    },
+    "KOICA": {
+        "Directness": {
+            "low": (
+                "KOICA requires technology or knowledge ADOPTION evidence — not just training "
+                "or input delivery. Fix: document the adoption rate of the transferred technology "
+                "or practice (e.g., % of farmers applying improved techniques, yield change vs. "
+                "control group) at least one full season after training delivery."
+            ),
+            "high": (
+                "Technology adoption evidence meets KOICA completion report standards. Include "
+                "sustainability indicators (community maintenance plan, 12-month functionality) "
+                "in your final report."
+            ),
+        },
+        "Verification": {
+            "low": (
+                "KOICA final evaluation standards require third-party verification of technology "
+                "adoption claims. Fix: commission an independent field verification by a Korean "
+                "or local evaluation firm, or reference a government line ministry inspection "
+                "report confirming adoption and functionality."
+            ),
+            "high": (
+                "Third-party verification meets KOICA final evaluation requirements."
+            ),
+        },
+    },
+    "SIDA": {
+        "Directness": {
+            "low": (
+                "Sida (Swedish International Development Cooperation Agency) applies a rights-based "
+                "approach: results must demonstrate change experienced by rights-holders, not just "
+                "activities or outputs delivered. Fix: reframe the result to describe the change "
+                "experienced by the primary rights-holder group, and link your evidence to this "
+                "change rather than programme activities alone."
+            ),
+            "high": (
+                "Rights-holder outcome evidence meets Sida's results reporting approach. Ensure "
+                "your Theory of Change explicitly links activities to rights-holder change in "
+                "your Annual Progress Report."
+            ),
+        },
+        "Verification": {
+            "low": (
+                "Sida's Results Strategy requires independently verified outcome data — internal "
+                "monitoring data alone is insufficient. Fix: commission an independent outcome "
+                "assessment or reference a third-party evaluation covering this result."
+            ),
+            "high": (
+                "Independent verification meets Sida results evidence requirements."
+            ),
+        },
+        "BeneficiaryVoice": {
+            "low": (
+                "Sida's Human Rights-Based Approach requires systematic evidence of rights-holder "
+                "participation in defining and validating programme outcomes. Fix: add a structured "
+                "participatory assessment or community validation process, intentionally including "
+                "women and marginalised groups, before your next progress report."
+            ),
+            "high": (
+                "Rights-holder voice evidence meets Sida's Human Rights-Based Approach reporting standards."
+            ),
+        },
+    },
+    "SDC": {
+        "Directness": {
+            "low": (
+                "SDC (Swiss Agency for Development and Cooperation) requires evidence of outcome-level "
+                "change, not just output delivery. SDC's Results Measurement Framework emphasises "
+                "sustainability and systemic change. Fix: include evidence of outcome-level change "
+                "and reference the specific SDC outcome indicator from your Programme Agreement."
+            ),
+            "high": (
+                "Outcome contribution evidence meets SDC Results Measurement Framework standards. "
+                "Include sustainability indicators in the final programme report."
+            ),
+        },
+        "Verification": {
+            "low": (
+                "SDC evaluation quality standards require independent verification of reported "
+                "outcomes for Swiss bilateral programmes. Fix: reference an independent review, "
+                "external evaluation, or Swiss Embassy field visit report that validates this outcome."
+            ),
+            "high": (
+                "Independent verification meets SDC evaluation quality standards."
+            ),
+        },
+    },
 }

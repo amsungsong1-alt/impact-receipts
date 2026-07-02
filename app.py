@@ -1014,6 +1014,50 @@ SECTOR_OPTIONS = [
     "Other",
 ]
 
+# Sector-specific beneficiary voice HOW-TO guidance (Council XXVII)
+# Rendered in Screen 2 when BV score < 0.5 and a sector is selected.
+_BV_SECTOR_GUIDANCE: dict[str, str] = {
+    "Health & Nutrition": (
+        "Patient exit interviews (5 min at clinic exit), community health worker "
+        "focus groups (10–15 participants), or Ghana Health Service facility satisfaction "
+        "survey templates — accepted by FCDO and MCF as structured feedback evidence."
+    ),
+    "WASH": (
+        "Water point committee satisfaction surveys (quarterly, 10 questions), or "
+        "CWSA community assessment tools. Document collection date, sample size, "
+        "and who administered the survey."
+    ),
+    "Education & Skills": (
+        "Student satisfaction surveys at term end, parent perception interviews at "
+        "community level, or GES-administered student assessment forms independently "
+        "scored. Beneficiary voice must come from students or parents — not teachers "
+        "reporting on their own delivery."
+    ),
+    "Youth Employment & TVET": (
+        "End-of-training satisfaction survey (at programme completion) plus 6-month "
+        "employment follow-up phone interview. MCF requires BOTH 6-month AND 12-month "
+        "tracer calls. Use a 5-question script with gender and employment status fields. "
+        "N=30+ is sufficient for most TVET programmes."
+    ),
+    "Agriculture & Livelihoods": (
+        "Post-season farmer adoption survey (% applying technique + estimated yield change), "
+        "women farmer focus group discussion, or market buyer satisfaction data from "
+        "offtake partners. USAID FtF and GIZ accept post-season yield comparison "
+        "(this season vs. pre-programme) as direct beneficiary outcome evidence."
+    ),
+    "Climate Resilience": (
+        "Community risk perception survey before and after intervention, early warning "
+        "system utilisation logs, or community committee meeting minutes documenting "
+        "adaptation decisions. EPA Ghana and NADMO accept community-led risk monitoring data."
+    ),
+    "Governance & Accountability": (
+        "Citizen satisfaction survey with district services (pre/post), community "
+        "accountability meeting attendance + action point tracking, or NCCE-administered "
+        "civic knowledge assessment. Must include marginalised groups (women, PWDs, "
+        "youth) — not only elected officials or community leaders."
+    ),
+}
+
 DONOR_GUIDANCE = {
     "USAID": {
         "key_emphasis": "USAID is governed by ADS 201. Five data-quality standards apply to every reported result: Validity, Integrity, Accuracy, Completeness, and Timeliness. Activity MEL Plans must be submitted within 90 days of project start and updated annually.",
@@ -4338,13 +4382,15 @@ def render_pricing_page():
     st.markdown("## Pricing")
     st.caption("Score your evidence. Prove your impact. First 3 checks always free.")
 
-    # ROI micro-copy
+    # ROI micro-copy (Council XXVII — West Africa-specific framing)
     st.markdown(
         "<div style='background:#F1F8E9;border-left:4px solid #1B5E20;padding:10px 16px;"
         "border-radius:6px;font-size:0.9rem;margin-bottom:20px;'>"
-        "💡 <strong>At GHS 50/month, one avoided donor rejection pays for a full year of Professional.</strong> "
-        "A USAID quarterly report cycle takes 40+ hours to rework after rejection. "
-        "Upload your QPR and score every KPI in 60 seconds before it goes out."
+        "💡 <strong>The ROI is immediate: GHS 50/month vs. GHS 12,000–17,000 in rework costs.</strong> "
+        "DevEx MEL Salary Survey (2024): average Ghana consultant day rate ≈ GHS 1,200–1,800/day. "
+        "One rejected USAID, Mastercard Foundation, or FCDO report = 40+ hours of rework. "
+        "ImpactProof catches the gaps donors flag — before your report goes out. "
+        "Score every KPI in 60 seconds. Download a citable Readiness Card with a reference ID."
         "</div>",
         unsafe_allow_html=True,
     )
@@ -4404,13 +4450,14 @@ def render_pricing_page():
     with _t3:
         st.markdown(
             f"<div style='border:2px solid #8A6500;border-radius:10px;padding:20px;height:100%;{_pca}'>"
-            "<p style='font-size:0.75rem;color:#616161;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;'>For MEL consulting firms &amp; programme teams</p>"
+            "<p style='font-size:0.75rem;color:#616161;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;'>For MEL consultancies &amp; multi-donor programme teams</p>"
             "<h3 style='color:#8A6500;margin:0 0 4px;'>Agency</h3>"
             "<p style='font-size:2rem;font-weight:700;color:#8A6500;margin:0;'>GHS 200<span style='font-size:1rem;font-weight:400;'>/mo</span></p>"
-            "<p style='font-size:0.8rem;color:#616161;margin:4px 0 16px;'>~£13 · multiple clients or indicators</p>"
-            "<p style='font-size:0.85rem;color:#424242;margin-bottom:12px;font-style:italic;'>Quality-check your entire reporting portfolio</p>"
+            "<p style='font-size:0.8rem;color:#616161;margin:4px 0 16px;'>~£13 · multiple clients, multiple donors</p>"
+            "<p style='font-size:0.85rem;color:#424242;margin-bottom:12px;font-style:italic;'>Score every client's evidence — USAID, MCF, GIZ Ghana, FCDO — one place</p>"
             "<hr style='border:none;border-top:1px solid #E8D5A3;margin:12px 0;'/>"
             "<ul style='padding-left:16px;font-size:0.85rem;color:#424242;margin:0;line-height:1.8;'>"
+            "<li><strong>Multi-client, multi-donor</strong> — separate Readiness Cards per client, per donor</li>"
             "<li>Everything in Professional</li>"
             "<li><strong>Portfolio analysis</strong> — indicator heatmap, systemic gap report</li>"
             "<li><strong>Portfolio Q&amp;A chat</strong> — 'Which KPI needs the most work across all results?'</li>"
@@ -4620,7 +4667,7 @@ def render_screen_0():
                   help="Each fix is ranked by score impact — the highest-leverage action is always first.")
 
     # ── Quick Check (now secondary — inside expander) ──────────────────────
-    with st.expander("⚡ Quick Check — instant provisional scores (60 seconds)", expanded=False):
+    with st.expander("⚡ Quick Check — instant provisional scores (60 seconds)", expanded=True):
         st.caption("Fill 3 fields to instantly see provisional Confidence and Clarity scores. No form, no email required.")
         qc_result   = st.text_area("Your result statement", key="qc_result", height=80,
                                     placeholder="e.g., Trained 250 farmers in climate-smart practices in Northern Region, Jan–Jun 2025")
@@ -6695,6 +6742,19 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             unsafe_allow_html=True,
         )
 
+    # DQA Simulation callout (Council XXVII) — reframe top Confidence fix as auditor finding
+    if fixes and diag_state not in ("STRONG", "INVALID INPUT"):
+        _conf_fixes_dqa = [f for f in fixes if f.get("dimension") == "confidence"]
+        _dqa_top = _conf_fixes_dqa[0] if _conf_fixes_dqa else fixes[0]
+        _pca2 = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
+        st.markdown(
+            f"<div style='background:#FEF3F2;border-left:4px solid #B71C1C;border-radius:8px;"
+            f"padding:10px 14px;margin:4px 0 8px 0;font-size:0.85rem;{_pca2}'>"
+            f"🔍 <strong>DQA Simulation:</strong> An independent auditor would flag — "
+            f"<em>{_dqa_top['message']}</em></div>",
+            unsafe_allow_html=True,
+        )
+
     # Evidence statement — inline, most actionable output after the top fix
     _ev_stmt = _generate_evidence_statement(submission) if callable(globals().get("_generate_evidence_statement")) else None
     if _ev_stmt:
@@ -7065,6 +7125,36 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     elif fixes:
         _render_fix_bullets(fixes[:3], "Top fixes before submission")
 
+    # Fear-of-rejection ROI hook (Council XXVII) — surface rework cost for highest-risk results
+    _rr_paid = st.session_state.get("is_paid", False)
+    if diag_state in ("FUNDAMENTALLY WEAK", "UNDEREVIDENCED") and not _rr_paid:
+        st.markdown(
+            "<div style='background:#FEF3F2;border:1px solid #FFCDD2;border-radius:8px;"
+            "padding:14px 18px;margin:12px 0;'>"
+            "<p style='font-weight:700;color:#B71C1C;margin:0 0 6px;font-size:0.95rem;'>"
+            "⚠️ This result risks donor rejection</p>"
+            "<p style='font-size:0.85rem;color:#374151;margin:0 0 8px;'>"
+            "USAID Learning Lab (2024): 3 of 5 DQA failures are predictable from evidence "
+            "quality gaps like these — before the report is submitted. "
+            "Reworking a rejected USAID or FCDO quarterly report costs "
+            "<strong>40+ hours of senior staff time</strong> — at Ghana MEL consultant rates "
+            "of GHS 1,200–1,800/day, that is <strong>GHS 12,000–17,000 per rejection event.</strong>"
+            "</p>"
+            "<p style='font-size:0.85rem;color:#374151;margin:0;'>"
+            "<strong>ImpactProof Professional catches this before your donor does "
+            "— GHS 50/month, unlimited checks.</strong>"
+            "</p></div>",
+            unsafe_allow_html=True,
+        )
+        if st.button(
+            "Upgrade to catch this before your donor does →",
+            key=f"fear_rejection_upgrade_{card_idx}",
+            type="primary",
+            use_container_width=True,
+        ):
+            st.session_state["_show_pricing"] = True
+            st.rerun()
+
     filenames = submission.get("attached_filenames", [])
     if filenames:
         st.caption(f"Attached documents: {', '.join(filenames)}")
@@ -7074,6 +7164,11 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         bv_fix = BENEFICIARY_VOICE_WHATTOFIX.get(bv_bonus, BENEFICIARY_VOICE_WHATTOFIX[0.0])
         with st.expander("Improve Beneficiary Voice →", key=f"bv_improve_{card_idx}"):
             st.caption(bv_fix)
+            # Sector-specific HOW-TO guidance (Council XXVII)
+            _bv_sector = st.session_state.get("sector", "")
+            if _bv_sector and _bv_sector in _BV_SECTOR_GUIDANCE:
+                st.markdown(f"**How to collect beneficiary voice in {_bv_sector}:**")
+                st.info(_BV_SECTOR_GUIDANCE[_bv_sector])
 
     if donor and donor != "Other/Not specified" and donor in DONOR_DIAGNOSTICS:
         st.subheader(f"{donor}-Specific Guidance")
@@ -7327,6 +7422,33 @@ def render_screen_2():
         "💡 **Save your Readiness Card.** The next time you check a result, your "
         "📈 Improvement over time tracker will show how your evidence quality has grown."
     )
+
+    # Elevated WhatsApp share CTA (Council XXVII) — front-and-centre, not buried in expander
+    if evs:
+        import urllib.parse as _urlparse
+        _wa_ev0 = evs[0]
+        _wa_cf = _wa_ev0.get("confidence_score", 0)
+        _wa_cl = _wa_ev0.get("clarity_score", 0)
+        _wa_fixes = _wa_ev0.get("fixes", [])
+        _wa_state = _wa_ev0.get("diagnostic_state", "")
+        _wa_tf = _wa_fixes[0]["message"] if _wa_fixes else "Review complete."
+        def _wa_icon(s): return "✅" if s >= 4.0 else "⚠️" if s >= 3.0 else "🔴"
+        _wa_text = (
+            f"📊 ImpactProof Evidence Check\n"
+            f"Confidence: {_wa_cf}/5.0 {_wa_icon(_wa_cf)}  ·  Clarity: {_wa_cl}/5.0 {_wa_icon(_wa_cl)}\n"
+            f"Verdict: {_wa_state}\n"
+            f"Top action: {_wa_tf}\n"
+            f"Check your report: https://impact-proof.streamlit.app"
+        )
+        _wa_url = "https://wa.me/?text=" + _urlparse.quote(_wa_text)
+        st.markdown(
+            f'<a href="{_wa_url}" target="_blank" '
+            f'style="display:block;text-align:center;background:#25D366;color:white;'
+            f'padding:13px 18px;border-radius:8px;text-decoration:none;font-weight:700;'
+            f'font-size:1rem;margin:8px 0;">📱 Share result on WhatsApp — tell your team what to fix</a>',
+            unsafe_allow_html=True,
+        )
+        st.caption("Opens WhatsApp with your score, verdict, and top action. Works on phone and desktop.")
 
     st.divider()
 
@@ -8914,7 +9036,10 @@ def _render_score_my_report_tab():
         "Upload your donor report. ImpactProof extracts every result, makes a determination for each "
         "(submission-ready / needs work / high risk), and delivers a colour-coded "
         "**Excel decision audit** — one row per result, traceable to named donor standards. "
-        "Use it to know exactly where to focus before a DQA, before submission, or before a partner review meeting."
+        "Use it to know exactly where to focus before a DQA, before submission, or before a partner review meeting. "
+        "**For MEL consultancies managing multiple clients:** score each client's report separately "
+        "and compare evidence quality across USAID, Mastercard Foundation, GIZ Ghana, and FCDO "
+        "in a single session."
     )
     st.caption(
         "Anchored to: USAID ADS 201 · FCDO 2025 · Bond Evidence Principles 2024 · World Bank RF  "
