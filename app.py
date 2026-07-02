@@ -4092,7 +4092,7 @@ _DEMO_SELECT_FIELDS = {
     "internal_review":  "Reviewed by MEL Officer",
     "external_review":  "External partner review",
     "beneficiary_voice":"Anecdotal beneficiary quotes only (uncollected, not systematic)",
-    "sector":           "Health",
+    "sector":           "Health & Nutrition",
     "donor_selected":   "USAID",
     "donor_framework":  "USAID",
 }
