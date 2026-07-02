@@ -1056,6 +1056,41 @@ _BV_SECTOR_GUIDANCE: dict[str, str] = {
         "civic knowledge assessment. Must include marginalised groups (women, PWDs, "
         "youth) — not only elected officials or community leaders."
     ),
+    "Nutrition & Food Security": (
+        "Household dietary diversity survey (24-hour recall method, N=30+ per site), "
+        "caregiver knowledge assessment on complementary feeding, or CMAM exit interview "
+        "conducted by an enumerator independent of the nutrition programme team. "
+        "GHS CHPS compound records and UNICEF nutrition monitoring tools are accepted "
+        "by UNICEF, WFP, and USAID Food for Peace as structured beneficiary voice evidence."
+    ),
+    "Digital Economy & Technology": (
+        "User satisfaction survey after digital tool onboarding (N=20+ per site), "
+        "utilisation log showing return sessions beyond registration, or structured "
+        "interview on whether the tool changed a workflow or income-generating activity. "
+        "Evidence must show active use — not just account creation. GSMA Mobile for "
+        "Humanitarian Innovation and FCDO Digital accepts utilisation-based feedback."
+    ),
+    "Energy & Clean Energy": (
+        "Household energy consumption diary (weekly, before/after clean energy access), "
+        "post-installation satisfaction survey covering reliability, safety, and household "
+        "saving, or community meeting minutes on cookstove or solar adoption decisions. "
+        "GOGLA and SE4ALL frameworks accept structured post-installation feedback as BV. "
+        "Include a 3-month follow-up to capture sustained use vs. adoption-day reporting."
+    ),
+    "Gender & Social Inclusion": (
+        "Women's agency and decision-making survey (household and community level, pre/post), "
+        "GBV incident reporting rate change via community safety committee records, or "
+        "structured interview with women from marginalised groups on access change. "
+        "Evidence must come from the rights-holder group directly — not programme staff "
+        "reporting on observed change. FCDO EQuALS 2 and Sida HRBA require this distinction."
+    ),
+    "Private Sector Development": (
+        "Business owner satisfaction survey on BDS quality (post-support, N=20+ per cohort), "
+        "market linkage outcome report from offtake partners (actual purchase records), or "
+        "structured interview with SME beneficiaries on revenue or employment change "
+        "6–12 months post-support. GIZ Value Chain, IFC DOTS, and USAID CDCS frameworks "
+        "accept structured SME-level outcome interviews as verifiable beneficiary voice."
+    ),
 }
 
 DONOR_GUIDANCE = {
@@ -3385,18 +3420,19 @@ def _smart_extract_from_result(result_text: str, s: str) -> None:
 
     # ── SECTOR (programme-level — keyword inference, never overwrites) ──────
     if st.session_state.get("sector") in (None, "", "(No sector selected)"):
-        _SECTOR_KWORDS: list[tuple[str, list[str]]] = [
-            ("WASH",                       ["water", "borehole", "sanitation", "latrine", "wash", "hygiene", "handwash", "clean water", "water point"]),
-            ("Health & Nutrition",         ["health", "clinic", "nutrition", "patient", "hospital", "immunis", "immuniz", "malaria", "vaccination", "antenatal", "maternal", "child health", "hiv", "tuberculosis"]),
-            ("Education & Skills",         ["school", "pupil", "literacy", "enrolment", "enrollment", "education", "classroom", "teacher", "reading"]),
-            ("Youth Employment & TVET",    ["tvet", "vocational", "apprentice", "placed", "hired", "youth employment", "livelihood", "income generation"]),
-            ("Agriculture & Livelihoods",  ["farmer", "agriculture", "crop", "yield", "harvest", "livestock", "irrigation", "cassava", "maize", "cocoa", "poultry"]),
-            ("Climate Resilience",         ["climate", "resilience", "adaptation", "disaster", "flood", "drought", "reforestation", "early warning"]),
-            ("Governance & Accountability",["governance", "accountability", "transparency", "civic", "citizen", "district assembly", "community accountability"]),
+        _SECTOR_KWORDS = [
+            ("WASH",                        ["water", "borehole", "sanitation", "latrine", "wash", "hygiene", "handwash", "clean water", "water point"]),
+            ("Health & Nutrition",          ["health", "clinic", "nutrition", "patient", "hospital", "immunis", "immuniz", "malaria", "vaccination", "antenatal", "maternal", "child health", "hiv", "tuberculosis"]),
+            ("Education & Skills",          ["school", "pupil", "literacy", "enrolment", "enrollment", "education", "classroom", "teacher", "reading"]),
+            ("Youth Employment & TVET",     ["tvet", "vocational", "apprentice", "placed", "hired", "youth employment", "livelihood", "income generation"]),
+            ("Agriculture & Livelihoods",   ["farmer", "agriculture", "crop", "yield", "harvest", "livestock", "irrigation", "cassava", "maize", "cocoa", "poultry"]),
+            ("Nutrition & Food Security",   ["stunting", "wasting", "malnutrition", "food security", "food insecurity", "micronutrient", "diet diversity", "acute malnutrition"]),
+            ("Climate Resilience",          ["climate", "resilience", "adaptation", "disaster", "flood", "drought", "reforestation", "early warning"]),
+            ("Governance & Accountability", ["governance", "accountability", "transparency", "civic", "citizen", "district assembly", "community accountability"]),
             ("Digital Economy & Technology",["digital", "mobile money", "fintech", "internet access", "ict ", "e-learning", "tech hub"]),
-            ("Energy & Clean Energy",      ["solar", "energy", "electricity", "off-grid", "clean energy", "cookstove", "biogas"]),
-            ("Gender & Social Inclusion",  ["gender", "gbv", "disability", "social inclusion", "women's rights"]),
-            ("Private Sector Development", ["private sector", "sme", "entrepreneur", "business development", "value chain", "market linkage"]),
+            ("Energy & Clean Energy",       ["solar", "energy", "electricity", "off-grid", "clean energy", "cookstove", "biogas"]),
+            ("Gender & Social Inclusion",   ["gender equality", "gbv", "disability", "social inclusion", "women's rights"]),
+            ("Private Sector Development",  ["private sector", "sme", "entrepreneur", "business development", "value chain", "market linkage"]),
         ]
         for _sk_name, _sk_kws in _SECTOR_KWORDS:
             if any(_kw in rt for _kw in _sk_kws):
@@ -3405,7 +3441,7 @@ def _smart_extract_from_result(result_text: str, s: str) -> None:
 
     # ── DONOR (programme-level — keyword inference, never overwrites) ───────
     if st.session_state.get("donor_selected") in (None, "", "(No donor specified)"):
-        _DONOR_KWORDS: list[tuple[str, list[str]]] = [
+        _DONOR_KWORDS = [
             ("USAID",                 ["usaid", "u.s. agency", "american people"]),
             ("FCDO",                  ["fcdo", "foreign commonwealth", "uk aid", "dfid"]),
             ("GIZ",                   ["giz", "deutsche gesellschaft", "german agency"]),
@@ -4418,7 +4454,7 @@ def render_pricing_page():
         st.rerun()
 
     st.markdown("## Pricing")
-    st.caption("Score your evidence. Prove your impact. First 3 checks always free.")
+    st.caption("Determine your evidence readiness. Prove your impact. First 3 checks always free.")
 
     # ROI micro-copy (Council XXVII — West Africa-specific framing)
     st.markdown(
@@ -4471,7 +4507,7 @@ def render_pricing_page():
             "<hr style='border:none;border-top:1px solid #C8E6C9;margin:12px 0;'/>"
             "<ul style='padding-left:16px;font-size:0.85rem;color:#424242;margin:0;line-height:1.8;'>"
             "<li><strong>Unlimited checks</strong></li>"
-            "<li><strong>Score My Report</strong> — upload a Word/PDF, score all results at once, download scored Excel</li>"
+            "<li><strong>Audit My Report</strong> — upload a Word/PDF, get determinations for every result, download a decision audit Excel</li>"
             "<li>Instant Report Check — auto-fill form from uploaded document</li>"
             "<li>Readiness Card PDF (shareable with supervisor or donor)</li>"
             "<li>Donor-specific fixes (USAID, FCDO, GIZ, World Bank…)</li>"
@@ -4610,7 +4646,7 @@ def _render_ph_landing():
     with _ph_c2:
         st.metric("Anchored to 4 frameworks", "USAID · FCDO · Bond · World Bank", help="Every sub-score traces to a named donor standard — USAID ADS 201, FCDO Evaluation Policy 2025, Bond Evidence Principles 2024, World Bank Results Framework.")
     with _ph_c3:
-        st.metric("Portfolio in 60 seconds", "10+ results", help="Score My Report: upload one document, every result extracted and scored. Download as donor-ready Excel audit workbook.")
+        st.metric("Portfolio in 60 seconds", "10+ results", help="Audit My Report: upload one document, every result extracted and determined. Download as a donor-ready Excel decision audit.")
 
     if st.button("← Back to full landing page", key="ph_back"):
         st.session_state.pop("_referral_source", None)
@@ -4668,14 +4704,14 @@ def render_screen_0():
 
     with _path_col1:
         with st.container(border=True):
-            st.markdown("#### 📄 Score My Report")
+            st.markdown("#### 📄 Audit My Report")
             st.caption(
                 "Upload a Word or PDF donor report. ImpactProof identifies every result, "
-                "determines evidence strength, and ranks what to fix first — all in 60+ seconds. "
-                "Download a filled Excel with scores and ranked priorities."
+                "makes a determination for each, and ranks what to fix first — all in 60 seconds. "
+                "Download a filled Excel with determinations and ranked priorities."
             )
             st.caption("First 3 uploads free · No registration needed")
-            if st.button("Upload and Score →", key="cta_score_report", type="primary",
+            if st.button("Upload and Audit →", key="cta_score_report", type="primary",
                          use_container_width=True):
                 _go_to_screen(3)
 
@@ -4836,7 +4872,7 @@ def render_screen_0():
                 <li>Every determination traces to a <strong>named standard</strong> (USAID ADS 201.3.5.7, Bond 2024, FCDO)</li>
                 <li>The same result <strong>always produces the same determination</strong> — no LLM randomness</li>
                 <li>The output is a <strong>citable PDF with a reference ID</strong>, not a chat screenshot</li>
-                <li>Score My Report determines <strong>10+ results in 60 seconds</strong> against the same rubric — consistently</li>
+                <li>Audit My Report determines <strong>10+ results in 60 seconds</strong> against the same rubric — consistently</li>
               </ul>
             </div>
             """,
@@ -9105,19 +9141,19 @@ def _render_score_my_report_tab():
     import pandas as pd
     from excel_report import build_scored_excel, build_rescore_excel, STATUS_AUTO_POPULATED, STATUS_NOT_FOUND
 
-    st.markdown("### Score My Report")
+    st.markdown("### Audit My Report")
     st.markdown(
         "Upload your donor report. ImpactProof extracts every result, makes a determination for each "
         "(submission-ready / needs work / high risk), and delivers a colour-coded "
         "**Excel decision audit** — one row per result, traceable to named donor standards. "
         "Use it to know exactly where to focus before a DQA, before submission, or before a partner review meeting. "
-        "**For MEL consultancies managing multiple clients:** score each client's report separately "
+        "**For MEL consultancies managing multiple clients:** audit each client's report separately "
         "and compare evidence quality across USAID, Mastercard Foundation, GIZ Ghana, and FCDO "
         "in a single session."
     )
     st.caption(
         "Anchored to: USAID ADS 201 · FCDO 2025 · Bond Evidence Principles 2024 · World Bank RF  "
-        "— Deterministic scoring: same document always produces the same scores."
+        "— Deterministic assessment: same document always produces the same determination."
     )
 
     _api_key = (
@@ -9126,13 +9162,13 @@ def _render_score_my_report_tab():
         __import__("os").environ.get("ANTHROPIC_API_KEY", "")
     )
     if not _api_key:
-        st.error("Score My Report requires an Anthropic API key. Configure ANTHROPIC_API_KEY in secrets.")
+        st.error("Audit My Report requires an Anthropic API key. Configure ANTHROPIC_API_KEY in secrets.")
         return
 
     # Council XXIII — SMR paywall gate (mirrors single-result check counter)
     _smr_email = st.session_state.get("user_email", "")
     if not _smr_email:
-        st.warning("📧 **Enter your email to use Score My Report.** We use it to track your free checks — no password needed.")
+        st.warning("📧 **Enter your email to use Audit My Report.** We use it to track your free checks — no password needed.")
         _render_email_gate_inline("_smr")
         # st.stop() inside _render_email_gate_inline halts rendering here until email is set
     _smr_email = st.session_state.get("user_email", "")
@@ -9152,7 +9188,7 @@ def _render_score_my_report_tab():
     )
 
     if not uploaded_doc:
-        st.info("Upload a Word or PDF progress report to extract and score all results automatically.")
+        st.info("Upload a Word or PDF progress report to extract and determine all results automatically.")
         return
 
     org_name = st.text_input(
@@ -9168,7 +9204,7 @@ def _render_score_my_report_tab():
         _render_paywall()
         return
 
-    run_btn = st.button("Extract and Score All Results", type="primary", key="smr_run")
+    run_btn = st.button("Extract & Get Determinations", type="primary", key="smr_run")
     _smr_state = st.session_state.get("smr_results")
 
     if run_btn:
@@ -9440,7 +9476,7 @@ def render_screen_3():
 
     st.markdown("## 📊 Portfolio Decision Audit")
 
-    _s3_tab_smr, _s3_tab_csv = st.tabs(["📄 Score My Report", "📊 CSV Portfolio"])
+    _s3_tab_smr, _s3_tab_csv = st.tabs(["📄 Audit My Report", "📊 CSV Portfolio"])
 
     with _s3_tab_smr:
         _render_score_my_report_tab()
@@ -9448,11 +9484,11 @@ def render_screen_3():
     with _s3_tab_csv:
         st.info(
             "**Two ways to use this tab:**\n\n"
-            "**1. Re-score after fixes** — After running Score My Report, download the "
+            "**1. Re-assess after fixes** — After running Audit My Report, download the "
             "**re-score CSV**, fix amber/red fields in a spreadsheet editor, and re-upload here "
             "to see revised determinations without re-uploading the original document.\n\n"
-            "**2. Score a full logframe** — Upload your logframe as a CSV or Excel file "
-            "to score all indicators at once and see the portfolio heatmap."
+            "**2. Assess your full logframe** — Upload your logframe as a CSV or Excel file "
+            "to determine all indicators at once and see the portfolio heatmap."
         )
 
         _tmpl_c1, _tmpl_c2 = st.columns(2)
