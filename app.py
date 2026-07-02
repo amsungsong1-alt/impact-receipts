@@ -535,8 +535,10 @@ The result statement should be the single clearest achievement sentence from the
 
 ### Rule 11 — Sector Selection
 Choose the closest match from this list based on the document's subject matter:
-"WASH", "Health", "Education", "Agriculture / Livelihoods", "Youth Employment",
-"Climate Resilience", "Governance", "Other"
+"WASH", "Health & Nutrition", "Education & Skills", "Agriculture & Livelihoods",
+"Youth Employment & TVET", "Climate Resilience", "Governance & Accountability",
+"Digital Economy & Technology", "Energy & Clean Energy", "Gender & Social Inclusion",
+"Nutrition & Food Security", "Private Sector Development", "Other"
 
 ### Rule 12 — Primary Donor
 If the document names a specific donor/funder (e.g., USAID, FCDO, GIZ, RVO, World Bank, AfDB,
@@ -3601,7 +3603,7 @@ def _render_tab2_slot(slot: int):
             st.text_input,
             "Pre-evaluation / baseline value",
             f"logframe_baseline{s}", default="",
-            placeholder="e.g., 77.94 units (2019 baseline) or €-1.3M net loss (pre-program)",
+            placeholder=_ph.get("logframe_baseline", "e.g., [baseline value] ([year] [data source] baseline)"),
             help=(
                 "The value of this indicator before the programme began (or at the last measurement point). "
                 "Required to compute % change from baseline and to validate the direction of change."
@@ -3630,7 +3632,7 @@ def _render_tab2_slot(slot: int):
                 st.text_input,
                 "Actual achievement",
                 f"logframe_achievement{s}", default="",
-                placeholder=_ph.get("logframe_achievement", "e.g., 55% achieved — 142 units vs 77.94 baseline"),
+                placeholder=_ph.get("logframe_achievement", "e.g., [achieved value] by [date] — [X]% of target"),
                 help=(
                     "The actual delivered number, ideally with % achievement vs original target. "
                     "Must reconcile with your result statement above."
