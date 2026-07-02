@@ -3670,6 +3670,10 @@ def _render_tab3_slot(slot: int):
         st.warning("Evidence description is brief. Specify: who collected it, how, and what it contains.")
     elif _ed_val:
         _smart_extract_ev_type(_ed_val, f"evidence_type{s}")  # auto-suggest type from keywords
+    if _ed_val and _ed_val.strip():
+        _wc = len(_ed_val.split())
+        if 0 < _wc < 20:
+            st.caption(f"📝 {_wc} words — add {20 - _wc}+ more for a stronger Confidence score.")
 
     st.caption("📊 **Affects Directness score** (max 2.0 — the system uses this to determine your evidence ceiling. Systematic Reviews and RCTs unlock the highest Directness score.)")
     _irc_widget(
@@ -5860,12 +5864,15 @@ def render_screen_1():
                         except Exception:
                             pass
             st.success("✓ Result defined. A reviewer can now check this against your logframe — donor question 1 answered.")
-            # Auto-advance to Logframe tab when arriving via Quick Check "Continue →"
+            # QC fast-path: skip Logframe (Tab 1) and land directly on Evidence (Tab 2)
             if st.session_state.pop("_from_quick_check", False):
-                st.session_state["current_tab"] = 1
-                st.session_state["_tab2_auto_advanced"] = False
+                for _qc_sl in range(1, active + 1):
+                    st.session_state[f"logframe_fill_later{_slot_suffix(_qc_sl)}"] = True
+                st.session_state["current_tab"] = 2
+                st.session_state["_tab2_auto_advanced"] = True
+                st.session_state["_show_qc_tab2_hint"] = True
                 st.session_state["_scroll_to_content"] = True
-                st.query_params["tab"] = "1"
+                st.query_params["tab"] = "2"
                 st.rerun()
             _nb1, _pb1 = st.columns([3, 1])
             with _nb1:
@@ -5935,6 +5942,8 @@ def render_screen_1():
 
     elif _cur_tab == 2:
         st.caption("Step 3 of 3 — Describe your evidence. This is where the system makes its core determination: what your evidence is worth to a donor, and how to improve it.")
+        if st.session_state.pop("_show_qc_tab2_hint", False):
+            st.success("✓ **Evidence type and verifier pre-filled from Quick Check.** Add your evidence description below to complete the determination.")
         for slot in range(1, active + 1):
             if active > 1:
                 st.markdown(f"---\n#### Result {slot}")
@@ -7575,29 +7584,38 @@ def render_screen_2():
 
     st.divider()
 
-    for i, (sub, ev) in enumerate(zip(subs, evs)):
-        if n > 1:
-            st.markdown(f"### Result {i + 1}")
-        _render_result_card(sub, ev, card_idx=i,
-                            donor=st.session_state.get("donor_selected", ""))
-
-    # Ranked fix queue — ordered by score impact (Council XXVI)
+    # Ranked fix queue — visible before detail cards so users act, not just read (Council XXXI)
     _all_fixes = []
     for _ev in evs:
         _all_fixes.extend(_ev.get("fixes", []))
     if _all_fixes:
-        st.markdown("### Ranked fix queue — ordered by score impact")
+        st.markdown("### Ranked fix queue — act on these to improve your score")
         for _fi, _fix in enumerate(_all_fixes[:5], 1):
             _fix_msg    = _fix.get("message", "")
             _fix_impact = _fix.get("score_impact", "")
             _fix_val    = _fix.get("score_impact_value", 0)
-            if _fix_impact and _fix_val:
-                st.markdown(f"**{_fi}.** {_fix_msg} — *adds {_fix_val:.2f} pts · {_fix_impact}*")
-            elif _fix_impact:
-                st.markdown(f"**{_fi}.** {_fix_msg} *({_fix_impact})*")
+            _fix_dim    = _fix.get("dimension", "")
+            _fix_msg_lc = (_fix_msg or "").lower()
+            if _fix_dim == "confidence":
+                _fix_tab = 2
+            elif any(_kw in _fix_msg_lc for _kw in ["indicator", "logframe", "baseline", "target", "achievement"]):
+                _fix_tab = 1
             else:
-                st.markdown(f"**{_fi}.** {_fix_msg}")
-        # Projected score if all fixes acted on (deterministic — from fix score_impact_values)
+                _fix_tab = 0
+            _fq_c1, _fq_c2 = st.columns([5, 1])
+            with _fq_c1:
+                if _fix_impact and _fix_val:
+                    st.markdown(f"**{_fi}.** {_fix_msg} — *adds {_fix_val:.2f} pts · {_fix_impact}*")
+                elif _fix_impact:
+                    st.markdown(f"**{_fi}.** {_fix_msg} *({_fix_impact})*")
+                else:
+                    st.markdown(f"**{_fi}.** {_fix_msg}")
+            with _fq_c2:
+                if st.button("↗ Fix", key=f"jump_fix_{_fi}", use_container_width=True, help="Go to this form field"):
+                    st.session_state["evaluations"] = None
+                    st.session_state["current_tab"] = _fix_tab
+                    st.query_params["tab"] = str(_fix_tab)
+                    _go_to_screen(1, reset=False)
         if len(evs) == 1:
             try:
                 from council import _calculate_projected_scores
@@ -7611,6 +7629,13 @@ def render_screen_2():
                     )
             except Exception:
                 pass
+        st.divider()
+
+    for i, (sub, ev) in enumerate(zip(subs, evs)):
+        if n > 1:
+            st.markdown(f"### Result {i + 1}")
+        _render_result_card(sub, ev, card_idx=i,
+                            donor=st.session_state.get("donor_selected", ""))
 
     # Optional reporting flags — moved here from Tab 2 so users can fill after seeing scores
     with st.expander("📝 Optional reporting flags (no score impact)", expanded=False):
