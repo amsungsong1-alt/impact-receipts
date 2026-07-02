@@ -527,3 +527,201 @@ def _build_sheet2(wb, rows, evaluations, org_name, document_name):
     rs_cell.font      = _font(size=9)
     rs_cell.alignment = Alignment(wrap_text=True, vertical="top")
     ws.row_dimensions[gap_row].height = 110
+
+
+# ---------------------------------------------------------------------------
+# Re-score workbook — two sheets for the "Download re-score" button
+# ---------------------------------------------------------------------------
+
+_RESCORE_COL_WIDTHS = {
+    "result_statement": 45, "target_group": 22, "timeframe": 14,
+    "geographic_scope": 18, "evidence_type": 22, "evidence_description": 40,
+    "evidence_date": 14, "internal_review": 22, "external_review": 22,
+    "verifier": 25, "logframe_indicator": 30, "logframe_baseline": 16,
+    "logframe_target": 16, "logframe_achievement": 18, "beneficiary_voice": 24,
+    "additional_context": 25, "learning_notes": 22, "limitations_notes": 22,
+    "qual_sourcing_documented": 18, "qual_triangulated": 16,
+    "qual_bias_considered": 18, "qual_beneficiary_voice_represented": 22,
+    "qual_consent_ethics_addressed": 22, "provenance_sampling": 20,
+    "provenance_dedup": 20, "provenance_tool": 20, "provenance_independent": 20,
+    "provenance_recall": 20, "provenance_traceable": 22,
+}
+
+
+def _determ_fill(conf: float | None, clar: float | None) -> PatternFill:
+    lo = min(conf or 0, clar or 0)
+    if lo >= 4.0:
+        return _fill(_GREEN_LIGHT)
+    if lo >= 2.5:
+        return _fill(_AMBER_LIGHT)
+    return _fill(_RED_LIGHT)
+
+
+def _determ_label(conf: float | None, clar: float | None) -> str:
+    lo = min(conf or 0, clar or 0)
+    if lo >= 4.0:
+        return "Submission-ready"
+    if lo >= 2.5:
+        return "Needs work"
+    return "High risk"
+
+
+def build_rescore_excel(
+    rows: list[dict],
+    evaluations: list[dict],
+    statuses: list[dict] | None = None,
+    org_name: str = "",
+    doc_name: str = "",
+) -> bytes:
+    """Two-sheet re-score workbook.
+
+    Sheet 1 'Re-score Data' — raw column names for re-upload to CSV Portfolio tab.
+    Sheet 2 'Determinations' — colour-coded human-readable summary.
+    """
+    if not _OPENPYXL_OK:
+        raise ImportError("openpyxl is required. Run: pip install openpyxl")
+
+    wb = Workbook()
+
+    # ── Sheet 1: Re-score Data ────────────────────────────────────────────────
+    ws1 = wb.active
+    ws1.title = "Re-score Data"
+    ws1.freeze_panes = "A2"
+
+    col_keys = list(rows[0].keys()) if rows else list(_RESCORE_COL_WIDTHS.keys())
+
+    for ci, key in enumerate(col_keys, start=1):
+        hdr = ws1.cell(row=1, column=ci, value=key)
+        hdr.fill      = _fill(_HEADER_BG)
+        hdr.font      = _font(bold=True, colour=_HEADER_FG, size=9)
+        hdr.alignment = Alignment(wrap_text=True, vertical="center", horizontal="center")
+        hdr.border    = _border_thin()
+        ws1.column_dimensions[get_column_letter(ci)].width = _RESCORE_COL_WIDTHS.get(key, 18)
+
+    ws1.row_dimensions[1].height = 30
+
+    # Add a tooltip comment on A1 so users know what to do with this sheet
+    if _OPENPYXL_OK:
+        note = Comment(
+            "RE-SCORE DATA\n\n"
+            "Edit cells in this sheet to correct amber/red fields from the Portfolio Audit Workbook.\n\n"
+            "To re-score:\n"
+            "1. Make corrections (e.g. evidence_description, verifier, provenance fields)\n"
+            "2. Save this sheet as a CSV file (File → Save As → CSV)\n"
+            "3. Upload the CSV to the CSV Portfolio tab in ImpactProof\n\n"
+            "Column names must remain unchanged for re-scoring to work.",
+            author="ImpactProof",
+        )
+        note.width = 360
+        note.height = 200
+        ws1.cell(row=1, column=1).comment = note
+
+    for ri, row_dict in enumerate(rows, start=2):
+        is_alt  = (ri % 2 == 0)
+        base_bg = _GREY_LIGHT if is_alt else _WHITE
+        for ci, key in enumerate(col_keys, start=1):
+            val  = row_dict.get(key, "")
+            cell = ws1.cell(row=ri, column=ci, value=str(val) if val else "")
+            cell.font      = _font(size=9)
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+            cell.border    = _border_thin()
+            cell.fill      = _fill(base_bg)
+        ws1.row_dimensions[ri].height = 36
+
+    # Instruction footer
+    foot_row = len(rows) + 3
+    ws1.merge_cells(f"A{foot_row}:{get_column_letter(len(col_keys))}{foot_row}")
+    fc = ws1.cell(row=foot_row, column=1,
+                  value="HOW TO RE-SCORE: Edit fields above → File > Save As > CSV → "
+                        "upload to CSV Portfolio tab in ImpactProof → revised determinations appear instantly.")
+    fc.font      = _font(size=9, bold=True, colour=_AMBER_DARK)
+    fc.alignment = Alignment(wrap_text=True, vertical="top")
+    ws1.row_dimensions[foot_row].height = 36
+
+    # ── Sheet 2: Determinations ───────────────────────────────────────────────
+    ws2 = wb.create_sheet("Determinations")
+    ws2.freeze_panes = "A3"
+
+    # Title
+    ws2.merge_cells("A1:G1")
+    title = ws2["A1"]
+    ts    = datetime.now().strftime("%d %b %Y %H:%M")
+    title.value = (
+        f"ImpactProof — Portfolio Determinations"
+        f"{' · ' + org_name if org_name else ''}"
+        f"{' · ' + doc_name if doc_name else ''}"
+        f" · {ts}"
+    )
+    title.fill      = _fill(_HEADER_BG)
+    title.font      = _font(bold=True, colour=_HEADER_FG, size=12)
+    title.alignment = Alignment(horizontal="left", vertical="center")
+    ws2.row_dimensions[1].height = 28
+
+    # Column headers
+    det_cols = [
+        ("#",                10),
+        ("Result Statement", 45),
+        ("Target Group",     22),
+        ("Evidence Type",    22),
+        ("Confidence",       12),
+        ("Clarity",          12),
+        ("Determination",    18),
+        ("Fix — Priority 1", 40),
+    ]
+    for ci, (hdr_label, width) in enumerate(det_cols, start=1):
+        hdr = ws2.cell(row=2, column=ci, value=hdr_label)
+        hdr.fill      = _fill(_HEADER_BG)
+        hdr.font      = _font(bold=True, colour=_HEADER_FG, size=10)
+        hdr.alignment = Alignment(wrap_text=True, vertical="center", horizontal="center")
+        hdr.border    = _border_thin()
+        ws2.column_dimensions[get_column_letter(ci)].width = width
+    ws2.row_dimensions[2].height = 24
+
+    for ri, (row_dict, ev) in enumerate(zip(rows, evaluations), start=3):
+        conf   = ev.get("confidence_score")
+        clar   = ev.get("clarity_score")
+        fixes  = ev.get("fixes", [])
+        fix1   = fixes[0]["message"] if fixes else ""
+        determ = _determ_label(conf, clar)
+        dfill  = _determ_fill(conf, clar)
+        is_alt = (ri % 2 == 0)
+        base   = _GREY_LIGHT if is_alt else _WHITE
+
+        row_vals = [
+            (ri - 2,                               _fill(base),          "center"),
+            (row_dict.get("result_statement", ""), _fill(base),          "left"),
+            (row_dict.get("target_group",     ""), _fill(base),          "left"),
+            (row_dict.get("evidence_type",    ""), _fill(base),          "left"),
+            (conf,                                 _score_fill(conf),    "center"),
+            (clar,                                 _score_fill(clar),    "center"),
+            (determ,                               dfill,                "center"),
+            (fix1,                                 _fill(base),          "left"),
+        ]
+        for ci, (val, fill, halign) in enumerate(row_vals, start=1):
+            cell = ws2.cell(row=ri, column=ci, value=val)
+            cell.fill      = fill
+            cell.font      = _font(
+                bold=(ci in (5, 6, 7)),
+                colour=(_GREEN_DARK if determ == "Submission-ready" and ci == 7
+                        else _RED_DARK if determ == "High risk" and ci == 7
+                        else "000000"),
+                size=9,
+            )
+            cell.alignment = Alignment(wrap_text=True, vertical="top", horizontal=halign)
+            cell.border    = _border_thin()
+        ws2.row_dimensions[ri].height = 48
+
+    # Legend
+    leg = len(evaluations) + 4
+    ws2.merge_cells(f"A{leg}:G{leg}")
+    lc = ws2.cell(row=leg, column=1,
+                  value="Determination thresholds: Submission-ready = both scores ≥ 4.0 | "
+                        "Needs work = lowest score 2.5–3.9 | High risk = lowest score < 2.5")
+    lc.font      = _font(size=8, colour="616161")
+    lc.alignment = Alignment(wrap_text=True, vertical="top")
+    ws2.row_dimensions[leg].height = 22
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.read()

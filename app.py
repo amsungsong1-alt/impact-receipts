@@ -374,31 +374,18 @@ _PROVENANCE_ALL = ["sampling_documented", "double_counting_checked", "collection
 # Phase A: deterministic, semantics-based. Only applied if the user hasn't already answered.
 # Phase B: once ≥50 real answers accumulate per type in Supabase, modal answers will override.
 _PROVENANCE_DEFAULTS: dict[tuple, str] = {
-    # Financial records: exhaustive (no sampling), naturally independent, audit trail inherent
-    ("Financial records", "sampling_documented"):     "Not applicable",
-    ("Financial records", "double_counting_checked"): "Yes",
-    ("Financial records", "collection_tool_named"):   "Yes",
-    ("Financial records", "collector_independent"):   "Not applicable",
-    ("Financial records", "recall_period_ok"):        "Not applicable",
-    # Third-party audits: inherently independent, structured methodology
-    ("Third-party audits", "collector_independent"):  "Yes",
-    ("Third-party audits", "collection_tool_named"):  "Yes",
-    ("Third-party audits", "sampling_documented"):    "Not applicable",
+    # Financial records: exhaustive enumeration — sampling and recall not relevant
+    ("Financial records", "sampling_documented"):   "Not applicable",
+    ("Financial records", "collector_independent"): "Not applicable",
+    ("Financial records", "recall_period_ok"):      "Not applicable",
+    # Third-party audits: no sampling methodology needed
+    ("Third-party audits", "sampling_documented"):  "Not applicable",
     # Partner verification letters: simple attestation, no sampling or recall
     ("Partner verification letters", "sampling_documented"):     "Not applicable",
     ("Partner verification letters", "recall_period_ok"):        "Not applicable",
     ("Partner verification letters", "double_counting_checked"): "Not applicable",
-    # Attendance sheets: prone to double-counting; tool is the sheet itself
-    ("Attendance sheets / participant registers", "double_counting_checked"): "Yes",
-    ("Attendance sheets / participant registers", "collection_tool_named"):   "Yes",
-    # Photos: no recall needed; collection tool is camera/phone
-    ("Photos with metadata", "recall_period_ok"):      "Not applicable",
-    ("Photos with metadata", "collection_tool_named"): "Yes",
-    # Raw datasets: sampling always relevant
-    ("Raw datasets or survey exports", "sampling_documented"):    "Yes",
-    ("Raw datasets or survey exports", "collection_tool_named"):  "Yes",
-    # Tracer surveys: recall IS a risk (survey done after the fact)
-    ("Tracer survey results", "collection_tool_named"): "Yes",
+    # Photos: no recall period risk
+    ("Photos with metadata", "recall_period_ok"): "Not applicable",
 }
 
 # Human-readable labels for provenance keys
@@ -1309,11 +1296,11 @@ _PORTFOLIO_COLUMNS = [
     # --- Provenance checklist — each affects Confidence > Verification score ---
     # Values: Yes / No / Not applicable  (blank defaults to 'Not applicable' — neutral)
     ("provenance_sampling",    False, "Not applicable"),
-    ("provenance_dedup",       False, "Yes"),
-    ("provenance_tool",        False, "Yes"),
+    ("provenance_dedup",       False, "Not applicable"),
+    ("provenance_tool",        False, "Not applicable"),
     ("provenance_independent", False, "Not applicable"),
     ("provenance_recall",      False, "Not applicable"),
-    ("provenance_traceable",   False, "Yes — an auditor could retrieve the original records"),
+    ("provenance_traceable",   False, "Not applicable"),
 ]
 
 # Accepted values for internal_review / external_review (unrecognized values
@@ -6014,7 +6001,13 @@ def render_screen_1():
                 # --- Track usage ---
                 # D1: if user had a failed IRC attempt they're retrying, don't charge again
                 _using_retry_credit = st.session_state.pop("_irc_retry_credit", False)
-                if not _paid_now and _email_now and not _using_retry_credit:
+                # D2: if user is re-scoring the same result_statement in this session, don't charge again
+                _stmt_key = (st.session_state.get("result_statement", "") or "").strip()[:120]
+                _scored_stmts = st.session_state.setdefault("_scored_stmts", set())
+                _is_rescore = bool(_stmt_key and _stmt_key in _scored_stmts)
+                if _stmt_key:
+                    _scored_stmts.add(_stmt_key)
+                if not _paid_now and _email_now and not _using_retry_credit and not _is_rescore:
                     increment_checks(_email_now)
                 # Clear saved draft — user has submitted, fresh start next time
                 if _email_now:
@@ -8914,7 +8907,7 @@ def _render_portfolio_chat(input_df, evaluations: list, statuses: list) -> None:
 def _render_score_my_report_tab():
     """Score My Report — document-in, scored-Excel-out pipeline (council XVII)."""
     import pandas as pd
-    from excel_report import build_scored_excel, STATUS_AUTO_POPULATED, STATUS_NOT_FOUND
+    from excel_report import build_scored_excel, build_rescore_excel, STATUS_AUTO_POPULATED, STATUS_NOT_FOUND
 
     st.markdown("### Score My Report")
     st.markdown(
@@ -9189,26 +9182,30 @@ def _render_score_my_report_tab():
             for _, row in input_df.iterrows():
                 r = {k: row.get(k, "") for k in [c[0] for c in _PORTFOLIO_COLUMNS]}
                 _port_rows.append(r)
-            csv_bytes = pd.DataFrame(_port_rows).to_csv(index=False).encode("utf-8")
+            _rescore_xls = build_rescore_excel(
+                _port_rows, evaluations, statuses,
+                org_name=org_name, doc_name=doc_name,
+            )
             st.download_button(
-                "📥 Download re-score CSV",
-                data=csv_bytes,
-                file_name=f"portfolio_data_{_ts}.csv",
-                mime="text/csv",
+                "📥 Download re-score workbook",
+                data=_rescore_xls,
+                file_name=f"portfolio_rescore_{_ts}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="smr_csv_dl",
                 use_container_width=True,
                 help=(
-                    "Edit this CSV to fix amber/red fields (evidence_description, verifier, evidence_date, "
-                    "logframe_target, logframe_achievement), then re-upload to the CSV Portfolio tab "
-                    "to get revised scores — no need to re-upload the original document."
+                    "Two-sheet Excel: 'Re-score Data' (edit & save as CSV to re-upload) + "
+                    "'Determinations' (colour-coded results view). "
+                    "Fix amber/red fields in Re-score Data sheet, save as CSV, "
+                    "then re-upload to the CSV Portfolio tab."
                 ),
             )
             st.caption(
-                "✏️ **To re-score after fixes:** Edit the CSV (correct amber/red fields) → "
-                "re-upload to the **CSV Portfolio tab** above to get revised determinations."
+                "✏️ **To re-score after fixes:** Open 'Re-score Data' sheet → correct fields → "
+                "File > Save As > CSV → re-upload to **CSV Portfolio tab**."
             )
         except Exception as exc:
-            st.error(f"Could not generate CSV: {exc}")
+            st.error(f"Could not generate re-score workbook: {exc}")
 
     # Portfolio chat — payment-gated, context-aware of all N results (council XIX)
     st.divider()
