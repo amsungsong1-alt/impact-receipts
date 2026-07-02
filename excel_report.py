@@ -497,3 +497,31 @@ def _build_sheet2(wb, rows, evaluations, org_name, document_name):
     action_cell.font      = _font(size=9, bold=True, colour=_RED_DARK)
     action_cell.alignment = Alignment(wrap_text=True, vertical="top")
     ws.row_dimensions[gap_row].height = 60
+
+    # How to re-score after fixes
+    gap_row += 2
+    ws.merge_cells(f"A{gap_row}:C{gap_row}")
+    rs_title = ws.cell(row=gap_row, column=1, value="HOW TO RE-SCORE AFTER FIXES")
+    rs_title.font      = _font(bold=True, colour=_GREEN_DARK, size=10)
+    rs_title.alignment = Alignment(wrap_text=True, vertical="top")
+    ws.row_dimensions[gap_row].height = 18
+
+    gap_row += 1
+    ws.merge_cells(f"A{gap_row}:C{gap_row}")
+    rs_cell = ws.cell(row=gap_row, column=1,
+        value=(
+            "PATH 1 — Fix source document → re-upload to Score My Report:\n"
+            "Correct your Word or PDF report, then go to Portfolio Decision Audit → Score My Report tab "
+            "and re-upload the updated document. ImpactProof will re-extract and re-score all results.\n\n"
+            "PATH 2 — Edit Portfolio CSV → re-upload to CSV Portfolio tab (fastest for data fixes):\n"
+            "From the Score My Report results page, click 'Download re-score CSV'. "
+            "Open the CSV, correct the amber/red fields (e.g. evidence_description, verifier, evidence_date, "
+            "logframe_target, logframe_achievement). Save as CSV. "
+            "Then go to Portfolio Decision Audit → CSV Portfolio tab and upload the corrected file. "
+            "ImpactProof re-scores all results and shows revised determinations, heatmap, and gap analysis.\n\n"
+            "Column names in the CSV must stay unchanged for re-scoring to work."
+        )
+    )
+    rs_cell.font      = _font(size=9)
+    rs_cell.alignment = Alignment(wrap_text=True, vertical="top")
+    ws.row_dimensions[gap_row].height = 110

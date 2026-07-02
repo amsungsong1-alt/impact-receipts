@@ -9191,13 +9191,21 @@ def _render_score_my_report_tab():
                 _port_rows.append(r)
             csv_bytes = pd.DataFrame(_port_rows).to_csv(index=False).encode("utf-8")
             st.download_button(
-                "📥 Download as Portfolio CSV",
+                "📥 Download re-score CSV",
                 data=csv_bytes,
                 file_name=f"portfolio_data_{_ts}.csv",
                 mime="text/csv",
                 key="smr_csv_dl",
                 use_container_width=True,
-                help="Same data in CSV format — re-uploadable into the Portfolio tab.",
+                help=(
+                    "Edit this CSV to fix amber/red fields (evidence_description, verifier, evidence_date, "
+                    "logframe_target, logframe_achievement), then re-upload to the CSV Portfolio tab "
+                    "to get revised scores — no need to re-upload the original document."
+                ),
+            )
+            st.caption(
+                "✏️ **To re-score after fixes:** Edit the CSV (correct amber/red fields) → "
+                "re-upload to the **CSV Portfolio tab** above to get revised determinations."
             )
         except Exception as exc:
             st.error(f"Could not generate CSV: {exc}")
@@ -9242,9 +9250,13 @@ def render_screen_3():
         _render_score_my_report_tab()
 
     with _s3_tab_csv:
-        st.caption(
-            "Upload your full logframe as a CSV to analyse all your indicators at once — "
-            "the heatmap shows which are weakest."
+        st.info(
+            "**Two ways to use this tab:**\n\n"
+            "**1. Re-score after fixes** — After running Score My Report, download the "
+            "**re-score CSV**, fix amber/red fields in a spreadsheet editor, and re-upload here "
+            "to see revised determinations without re-uploading the original document.\n\n"
+            "**2. Score a full logframe** — Upload your logframe as a CSV or Excel file "
+            "to score all indicators at once and see the portfolio heatmap."
         )
 
         _tmpl_c1, _tmpl_c2 = st.columns(2)
