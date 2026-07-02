@@ -4599,7 +4599,7 @@ def render_screen_0():
             st.markdown("#### 📄 Score My Report")
             st.caption(
                 "Upload a Word or PDF donor report. ImpactProof identifies every result, "
-                "determines evidence strength, and ranks what to fix first — all in 60 seconds. "
+                "determines evidence strength, and ranks what to fix first — all in 60+ seconds. "
                 "Download a filled Excel with scores and ranked priorities."
             )
             st.caption("First 3 uploads free · No registration needed")
@@ -8996,8 +8996,34 @@ def _render_score_my_report_tab():
             st.error("The document appears to be empty or image-based. Export as a text-based DOCX and try again.")
             return
 
-        with st.spinner("Extracting all results... (15–45 seconds)"):
-            input_df, evaluations, statuses, err = _score_report_from_document(doc_text, _api_key)
+        # Live second reader — threads extraction so the timer can tick in the main thread
+        import threading as _threading, time as _time
+        _smr_result_box: dict = {"data": None, "exc": None}
+        _smr_done = _threading.Event()
+
+        def _run_smr():
+            try:
+                _smr_result_box["data"] = _score_report_from_document(doc_text, _api_key)
+            except Exception as _e:
+                _smr_result_box["exc"] = str(_e)
+            finally:
+                _smr_done.set()
+
+        _threading.Thread(target=_run_smr, daemon=True).start()
+        _smr_ph = st.empty()
+        _smr_t0 = _time.time()
+        while not _smr_done.wait(timeout=1.0):
+            _smr_s = int(_time.time() - _smr_t0)
+            _smr_ph.info(
+                f"🔍 **Second reader active** — extracting and scoring all results…  "
+                f"**{_smr_s}s** elapsed *(15–60+ seconds)*"
+            )
+        _smr_ph.empty()
+
+        if _smr_result_box["exc"]:
+            st.error(f"Extraction failed: {_smr_result_box['exc']}")
+            return
+        input_df, evaluations, statuses, err = _smr_result_box["data"]
 
         if err:
             st.error(f"Extraction failed: {err}")
