@@ -330,54 +330,67 @@ def _build_sheet1(wb: "Workbook", rows, evaluations, field_statuses):
 
 def _build_sheet2(wb, rows, evaluations, org_name, document_name):
     ws = wb.create_sheet("Summary")
-    ws.column_dimensions["A"].width = 32
-    ws.column_dimensions["B"].width = 20
-    ws.column_dimensions["C"].width = 40
+    ws.column_dimensions["A"].width = 28
+    ws.column_dimensions["B"].width = 22
+    ws.column_dimensions["C"].width = 42
 
     timestamp = datetime.now().strftime("%d %b %Y %H:%M")
     n = len(evaluations)
 
-    # Title
+    # Title — Council XXVI: Portfolio Decision Audit framing
     ws.merge_cells("A1:C1")
     title = ws["A1"]
-    title.value = "ImpactProof — Internal Evidence Quality Record"
+    title.value = "ImpactProof — Portfolio Decision Audit"
     title.fill  = _fill(_HEADER_BG)
     title.font  = _font(bold=True, colour=_HEADER_FG, size=14)
     title.alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 30
 
-    # Metadata
-    for row, (label, value) in enumerate([
+    # Metadata — value cells merged B:C so long text wraps in full width (cols B+C = ~64 chars)
+    _meta_rows = [
         ("Organisation",    org_name or "(not specified)"),
         ("Document",        document_name or "(not specified)"),
         ("Results scored",  str(n)),
         ("Generated",       timestamp),
-        ("Methodology",     "USAID ADS 201, Bond Evidence Principles 2024, OECD-DAC 2019"),
-        ("Scoring engine",  "ImpactProof — deterministic rule-based rubric"),
+        ("Methodology",     "USAID ADS 201 · FCDO 2025 · Bond Evidence Principles 2024 · World Bank RF · OECD-DAC 2019"),
+        ("Scoring engine",  "ImpactProof — deterministic decision-making engine. "
+                            "Rule-based scoring anchored to named donor standards. "
+                            "No AI judgement applied to scores — same inputs always produce the same determination."),
         ("Disclaimer",      "Scores reflect evidence patterns in the submitted document. "
+                            "Each determination is traceable to a named sub-criterion "
+                            "(USAID ADS 201.3.5.7 for Validity, Integrity, Precision, Reliability, Timeliness). "
                             "This is a pre-submission quality check, not a donor audit. "
-                            "All auto-populated fields must be reviewed before treating "
-                            "scores as final."),
-    ], start=3):
-        ws.cell(row=row, column=1, value=label).font = _font(bold=True, size=10)
+                            "All auto-populated fields (amber) must be reviewed before treating scores as final. "
+                            "Red cells = not found in document — fill manually before sharing with donors."),
+    ]
+    _meta_heights = [20, 20, 16, 16, 28, 48, 72]
+    for idx, ((label, value), row_h) in enumerate(zip(_meta_rows, _meta_heights)):
+        row = idx + 3
+        lbl = ws.cell(row=row, column=1, value=label)
+        lbl.font      = _font(bold=True, size=10)
+        lbl.alignment = Alignment(wrap_text=True, vertical="top")
+        # Merge B and C so the value has full width to wrap within
+        ws.merge_cells(f"B{row}:C{row}")
         cell = ws.cell(row=row, column=2, value=value)
-        cell.font = _font(size=10)
-        cell.alignment = Alignment(wrap_text=True)
-        ws.row_dimensions[row].height = 20 if row < 9 else 45
+        cell.font      = _font(size=10)
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+        ws.row_dimensions[row].height = row_h
 
-    # Portfolio scores table
+    # Portfolio determinations table — Council XXVI framing
     start_row = 12
-    ws.cell(row=start_row, column=1, value="PORTFOLIO SCORES").font = _font(bold=True, colour=_GREEN_DARK, size=11)
+    ws.cell(row=start_row, column=1,
+            value="PORTFOLIO DETERMINATIONS").font = _font(bold=True, colour=_GREEN_DARK, size=11)
     start_row += 1
 
-    headers = ["Indicator", "Confidence", "Clarity", "Verdict", "% of Target", "Direction OK?"]
+    headers = ["Indicator / Result", "Confidence", "Clarity", "Determination", "% of Target", "Direction OK?"]
     for col, h in enumerate(headers, start=1):
         c = ws.cell(row=start_row, column=col, value=h)
         c.fill = _fill(_HEADER_BG)
         c.font = _font(bold=True, colour=_HEADER_FG, size=10)
         c.border = _border_thin()
+        c.alignment = Alignment(wrap_text=True, vertical="center", horizontal="center")
     ws.row_dimensions[start_row].height = 20
-    ws.column_dimensions["D"].width = 35
+    ws.column_dimensions["D"].width = 36
     ws.column_dimensions["E"].width = 14
     ws.column_dimensions["F"].width = 14
 
@@ -388,7 +401,7 @@ def _build_sheet2(wb, rows, evaluations, org_name, document_name):
         pct    = (ev.get("logframe_linkage") or {}).get("pct_of_target")
         dir_ok = not (ev.get("logframe_linkage") or {}).get("direction_mismatch", False)
         values = [
-            sub.get("indicator_name") or sub.get("result_statement", "")[:60],
+            sub.get("indicator_name") or sub.get("result_statement", "")[:80],
             conf, clar,
             ev.get("verdict", ""),
             f"{pct:.0f}%" if pct is not None else "—",
@@ -396,20 +409,22 @@ def _build_sheet2(wb, rows, evaluations, org_name, document_name):
         ]
         for col, val in enumerate(values, start=1):
             c = ws.cell(row=r, column=col, value=val)
-            c.font   = _font(size=9)
+            c.font   = _font(bold=(col in (2, 3)), size=9)
             c.border = _border_thin()
-            c.alignment = Alignment(wrap_text=True, horizontal="center" if col in (2, 3, 5, 6) else "left")
+            c.alignment = Alignment(wrap_text=True, vertical="top",
+                                    horizontal="center" if col in (2, 3, 5, 6) else "left")
             if col == 2:
                 c.fill = _score_fill(conf)
             elif col == 3:
                 c.fill = _score_fill(clar)
             elif col == 6 and not dir_ok:
                 c.fill = _fill(_RED_LIGHT)
-        ws.row_dimensions[r].height = 28
+        ws.row_dimensions[r].height = 32
 
-    # Systemic gaps section
+    # Highest-leverage actions — Council XXVI: decision routing framing
     gap_row = start_row + n + 3
-    ws.cell(row=gap_row, column=1, value="SYSTEMIC GAPS").font = _font(bold=True, colour=_RED_DARK, size=11)
+    ws.cell(row=gap_row, column=1,
+            value="HIGHEST-LEVERAGE ACTIONS").font = _font(bold=True, colour=_RED_DARK, size=11)
     gap_row += 1
 
     # Compute average per dimension
@@ -436,31 +451,49 @@ def _build_sheet2(wb, rows, evaluations, org_name, document_name):
         dim_avgs[dim] = avg
 
     sorted_dims = sorted(dim_avgs.items(), key=lambda x: x[1] / dim_maxes[x[0]])
-    ws.cell(row=gap_row, column=1, value="Dimension").font = _font(bold=True, size=10)
-    ws.cell(row=gap_row, column=2, value="Avg Score").font = _font(bold=True, size=10)
-    ws.cell(row=gap_row, column=3, value="Assessment").font = _font(bold=True, size=10)
+    hdr_lbl = ws.cell(row=gap_row, column=1, value="Sub-criterion")
+    hdr_lbl.font = _font(bold=True, size=10)
+    hdr_lbl.alignment = Alignment(wrap_text=True, vertical="top")
+    hdr_avg = ws.cell(row=gap_row, column=2, value="Avg Score")
+    hdr_avg.font = _font(bold=True, size=10)
+    hdr_avg.alignment = Alignment(wrap_text=True, vertical="top")
+    hdr_act = ws.cell(row=gap_row, column=3, value="System decision")
+    hdr_act.font = _font(bold=True, size=10)
+    hdr_act.alignment = Alignment(wrap_text=True, vertical="top")
     for dim, avg in sorted_dims:
         gap_row += 1
         pct_of_max = avg / dim_maxes[dim]
-        assessment = "Systemic gap — address before submission" if pct_of_max < 0.5 else \
-                     "Needs improvement" if pct_of_max < 0.75 else "Acceptable"
-        ws.cell(row=gap_row, column=1, value=dim).font = _font(size=9)
-        c2 = ws.cell(row=gap_row, column=2, value=round(avg, 2))
-        c2.fill = _score_fill(avg * (5.0 / dim_maxes[dim]))
-        c2.font = _font(size=9)
-        ws.cell(row=gap_row, column=3, value=assessment).font = _font(size=9)
+        if pct_of_max < 0.5:
+            decision = "Fix this first — highest leverage across portfolio"
+        elif pct_of_max < 0.75:
+            decision = "Needs improvement — address after critical gaps"
+        else:
+            decision = "Acceptable — maintain current standard"
+        lbl_c = ws.cell(row=gap_row, column=1, value=dim)
+        lbl_c.font      = _font(size=9)
+        lbl_c.alignment = Alignment(wrap_text=True, vertical="top")
+        avg_c = ws.cell(row=gap_row, column=2, value=round(avg, 2))
+        avg_c.fill      = _score_fill(avg * (5.0 / dim_maxes[dim]))
+        avg_c.font      = _font(bold=True, size=9)
+        avg_c.alignment = Alignment(wrap_text=True, horizontal="center", vertical="top")
+        dec_c = ws.cell(row=gap_row, column=3, value=decision)
+        dec_c.font      = _font(size=9)
+        dec_c.alignment = Alignment(wrap_text=True, vertical="top")
+        ws.row_dimensions[gap_row].height = 20
 
-    # "What to do" guidance row at the bottom of the gaps table
+    # Routing instruction at the bottom
     gap_row += 2
     ws.merge_cells(f"A{gap_row}:C{gap_row}")
     action_cell = ws.cell(row=gap_row, column=1,
         value=(
-            "WHAT TO DO: Fix results in 'Systemic gap' rows first — these affect multiple indicators. "
-            "Open Sheet 1, filter by the weakest dimension, and review the Fix 1 column for each result. "
-            "Amber cells = auto-populated by AI, review before sharing. "
-            "Red cells = not found in document, fill manually."
+            "SYSTEM ROUTING: Start with sub-criteria marked 'Fix this first' — "
+            "these are your portfolio's highest-leverage actions. "
+            "Open Sheet 1 (Scored Results), sort by the weakest sub-criterion, "
+            "and action the Fix 1 column for each affected result. "
+            "Amber cells = auto-populated by AI — review before sharing with donors. "
+            "Red cells = not found in document — fill manually."
         )
     )
-    action_cell.font = _font(size=9, bold=True, colour=_RED_DARK)
-    action_cell.alignment = Alignment(wrap_text=True)
-    ws.row_dimensions[gap_row].height = 55
+    action_cell.font      = _font(size=9, bold=True, colour=_RED_DARK)
+    action_cell.alignment = Alignment(wrap_text=True, vertical="top")
+    ws.row_dimensions[gap_row].height = 60
