@@ -1146,6 +1146,16 @@ DONOR_GUIDANCE = {
         "common_rejection": "Completion reports showing inputs delivered or training conducted without evidence of technology adoption or productivity change. Weak linkage to market demand and poor post-project maintenance planning are common rejection triggers.",
         "tip": "KOICA evaluators look for adoption sustainability — document who maintains the technology after project end and how community institutions have been strengthened. Track yield or productivity improvement at least two seasons after training, not just immediately after.",
     },
+    "SIDA": {
+        "key_emphasis": "Sida (Swedish International Development Cooperation Agency) applies a Human Rights-Based Approach (HRBA) to all programming. Results must demonstrate change experienced by rights-holders — disaggregated by gender, age, disability, and marginalisation status. Independently verified outcome data is required under Sida's Results Strategy.",
+        "common_rejection": "Outputs reported without evidence of rights-holder outcome change. Gender disaggregation missing or tokenistic — Sida expects women's voices in evidence, not just participant head counts. Evaluations without documented evaluator independence also fail review.",
+        "tip": "Sida evaluators explicitly look for participation of marginalised groups in evidence collection. Commission an independent outcome assessment, and document how rights-holders validated the reported outcomes. File your evaluation plan with Sida's country office before fieldwork begins.",
+    },
+    "SDC": {
+        "key_emphasis": "SDC (Swiss Agency for Development and Cooperation) requires outcome-level evidence anchored in its Results Measurement Framework, with a specific emphasis on sustainability and systemic change. Outputs delivered at programme end are insufficient without evidence of continued use or institutional change post-closure.",
+        "common_rejection": "Project-level output reporting without outcome evidence. Missing sustainability indicators — SDC evaluators look for evidence the change persists after programme closure. Results that cannot be traced to the SDC Programme Agreement indicator are routinely returned.",
+        "tip": "Reference the specific outcome indicator from your SDC Programme Agreement. Conduct a follow-up assessment 6–12 months after key activities to generate sustainability evidence — this is the most frequently cited gap in SDC programme evaluations reviewed by the Swiss Embassy.",
+    },
 }
 
 SECTOR_PLACEHOLDERS = {
@@ -2002,7 +2012,7 @@ def _go_to_screen(screen: int, reset: bool = False):
 
 def _render_tagline_footer():
     st.markdown(
-        '<div class="trust-tagline">ImpactProof · Upload your report. Score every result. Submit with confidence. · Built in Accra</div>',
+        '<div class="trust-tagline">ImpactProof · Upload your report. Get a determination for every result. Submit with confidence. · Built in Accra</div>',
         unsafe_allow_html=True,
     )
 
@@ -3452,6 +3462,8 @@ def _smart_extract_from_result(result_text: str, s: str) -> None:
             ("AfDB",                  ["afdb", "african development bank"]),
             ("EU / EuropeAid",        ["european union", "eu grant", "europeaid", "dg intpa"]),
             ("KOICA",                 ["koica", "korea international"]),
+            ("SIDA",                  ["sida", "swedish international development", "swedish development cooperation"]),
+            ("SDC",                   ["sdc ", "swiss agency for development", "swiss development cooperation"]),
             ("RVO",                   ["rvo", "netherlands enterprise"]),
         ]
         for _dk_name, _dk_sigs in _DONOR_KWORDS:
@@ -4505,7 +4517,7 @@ def render_pricing_page():
             "<h3 style='color:#1B5E20;margin:0 0 4px;'>Professional</h3>"
             "<p style='font-size:2rem;font-weight:700;color:#1B5E20;margin:0;'>GHS 50<span style='font-size:1rem;font-weight:400;'>/mo</span></p>"
             "<p style='font-size:0.8rem;color:#616161;margin:4px 0 16px;'>~£3.50 · or GHS 500/year (2 months free)</p>"
-            "<p style='font-size:0.85rem;color:#424242;margin-bottom:12px;font-style:italic;'>Score every result before every submission</p>"
+            "<p style='font-size:0.85rem;color:#424242;margin-bottom:12px;font-style:italic;'>Determine evidence readiness before every submission</p>"
             "<hr style='border:none;border-top:1px solid #C8E6C9;margin:12px 0;'/>"
             "<ul style='padding-left:16px;font-size:0.85rem;color:#424242;margin:0;line-height:1.8;'>"
             "<li><strong>Unlimited checks</strong></li>"
@@ -5117,7 +5129,7 @@ def render_screen_1():
             st.selectbox(
                 "Primary donor for this submission",
                 key="donor_selected",
-                options=["(No donor specified)", "USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "EU / EuropeAid", "Global Fund", "Mastercard Foundation", "KOICA", "Other"],
+                options=["(No donor specified)", "World Bank", "USAID", "Global Fund", "Mastercard Foundation", "FCDO", "EU / EuropeAid", "AfDB", "GIZ", "SIDA", "RVO", "KOICA", "SDC", "Other"],
                 index=0,
                 help="Select your primary donor to receive tailored reporting tips and donor-specific diagnostic guidance.",
             )
@@ -5141,12 +5153,11 @@ def render_screen_1():
                     key="donor_other",
                     placeholder="e.g., DFID, KfW, Bill & Melinda Gates Foundation",
                 )
-            _PARTIAL_DONORS = {"GIZ", "World Bank", "AfDB"}
+            _PARTIAL_DONORS = {"GIZ", "World Bank", "AfDB", "KOICA", "SDC"}
             if _donor_val in _PARTIAL_DONORS:
                 st.caption(
-                    f"Note: donor-specific guidance for {_donor_val} is partially implemented — "
-                    "some dimensions show generic USAID DQA standards as the closest equivalent. "
-                    "Full coverage coming in a future update."
+                    f"Note: {_donor_val} diagnostic guidance covers 2 scoring dimensions — "
+                    "full dimension coverage (Recency, Beneficiary Voice) coming in a future update."
                 )
             if _donor_val in DONOR_GUIDANCE:
                 _dg = DONOR_GUIDANCE[_donor_val]
