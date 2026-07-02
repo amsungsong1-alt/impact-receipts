@@ -3383,6 +3383,44 @@ def _smart_extract_from_result(result_text: str, s: str) -> None:
                     st.session_state[tg_key] = chunk.strip()
                     break
 
+    # ── SECTOR (programme-level — keyword inference, never overwrites) ──────
+    if st.session_state.get("sector") in (None, "", "(No sector selected)"):
+        _SECTOR_KWORDS: list[tuple[str, list[str]]] = [
+            ("WASH",                       ["water", "borehole", "sanitation", "latrine", "wash", "hygiene", "handwash", "clean water", "water point"]),
+            ("Health & Nutrition",         ["health", "clinic", "nutrition", "patient", "hospital", "immunis", "immuniz", "malaria", "vaccination", "antenatal", "maternal", "child health", "hiv", "tuberculosis"]),
+            ("Education & Skills",         ["school", "pupil", "literacy", "enrolment", "enrollment", "education", "classroom", "teacher", "reading"]),
+            ("Youth Employment & TVET",    ["tvet", "vocational", "apprentice", "placed", "hired", "youth employment", "livelihood", "income generation"]),
+            ("Agriculture & Livelihoods",  ["farmer", "agriculture", "crop", "yield", "harvest", "livestock", "irrigation", "cassava", "maize", "cocoa", "poultry"]),
+            ("Climate Resilience",         ["climate", "resilience", "adaptation", "disaster", "flood", "drought", "reforestation", "early warning"]),
+            ("Governance & Accountability",["governance", "accountability", "transparency", "civic", "citizen", "district assembly", "community accountability"]),
+            ("Digital Economy & Technology",["digital", "mobile money", "fintech", "internet access", "ict ", "e-learning", "tech hub"]),
+            ("Energy & Clean Energy",      ["solar", "energy", "electricity", "off-grid", "clean energy", "cookstove", "biogas"]),
+            ("Gender & Social Inclusion",  ["gender", "gbv", "disability", "social inclusion", "women's rights"]),
+            ("Private Sector Development", ["private sector", "sme", "entrepreneur", "business development", "value chain", "market linkage"]),
+        ]
+        for _sk_name, _sk_kws in _SECTOR_KWORDS:
+            if any(_kw in rt for _kw in _sk_kws):
+                st.session_state["sector"] = _sk_name
+                break
+
+    # ── DONOR (programme-level — keyword inference, never overwrites) ───────
+    if st.session_state.get("donor_selected") in (None, "", "(No donor specified)"):
+        _DONOR_KWORDS: list[tuple[str, list[str]]] = [
+            ("USAID",                 ["usaid", "u.s. agency", "american people"]),
+            ("FCDO",                  ["fcdo", "foreign commonwealth", "uk aid", "dfid"]),
+            ("GIZ",                   ["giz", "deutsche gesellschaft", "german agency"]),
+            ("World Bank",            ["world bank", "ibrd", "ida "]),
+            ("Mastercard Foundation", ["mastercard foundation", "young africa works"]),
+            ("AfDB",                  ["afdb", "african development bank"]),
+            ("EU / EuropeAid",        ["european union", "eu grant", "europeaid", "dg intpa"]),
+            ("KOICA",                 ["koica", "korea international"]),
+            ("RVO",                   ["rvo", "netherlands enterprise"]),
+        ]
+        for _dk_name, _dk_sigs in _DONOR_KWORDS:
+            if any(_ds in rt for _ds in _dk_sigs):
+                st.session_state["donor_selected"] = _dk_name
+                break
+
 
 def _smart_extract_achievement(result_text: str, s: str) -> None:
     """Pre-fill logframe_achievement from result statement when the field is empty.
@@ -4714,6 +4752,7 @@ def render_screen_0():
                 st.session_state["evidence_type"]    = _qc_scores["ev_type"]
                 st.session_state["verifier"]         = _qc_scores["verifier"]
                 st.session_state.pop("_qc_last_scores", None)
+                st.session_state["_from_quick_check"] = True
                 if not st.session_state.get("has_seen_tutorial"):
                     st.session_state["tutorial_step"] = 1
                 _go_to_screen(1, reset=False)
@@ -5772,6 +5811,13 @@ def render_screen_1():
                         except Exception:
                             pass
             st.success("✓ Result defined. A reviewer can now check this against your logframe — donor question 1 answered.")
+            # Auto-advance to Logframe tab when arriving via Quick Check "Continue →"
+            if st.session_state.pop("_from_quick_check", False):
+                st.session_state["current_tab"] = 1
+                st.session_state["_tab2_auto_advanced"] = False
+                st.session_state["_scroll_to_content"] = True
+                st.query_params["tab"] = "1"
+                st.rerun()
             _nb1, _pb1 = st.columns([3, 1])
             with _nb1:
                 if st.button("Next: Logframe Linkage →", key="tab1_next_btn", type="primary", use_container_width=True):
@@ -7416,6 +7462,34 @@ def render_screen_2():
             help="Upload a CSV of your full logframe to see which indicators are weakest.",
         ):
             _go_to_screen(3)
+
+    # "Same programme" shortcut: clears result-specific fields, keeps programme context
+    _SAME_PROG_CLEAR = [
+        "result_statement", "target_group",
+        "logframe_indicator", "logframe_baseline", "logframe_target", "logframe_achievement",
+        "logframe_fill_later", "logframe_data_forthcoming",
+        "evidence_description", "evidence_type", "verifier", "evidence_date",
+        "internal_review", "external_review", "reporting_start", "reporting_end",
+        "beneficiary_voice", "qual_evidence_flag", "qual_rigor_checklist",
+        "additional_context", "limitations_notes", "learning_notes",
+        "quick_evidence_desc", "quick_evidence_type",
+    ]
+    if st.button(
+        "+ Score another result — same programme  (keeps sector, donor & timeframe)",
+        key="s2_same_prog_cta",
+        use_container_width=True,
+        help="Clears only result-specific fields. Sector, donor, project name, timeframe, and geographic scope stay filled.",
+    ):
+        for _spk in _SAME_PROG_CLEAR:
+            for _si in range(1, (st.session_state.get("active_slots", 1) + 1)):
+                st.session_state.pop(f"{_spk}{_slot_suffix(_si)}", None)
+            st.session_state.pop(_spk, None)
+        for _ck in [k for k in list(st.session_state) if k.startswith("council_xxii_")]:
+            del st.session_state[_ck]
+        st.session_state["evaluations"] = None
+        st.session_state["current_tab"] = 0
+        st.query_params["tab"] = "0"
+        _go_to_screen(1, reset=False)
 
     # Return hook — plant the seed for next quarter
     st.caption(
