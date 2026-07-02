@@ -350,7 +350,7 @@ def _build_sheet2(wb, rows, evaluations, org_name, document_name):
     _meta_rows = [
         ("Organisation",    org_name or "(not specified)"),
         ("Document",        document_name or "(not specified)"),
-        ("Results scored",  str(n)),
+        ("Results scored",  n),          # int, not str — avoids "number stored as text" warning
         ("Generated",       timestamp),
         ("Methodology",     "USAID ADS 201 · FCDO 2025 · Bond Evidence Principles 2024 · World Bank RF · OECD-DAC 2019"),
         ("Scoring engine",  "ImpactProof — deterministic decision-making engine. "
@@ -372,8 +372,10 @@ def _build_sheet2(wb, rows, evaluations, org_name, document_name):
         # Merge B and C so the value has full width to wrap within
         ws.merge_cells(f"B{row}:C{row}")
         cell = ws.cell(row=row, column=2, value=value)
-        cell.font      = _font(size=10)
-        cell.alignment = Alignment(wrap_text=True, vertical="top")
+        cell.font          = _font(size=10)
+        cell.alignment     = Alignment(wrap_text=True, vertical="top")
+        if isinstance(value, int):
+            cell.number_format = "0"   # display as plain integer, suppress text-storage warning
         ws.row_dimensions[row].height = row_h
 
     # Portfolio determinations table — Council XXVI framing
