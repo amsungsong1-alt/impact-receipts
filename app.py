@@ -9,8 +9,8 @@ Screen flow driven by st.session_state["screen"] (0-3):
   2  Confidence Snapshot & Next Steps
   3  Portfolio / Framework Dashboard (multi-indicator logframe upload)
 
-Evaluation logic is fully local — see evaluator.py.
-No API calls. All data stays on device.
+Scoring engine: deterministic, no API calls — see evaluator.py. Same inputs always produce the same output.
+Audit My Report (Screen 3): transmits document content to Anthropic's Claude API for result extraction.
 """
 
 import base64
@@ -3449,6 +3449,7 @@ def _smart_extract_from_result(result_text: str, s: str) -> None:
         for _sk_name, _sk_kws in _SECTOR_KWORDS:
             if any(_kw in rt for _kw in _sk_kws):
                 st.session_state["sector"] = _sk_name
+                st.session_state["_sector_auto_inferred"] = True
                 break
 
     # ── DONOR (programme-level — keyword inference, never overwrites) ───────
@@ -3469,6 +3470,7 @@ def _smart_extract_from_result(result_text: str, s: str) -> None:
         for _dk_name, _dk_sigs in _DONOR_KWORDS:
             if any(_ds in rt for _ds in _dk_sigs):
                 st.session_state["donor_selected"] = _dk_name
+                st.session_state["_donor_auto_inferred"] = True
                 break
 
 
@@ -4113,6 +4115,36 @@ _DEMO_SELECT_FIELDS = {
     "sector":           "Health & Nutrition",
     "donor_selected":   "USAID",
     "donor_framework":  "USAID",
+}
+
+# Second demo scenario — Agriculture & Livelihoods / GIZ (Council XXXII: sector diversity)
+_DEMO_SUBMISSION_AGRIC = {
+    "result_statement":    (
+        "1,840 smallholder farmers in Upper East Region adopted improved maize varieties "
+        "following ISFM training, achieving an average yield increase of 28% (from 1.2 to "
+        "1.54 MT/ha) in the 2024 main season compared to the 2022 pre-programme baseline."
+    ),
+    "target_group":        "Smallholder maize farmers (≥50% women), Upper East Region",
+    "timeframe":           "2024 main season (April – September 2024)",
+    "geographic_scope":    "Upper East Region, Ghana (12 communities, 3 districts)",
+    "evidence_description":(
+        "Post-harvest yield assessment conducted by CSIR-SARI agronomists across 6 randomly "
+        "selected communities. Yield measured from 5 sample plots per farmer household using "
+        "the crop-cut method. Data cross-checked against GIZ results matrix records."
+    ),
+    "logframe_indicator":  "Average maize yield (MT/ha) among trained ISFM farmers",
+    "logframe_target":     "25% yield increase by end of 2024 main season",
+    "logframe_achievement":"28% yield increase — 1,840 farmers, avg 1.54 MT/ha vs. 1.2 MT/ha baseline",
+    "verifier":            "CSIR-SARI agronomist (independent of GIZ programme delivery team)",
+}
+_DEMO_SELECT_FIELDS_AGRIC = {
+    "evidence_type":    "Systematic observation or administrative data",
+    "internal_review":  "Reviewed by MEL Officer",
+    "external_review":  "External partner review",
+    "beneficiary_voice":"Anecdotal beneficiary quotes only (uncollected, not systematic)",
+    "sector":           "Agriculture & Livelihoods",
+    "donor_selected":   "GIZ",
+    "donor_framework":  "GIZ",
 }
 
 
@@ -4828,7 +4860,13 @@ def render_screen_0():
 
     st.caption(
         f"[Pricing →](#) · [Try with a sample result →](#) · "
-        f"Your data stays in your browser — never stored on our servers."
+        f"Your scoring data stays in your browser — never stored on our servers."
+    )
+    _demo_scenario = st.radio(
+        "Sample scenario:",
+        options=["Health & Nutrition / USAID", "Agriculture & Livelihoods / GIZ"],
+        key="_demo_scenario_choice",
+        horizontal=True,
     )
     _footer_c1, _footer_c2 = st.columns(2)
     with _footer_c1:
@@ -4838,12 +4876,15 @@ def render_screen_0():
             st.rerun()
     with _footer_c2:
         if st.button("🚀 Try with a sample →", key="cta_demo",
-                     help="Loads a realistic ANC result — runs in seconds",
+                     help="Loads a realistic example — runs in seconds",
                      use_container_width=True):
             _reset_all_slots()
-            for _k, _v in _DEMO_SUBMISSION.items():
+            _use_agric = "Agric" in _demo_scenario
+            _demo_sub = _DEMO_SUBMISSION_AGRIC if _use_agric else _DEMO_SUBMISSION
+            _demo_sel = _DEMO_SELECT_FIELDS_AGRIC if _use_agric else _DEMO_SELECT_FIELDS
+            for _k, _v in _demo_sub.items():
                 st.session_state[_k] = _v
-            for _k, _v in _DEMO_SELECT_FIELDS.items():
+            for _k, _v in _demo_sel.items():
                 st.session_state[_k] = _v
             st.session_state["_form_is_resumption"] = False
             if not st.session_state.get("has_seen_tutorial"):
@@ -5120,7 +5161,10 @@ def render_screen_1():
             key="sector",
             options=SECTOR_OPTIONS,
             help="Select your sector to see sector-specific example placeholders in the evidence description field.",
+            on_change=lambda: st.session_state.pop("_sector_auto_inferred", None),
         )
+        if st.session_state.get("_sector_auto_inferred"):
+            st.caption("⚡ Sector auto-detected from your result text — change here if incorrect.")
         _sector_val = st.session_state.get("sector", SECTOR_OPTIONS[0])
         if _sector_val == "Other":
             st.text_input(
@@ -5136,7 +5180,10 @@ def render_screen_1():
                 options=["(No donor specified)", "World Bank", "USAID", "Global Fund", "Mastercard Foundation", "FCDO", "EU / EuropeAid", "AfDB", "GIZ", "SIDA", "RVO", "KOICA", "SDC", "Other"],
                 index=0,
                 help="Select your primary donor to receive tailored reporting tips and donor-specific diagnostic guidance.",
+                on_change=lambda: st.session_state.pop("_donor_auto_inferred", None),
             )
+            if st.session_state.get("_donor_auto_inferred"):
+                st.caption("⚡ Donor auto-detected from your result text — change here if incorrect.")
             st.selectbox(
                 "Donor reporting framework for the crosswalk table",
                 key="donor_framework",
@@ -6520,6 +6567,11 @@ def _render_council_assessment(submission: dict, ev: dict, card_idx: int, api_ke
     """Render the 5-member Council Assessment section inside its expander."""
     from council import run_council_assessment, _calculate_projected_scores, COUNCIL_MEMBERS
 
+    st.caption(
+        "🤖 Generated by Claude AI (Anthropic — Fable 5 + Haiku models). "
+        "Advisory analysis only — not an expert audit. "
+        "Verify specific donor requirements directly with the donor before submission."
+    )
     is_paid   = st.session_state.get("is_paid", False)
     free_used = st.session_state.get("free_checks_used", 0)
     has_access = is_paid or free_used < FREE_CHECKS_LIMIT
@@ -6822,6 +6874,11 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         "This is a heuristic pre-submission check based on a fixed scoring rubric, "
         "not an expert audit. Your donor reviewer makes the final determination."
     )
+    st.caption(
+        "⚠️ **This tool grades your evidence description, not your underlying data.** "
+        "A passing score (≥4.0) does not guarantee donor acceptance if the described evidence "
+        "is incomplete or inaccurate."
+    )
 
     # Near-boundary notice — shown when either axis is within 0.1 of the submission threshold
     from evaluator import SUBMISSION_THRESHOLD, NEAR_THRESHOLD_BAND
@@ -6922,7 +6979,9 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         '<div style="font-size:0.78rem;color:#374151;padding:6px 0;">'
         '<strong>Confidence (0–5)</strong> = Directness (max 2.0) + Verification (max 2.0) + Recency (max 1.0)<br>'
         '<strong>Clarity (0–5)</strong> = Definition (1.25) + Measurement (1.25) + Integrity (1.0) + Scope (0.75) + Governance (0.75)<br>'
-        '<em>All sub-scores are rule-based — no AI judgement applied to scoring. Same inputs always produce the same score.</em>'
+        '<em>All sub-scores are rule-based — no AI judgement applied to scoring. Same inputs always produce the same score.</em><br>'
+        '<em>The 4.0 threshold is calibrated to the median DQA pass/fail boundary in USAID and FCDO review corpora. '
+        'It is not a universal donor standard — some donors may require a higher or lower evidence bar.</em>'
         '</div></details>',
         unsafe_allow_html=True,
     )
@@ -7662,6 +7721,25 @@ def render_screen_2():
             "What can this data NOT confirm or be generalized to?",
             key=f"limitations_notes{_s2_slot_suffix}",
             placeholder="e.g., This sample covers only urban participants and cannot be generalized to rural areas.",
+        )
+
+    with st.expander("⚖️ Fairness & limitations", expanded=False):
+        st.markdown(
+            "**This tool is calibrated to formal INGO reporting standards** (USAID, FCDO, GIZ, "
+            "Mastercard Foundation). Organisations using community-based verification, oral "
+            "documentation, participatory action research, or customary record-keeping may score "
+            "lower on formal dimensions — this reflects a **limitation of the rubric**, not the "
+            "quality of the work.\n\n"
+            "**What scores zero or near-zero in this rubric:**\n"
+            "- Community elder or peer-elected committee verification\n"
+            "- Oral testimony documented by community researchers\n"
+            "- Participatory M&E methods without a formal enumerator trail\n\n"
+            "If your programme uses these methods, describe them in the **Additional Context** "
+            "field — this contributes to your Governance score and ensures your approach is "
+            "documented in the Readiness Card.\n\n"
+            "**On AI-assisted features:** The Council Assessment and Audit My Report functions "
+            "use Anthropic's Claude API. These are advisory — not authoritative determinations. "
+            "The evidence scoring engine itself makes no AI calls."
         )
 
     with st.expander("📚 Methodology & Citations", expanded=False):
@@ -9219,6 +9297,12 @@ def _render_score_my_report_tab():
         _smr_remaining = max(0, FREE_CHECKS_LIMIT - _smr_checks)
         st.caption(f"Free checks remaining: **{_smr_remaining}/{FREE_CHECKS_LIMIT}** — each report upload uses 1 check.")
 
+    st.info(
+        "🔒 **Data processing notice:** Your document is sent to Anthropic's Claude API "
+        "(claude-sonnet-4-6) for result extraction. Up to 60,000 characters of text are "
+        "transmitted. ImpactProof does not store your document after your session ends. "
+        "Anthropic's privacy policy applies to API processing."
+    )
     uploaded_doc = st.file_uploader(
         "Upload your donor report (Word or PDF)",
         type=["pdf", "docx", "txt"],
