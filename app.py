@@ -6085,10 +6085,10 @@ def render_screen_1():
             _banner_cl = round(_tab3_ev.get("clarity_score", 0) * 20, 1)
             if _banner_c >= 75 and _banner_cl >= 75:
                 st.success("✅ Strong Submission — Your result meets quality thresholds for donor submission.")
-                st.caption("Decision: Submission-ready — proceed to generate your Pre-Submission Audit Card.")
+                st.caption("Decision: Submission-ready — proceed to generate your Pre-Submission Readiness Card.")
             elif _banner_c >= 50 or _banner_cl >= 50:
                 st.warning("⚠️ Submission Needs Work — Address the items below before submitting.")
-                st.caption("Decision: Needs work — address the top fix before generating your Audit Card.")
+                st.caption("Decision: Needs work — address the top fix before generating your Readiness Card.")
             else:
                 st.error("🔴 High Risk — Your donor will likely query or reject this result. Fix critical issues first.")
                 st.caption("Decision: High risk — act on all critical fixes before submission.")
@@ -7538,7 +7538,7 @@ def render_screen_2():
     if _report_allowed:
         if _card_pdf:
             st.download_button(
-                f"📄 Download Pre-Submission Audit Card  [{_ref_id}]",
+                f"📄 Download Pre-Submission Readiness Card  [{_ref_id}]",
                 data=_card_pdf,
                 file_name=f"readiness_card_{timestamp}.pdf",
                 mime="application/pdf",
@@ -7550,7 +7550,7 @@ def render_screen_2():
             st.caption(f"Ref: {_ref_id} · Decision record anchored to USAID ADS 201 · Bond 2024 · FCDO 2025 · Same inputs → same determination, always.")
         elif _card_html:
             st.download_button(
-                f"⬇️ Download Pre-Submission Audit Card (HTML)  [{_ref_id}]",
+                f"⬇️ Download Pre-Submission Readiness Card (HTML)  [{_ref_id}]",
                 data=_card_html.encode("utf-8"),
                 file_name=f"readiness_card_{timestamp}.html",
                 mime="text/html",
@@ -9520,16 +9520,16 @@ def _render_score_my_report_tab():
                 org_name=org_name, document_name=doc_name,
             )
             st.download_button(
-                f"📊 Download Portfolio Audit Workbook — {n} result{'s' if n != 1 else ''} · {_ts}",
+                f"📊 Download Portfolio Readiness Workbook — {n} result{'s' if n != 1 else ''} · {_ts}",
                 data=excel_bytes,
-                file_name=f"evidence_quality_audit_{_ts}.xlsx",
+                file_name=f"portfolio_readiness_{_ts}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="smr_excel_dl",
                 type="primary",
                 use_container_width=True,
-                help="Anchored to USAID ADS 201 + Bond 2024. Sheet 1: scored results. Sheet 2: portfolio gap summary. Share with MEL lead or donor as pre-submission evidence quality audit.",
+                help="Anchored to USAID ADS 201 + Bond 2024. Sheet 1: scored results. Sheet 2: portfolio gap summary. Share with MEL lead or donor as a pre-submission evidence quality check.",
             )
-            st.caption("Share with your MEL lead or donor as a pre-submission evidence quality audit — each score cites the standard it was measured against.")
+            st.caption("Share with your MEL lead or donor as a pre-submission evidence quality check — each score cites the standard it was measured against.")
         except Exception as exc:
             st.error(f"Could not generate Excel: {exc}")
 
@@ -9596,7 +9596,7 @@ def render_screen_3():
     if st.button("← Back to Home", key="portfolio_back"):
         _go_to_screen(0)
 
-    st.markdown("## 📊 Portfolio Decision Audit")
+    st.markdown("## 📊 Portfolio Decision Review")
 
     _s3_tab_smr, _s3_tab_csv = st.tabs(["📄 Audit My Report", "📊 CSV Portfolio"])
 
@@ -10128,7 +10128,7 @@ h2{{color:#1B5E20;font-size:13px;font-weight:700;border-bottom:1px solid #8A6500
 </head><body>
 
 <!-- ═══ HEADER ═══ -->
-<h1>Pre-Submission Audit Card</h1>
+<h1>Pre-Submission Readiness Card</h1>
 <p style="color:#616161;font-size:10px;margin:2px 0 4px;">ImpactProof &middot; Ref: IMP-{timestamp}{donor_note}{(' &middot; ' + user_email) if user_email else ''}</p>
 <table border="0" cellspacing="0" cellpadding="0" width="100%" style="margin-bottom:10px;{P}"><tr>
 <td style="font-size:10px;color:#424242;padding:2px 0;">Submitted to: ___________________________________</td>
