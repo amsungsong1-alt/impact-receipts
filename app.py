@@ -2140,7 +2140,7 @@ _TUTORIAL_COPY = {
         "body": (
             "• **Confidence:** How much we should trust the evidence\n"
             "• **Clarity:** How clearly the result is defined\n\n"
-            "Both must be **Strong (≥4.0)** to reach this tool's top band.\n\n"
+            "Both must meet your organisation's evidence standard to reach this tool's top band.\n\n"
             "The **What to Fix** section tells you exactly how to improve."
         ),
     },
@@ -4854,6 +4854,7 @@ def render_screen_0():
                         "evidence": [{"type": qc_ev_type, "description": "", "verified_by": qc_verifier,
                                       "internal_review": "Not reviewed", "external_review": "No external review"}],
                         "beneficiary_voice": "", "provenance_checklist": {},
+                        "org_type": st.session_state.get("org_type", "International NGO (INGO)"),
                     }
                     _qc_ev = _evaluator.evaluate_submission(_qc_sub)
                     _qc_c  = _qc_ev.get("raw_confidence_score", 0)
@@ -4863,6 +4864,8 @@ def render_screen_0():
                     st.session_state["_qc_last_scores"] = {
                         "c": _qc_c, "cl": _qc_cl, "c_lbl": _qc_c_label, "cl_lbl": _qc_cl_label,
                         "result": qc_result, "ev_type": qc_ev_type, "verifier": qc_verifier,
+                        "track_label": _qc_ev.get("track_label", "INGO standard"),
+                        "threshold": _qc_ev.get("threshold_used", 4.0),
                     }
                     st.rerun()
                 except Exception:
@@ -4876,7 +4879,11 @@ def render_screen_0():
                 f"**Provisional scores** — Confidence: **{_qc_scores['c']}/5.0** ({_qc_scores['c_lbl']}) · "
                 f"Clarity: **{_qc_scores['cl']}/5.0** ({_qc_scores['cl_lbl']})"
             )
-            st.caption("Provisional only — Verification, Recency, and Clarity improve with full form data.")
+            st.caption(
+                f"Provisional only — Verification, Recency, and Clarity improve with full form data. "
+                f"Standard applied: {_qc_scores.get('track_label', 'INGO standard')} "
+                f"(threshold {_qc_scores.get('threshold', 4.0)}/5.0)."
+            )
             if st.button("Continue for full diagnosis →", key="qc_continue", use_container_width=True, type="primary"):
                 st.session_state["result_statement"] = _qc_scores["result"]
                 st.session_state["evidence_type"]    = _qc_scores["ev_type"]
@@ -5173,7 +5180,8 @@ def render_screen_1():
             _sb_c   = _sb_ev.get("raw_confidence_score", 0)
             _sb_cl  = _sb_ev.get("clarity_score", 0)
             _sb_min = min(_sb_c, _sb_cl)
-            _sbe    = "🟢" if _sb_min >= 4.0 else "🟡" if _sb_min >= 3.0 else "🔴"
+            _sb_threshold = _sb_ev.get("threshold_used", 4.0)
+            _sbe    = "🟢" if _sb_min >= _sb_threshold else "🟡" if _sb_min >= 3.0 else "🔴"
             st.markdown(f"{_sbe} Confidence **{_sb_c}** · Clarity **{_sb_cl}**")
         except Exception:
             st.caption("Fill in the form to see live scores")
@@ -6952,16 +6960,17 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         "This is a heuristic pre-submission check based on a fixed scoring rubric, "
         "not an expert audit. Your donor reviewer makes the final determination."
     )
+    _used_threshold = ev.get("threshold_used", 4.0)
     st.caption(
-        "⚠️ **This tool grades your evidence description, not your underlying data.** "
-        "A passing score (≥4.0) does not guarantee donor acceptance if the described evidence "
-        "is incomplete or inaccurate."
+        f"⚠️ **This tool grades your evidence description, not your underlying data.** "
+        f"A passing score (≥{_used_threshold}) does not guarantee donor acceptance if the described evidence "
+        f"is incomplete or inaccurate."
     )
 
-    # Near-boundary notice — shown when either axis is within 0.1 of the submission threshold
+    # Near-boundary notice — shown when either axis is within 0.1 of the org-type threshold
     from evaluator import SUBMISSION_THRESHOLD, NEAR_THRESHOLD_BAND
-    _conf_near = abs(conf_score - SUBMISSION_THRESHOLD) <= NEAR_THRESHOLD_BAND
-    _clar_near = abs(clar_score - SUBMISSION_THRESHOLD) <= NEAR_THRESHOLD_BAND
+    _conf_near = abs(conf_score - _used_threshold) <= NEAR_THRESHOLD_BAND
+    _clar_near = abs(clar_score - _used_threshold) <= NEAR_THRESHOLD_BAND
     if (_conf_near or _clar_near) and diag_state not in ("INVALID INPUT", "INCOMPLETE"):
         st.caption(
             "Note: your score is within 0.1 of the submission threshold. "
@@ -9465,7 +9474,7 @@ def _render_score_my_report_tab():
 
     st.success(f"Extracted and scored **{n} result{'s' if n != 1 else ''}** from {doc_name}.")
     c1, c2, c3 = st.columns(3)
-    c1.metric("Submission-ready", strong, help="Both axes ≥ 4.0")
+    c1.metric("Submission-ready", strong, help="Both axes ≥ 4.0 (INGO standard — portfolio uses the bilateral-donor threshold)")
     c2.metric("Needs improvement", medium, help="At least one axis 2.5–3.9")
     c3.metric("High risk", weak, help="One or both axes < 2.5")
 
@@ -10171,6 +10180,10 @@ def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str,
             row += f"<tr>{note_cell}</tr>"
         return row
 
+    _card_threshold   = evaluation.get("threshold_used", 4.0)
+    _card_track_label = evaluation.get("track_label", "INGO standard")
+    _card_org_type    = submission.get("org_type", "International NGO (INGO)")
+
     return f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
 <title>Submission Readiness Card</title>
@@ -10190,11 +10203,15 @@ h2{{color:#1B5E20;font-size:13px;font-weight:700;border-bottom:1px solid #8A6500
 </tr></table>
 
 <!-- Reproducibility statement on Page 1 (council XXIV DRCA) -->
-<p style="font-size:9px;color:#374151;background:#F3F8FE;border-left:3px solid #1565C0;padding:5px 8px;margin:0 0 10px;{P}">
+<p style="font-size:9px;color:#374151;background:#F3F8FE;border-left:3px solid #1565C0;padding:5px 8px;margin:0 0 6px;{P}">
 <strong style="color:#1565C0;">Deterministic score</strong> — computed by rule-based criteria anchored to
 <strong>USAID ADS 201</strong> &middot; <strong>FCDO Evaluation Policy 2025</strong> &middot;
 <strong>Bond Evidence Principles 2024</strong> &middot; <strong>World Bank Results Framework</strong>.
 No AI judgement applied to scores. Same inputs always produce the same result.
+</p>
+<!-- Evidence standard track badge (council XXXVI) -->
+<p style="font-size:9px;color:{vfg};background:{vbg};padding:3px 8px;display:inline-block;border-radius:3px;margin:0 0 10px;{P}">
+Evidence standard: <strong>{_card_track_label}</strong> &middot; threshold {_card_threshold}/5.0 &middot; {_card_org_type}
 </p>
 
 <!-- Result -->
