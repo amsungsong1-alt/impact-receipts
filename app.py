@@ -3598,7 +3598,7 @@ def _render_tab1_slot(slot: int):
 def _render_tab2_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
     _render_fix_notes(slot, 1)
-    st.caption("Step 2 of 3 — Link this result to your approved logframe indicator. Fills up to +1.0 on your score.")
+    st.caption("Step 2 of 4 — Link this result to your approved logframe indicator. Fills up to +1.0 on your score.")
 
     # Show result statement as read-only reference so user can reconcile without scrolling back
     _rs_ref = st.session_state.get(f"result_statement{s}", "").strip()
@@ -6074,7 +6074,7 @@ def render_screen_1():
         # --- END v3.3 ---
 
     elif _cur_tab == 2:
-        st.caption("Step 3 of 3 — Describe your evidence. This is where the system makes its core determination: what your evidence is worth to a donor, and how to improve it.")
+        st.caption("Step 3 of 4 — Describe your evidence. This is where the system makes its core determination: what your evidence is worth to a donor, and how to improve it.")
         if st.session_state.pop("_show_qc_tab2_hint", False):
             st.success("✓ **Evidence type and verifier pre-filled from Quick Check.** Add your evidence description below to complete the determination.")
         for slot in range(1, active + 1):
