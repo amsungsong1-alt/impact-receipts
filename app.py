@@ -3471,6 +3471,8 @@ def _smart_extract_from_result(result_text: str, s: str) -> None:
             if any(_ds in rt for _ds in _dk_sigs):
                 st.session_state["donor_selected"] = _dk_name
                 st.session_state["_donor_auto_inferred"] = True
+                if _dk_name in DONOR_PROFILES and st.session_state.get("donor_framework", "Generic") == "Generic":
+                    st.session_state["donor_framework"] = _dk_name
                 break
 
 
@@ -3860,6 +3862,17 @@ def _render_tab3_slot(slot: int):
         st.caption("Answer 'Not applicable' where it honestly doesn't apply — that's neutral.")
         _ev_type_prov = st.session_state.get(f"evidence_type{s}", "")
         _prov_keys = _PROVENANCE_FOR_EV_TYPE.get(_ev_type_prov, _PROVENANCE_ALL)
+        # Auto-set non-applicable provenance questions to "Not applicable" to avoid
+        # silent -0.03 score penalties from placeholder "Choose an option..." defaults
+        for _na_pk, _na_ss in {
+            "sampling_documented":     f"provenance_sampling{s}",
+            "double_counting_checked": f"provenance_dedup{s}",
+            "collection_tool_named":   f"provenance_tool{s}",
+            "collector_independent":   f"provenance_independence{s}",
+            "recall_period_ok":        f"provenance_recall{s}",
+        }.items():
+            if _na_pk not in _prov_keys and st.session_state.get(_na_ss, PROVENANCE_YES_NO_NA_OPTIONS[0]) == PROVENANCE_YES_NO_NA_OPTIONS[0]:
+                st.session_state[_na_ss] = "Not applicable"
         _prov_key_map = {
             "sampling_documented":     f"provenance_sampling{s}",
             "double_counting_checked": f"provenance_dedup{s}",
@@ -5153,7 +5166,6 @@ def render_screen_1():
     )
 
     if _cur_tab == 0:
-        st.caption("Step 1 of 3 — Describe what your project achieved and who benefited. Four fields, under 2 minutes.")
 
         # Sector selector always visible — gates placeholder quality for all fields below
         st.selectbox(
@@ -5800,6 +5812,16 @@ def render_screen_1():
                                     st.session_state["_tab2_auto_advanced"] = True
                                     st.session_state["_irc_used"] = True
                                     st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
+                                    # Auto-tick logframe_fill_later for slots where IRC found no logframe data
+                                    _irc_active = st.session_state.get("active_slots", 1)
+                                    for _irc_s in range(1, _irc_active + 1):
+                                        _sf = _slot_suffix(_irc_s)
+                                        _no_lf = all(
+                                            not (st.session_state.get(f"{_k}{_sf}") or "").strip()
+                                            for _k in ("logframe_indicator", "logframe_target", "logframe_achievement")
+                                        )
+                                        if _no_lf:
+                                            st.session_state[f"logframe_fill_later{_sf}"] = True
                                     _irc_should_rerun = True
                                     # D1: zero-field extraction = no value delivered → grant free retry
                                     if _irc_filled == 0:
@@ -6903,18 +6925,6 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             unsafe_allow_html=True,
         )
 
-    # DQA Simulation callout (Council XXVII) — reframe top Confidence fix as auditor finding
-    if fixes and diag_state not in ("STRONG", "INVALID INPUT"):
-        _conf_fixes_dqa = [f for f in fixes if f.get("dimension") == "confidence"]
-        _dqa_top = _conf_fixes_dqa[0] if _conf_fixes_dqa else fixes[0]
-        _pca2 = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
-        st.markdown(
-            f"<div style='background:#FEF3F2;border-left:4px solid #B71C1C;border-radius:8px;"
-            f"padding:10px 14px;margin:4px 0 8px 0;font-size:0.85rem;{_pca2}'>"
-            f"🔍 <strong>DQA Simulation:</strong> An independent auditor would flag — "
-            f"<em>{_dqa_top['message']}</em></div>",
-            unsafe_allow_html=True,
-        )
 
     # Evidence statement — inline, most actionable output after the top fix
     _ev_stmt = _generate_evidence_statement(submission) if callable(globals().get("_generate_evidence_statement")) else None
@@ -6972,19 +6982,6 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     verify_level = conf_comp.get("verify_level", 0)
     def_score    = clar_comp.get("definition_score", 0)
 
-    st.markdown("---")
-    # Council XXIV — Scoring formula transparency (DRCA Auditable pillar)
-    st.markdown(
-        '<details><summary style="font-size:0.8rem;color:#616161;cursor:pointer;">How is this score calculated?</summary>'
-        '<div style="font-size:0.78rem;color:#374151;padding:6px 0;">'
-        '<strong>Confidence (0–5)</strong> = Directness (max 2.0) + Verification (max 2.0) + Recency (max 1.0)<br>'
-        '<strong>Clarity (0–5)</strong> = Definition (1.25) + Measurement (1.25) + Integrity (1.0) + Scope (0.75) + Governance (0.75)<br>'
-        '<em>All sub-scores are rule-based — no AI judgement applied to scoring. Same inputs always produce the same score.</em><br>'
-        '<em>The 4.0 threshold is calibrated to the median DQA pass/fail boundary in USAID and FCDO review corpora. '
-        'It is not a universal donor standard — some donors may require a higher or lower evidence bar.</em>'
-        '</div></details>',
-        unsafe_allow_html=True,
-    )
     if diag_state == "STRONG":
         st.success("✅ Your result is submission-ready. The full breakdown is below for reference — no action required.")
     st.markdown("### What Donors Want to Know")
@@ -7349,9 +7346,6 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             level = "low" if (raw_score / max_val) < 0.6 else "high"
             st.markdown(f"**{dim}:** {donor_map[dim][level]}")
 
-    with st.expander("Evidence statement for your report", key=f"ev_stmt_expander_{card_idx}"):
-        st.code(_generate_evidence_statement(submission), language=None)
-        st.caption("Edit this to match your exact context before pasting into your narrative report.")
 
     with st.expander("Share this result", key=f"share_result_{card_idx}"):
         def _share_icon(s):
@@ -7376,11 +7370,6 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         st.caption("Opens WhatsApp — choose who to send to from your contacts.")
         st.code(_wa_text, language=None)
 
-    render_fulltime(
-        confidence=round(conf_score * 20),
-        clarity=round(clar_score * 20),
-        summary=_PLAIN_ENGLISH_VERDICT.get(diag_state, verdict),
-    )
     _render_review_handoff(submission, ev, card_idx)
 
     st.divider()
@@ -7562,23 +7551,14 @@ def render_screen_2():
         st.info("📄 **Your score is above.** Upgrade to download the Readiness Card.")
         _render_paywall()
 
-    # Post-download CTAs — JTBD exit: user got their answer, what next?
-    _done_c1, _done_c2 = st.columns(2)
-    with _done_c1:
-        if st.button("✓ Done — check another result →", key="s2_done_cta", use_container_width=True, type="primary"):
-            _reset_all_slots()
-            st.session_state["evaluations"] = None
-            st.session_state["current_tab"] = 0
-            st.query_params["tab"] = "0"
-            _go_to_screen(1, reset=True)
-    with _done_c2:
-        if st.button(
-            "📊 Portfolio analysis — score all your indicators at once →",
-            key="s2_portfolio_cta",
-            use_container_width=True,
-            help="Upload a CSV of your full logframe to see which indicators are weakest.",
-        ):
-            _go_to_screen(3)
+    # Post-download CTA — primary next step after getting the determination
+    if st.button(
+        "📊 Portfolio analysis — score all your indicators at once →",
+        key="s2_portfolio_cta",
+        use_container_width=True,
+        help="Upload a CSV of your full logframe to see which indicators are weakest.",
+    ):
+        _go_to_screen(3)
 
     # "Same programme" shortcut: clears result-specific fields, keeps programme context
     _SAME_PROG_CLEAR = [
