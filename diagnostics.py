@@ -352,6 +352,7 @@ DONOR_CROSSWALK = {
         "bond": ["Appropriateness"],
         "eu":   ["Effectiveness — evidence shows the result was achieved"],
         "wb":   ["PDO Achievement"],
+        "community": ["Evidence documents the change and links it to the programme"],
         "rationale": "Directness checks whether the evidence measures the programme's "
                       "contribution to the result — DQA Validity asks whether data "
                       "measures what it claims to measure; World Bank PDO Achievement "
@@ -362,6 +363,7 @@ DONOR_CROSSWALK = {
         "bond": ["Triangulation"],
         "eu":   ["Coherence — independent review confirms internal consistency"],
         "wb":   ["PLR Data Quality", "Third-Party Verification"],
+        "community": ["Results reviewed by recognised community governance structures"],
         "rationale": "Independent review reduces measurement error (Reliability) and "
                       "guards against misreporting (Integrity); Bond calls this "
                       "Triangulation; World Bank PLR requires independent data quality "
@@ -372,6 +374,7 @@ DONOR_CROSSWALK = {
         "bond": [],
         "eu":   ["Relevance — data current enough to inform decisions"],
         "wb":   ["Timeliness"],
+        "community": ["Data collected within the current reporting period"],
         "rationale": "DQA Timeliness requires data current enough to inform decisions; "
                       "World Bank Results Framework also requires indicators to be "
                       "measured within the reporting period.",
@@ -381,6 +384,7 @@ DONOR_CROSSWALK = {
         "bond": [],
         "eu":   ["Relevance — claim is specific, bounded, and purpose-matched"],
         "wb":   ["Indicator Specificity"],
+        "community": ["Result statement describes who, what, where, and when"],
         "rationale": "A precisely scoped result (who/what/where/when) is both valid "
                       "and precise under DQA; World Bank Results Framework requires "
                       "SMART indicators with defined baseline and target.",
@@ -390,6 +394,7 @@ DONOR_CROSSWALK = {
         "bond": [],
         "eu":   ["Effectiveness — method and baseline support the effectiveness claim"],
         "wb":   ["Results Framework Indicator", "Baseline & Target"],
+        "community": ["Indicator, count, or narrative shows the scale of change"],
         "rationale": "A stated indicator, baseline, and target is exactly what DQA "
                       "Precision evaluates; World Bank PDO indicators require documented "
                       "baseline values and annual targets.",
@@ -399,6 +404,7 @@ DONOR_CROSSWALK = {
         "bond": ["Transparency"],
         "eu":   ["Coherence — complete data trail supports the intervention logic"],
         "wb":   ["Data Integrity"],
+        "community": ["Complete records support the reported figure"],
         "rationale": "Complete data with an audit trail satisfies DQA Integrity and "
                       "Bond's Transparency principle; World Bank requires data integrity "
                       "safeguards documented in the MEL annex.",
@@ -408,6 +414,7 @@ DONOR_CROSSWALK = {
         "bond": [],
         "eu":   ["Impact — coverage supports the attribution claim"],
         "wb":   ["Coverage"],
+        "community": ["Coverage states the community or area the result applies to"],
         "rationale": "Coverage matching the claim (right population/area) is part of "
                       "DQA Validity; World Bank PDO indicators require coverage to match "
                       "the defined target population in the Results Framework.",
@@ -417,6 +424,7 @@ DONOR_CROSSWALK = {
         "bond": ["Transparency", "Accountability"],
         "eu":   ["Sustainability — named ownership enables continued evidence use"],
         "wb":   ["M&E Accountability"],
+        "community": ["Named role or committee accountable for this result"],
         "rationale": "A named, accountable owner supports DQA Integrity and Bond's "
                       "Transparency/Accountability principle; World Bank requires a "
                       "designated M&E officer named in the project operations manual.",
@@ -464,6 +472,19 @@ DONOR_PROFILES = {
         "label": "World Bank Results Framework",
         "frameworks": [("wb", "World Bank Results Framework")],
     },
+    # Local / West Africa donor profiles — community evidence standard
+    "Local/National Fund": {
+        "label": "Local / National Fund (Community Standards)",
+        "frameworks": [("community", "Community evidence standards")],
+    },
+    "STAR-Ghana": {
+        "label": "STAR-Ghana / Ghana Civil Society Fund",
+        "frameworks": [("community", "STAR-Ghana evidence guidelines")],
+    },
+    "District Assembly Fund": {
+        "label": "Ghana District Assembly Fund / District grants",
+        "frameworks": [("community", "District Assembly reporting requirements")],
+    },
 }
 
 
@@ -487,10 +508,13 @@ def build_donor_crosswalk_html(profile_key: str) -> str:
         cell_html = "".join(f"<td>{c}</td>" for c in cells)
         rows_html.append(f"<tr><td>{row_label}</td>{cell_html}</tr>")
 
-    # Beneficiary Voice row only has "dqa"/"bond" mappings (Validity / Voice &
-    # Inclusion); for single-framework profiles, show whichever of those
-    # matches the selected framework, else "—".
-    bv_map = {"dqa": "Validity", "bond": "Voice &amp; Inclusion"}
+    # Beneficiary Voice row — mapped per framework; community track recognises
+    # oral testimony and direct beneficiary consultation as valid voice evidence.
+    bv_map = {
+        "dqa":       "Validity",
+        "bond":      "Voice &amp; Inclusion",
+        "community": "Beneficiary consultation / oral testimony",
+    }
     bv_cells = []
     for fw_key, _ in frameworks:
         bv_cells.append(bv_map.get(fw_key, "&mdash;"))

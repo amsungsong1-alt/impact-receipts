@@ -48,6 +48,10 @@ EVIDENCE_TYPE_DIRECTNESS = {
     "Field observation notes":                   2,
     "Payroll records":                           5,
     "Other":                                     2,
+    # Community-track evidence types (CBO / National NGO gate)
+    "Community register / village book":                3,
+    "Community scorecard / participatory assessment":   3,
+    "Participatory Rural Appraisal (PRA) output":       3,
 }
 
 # ---------------------------------------------------------------------------
@@ -65,6 +69,10 @@ INTERNAL_REVIEW_LEVEL = {
     "Reviewed by senior leadership or board":    3,
     "Reviewed by multiple internal stakeholders": 3,
     "Other":                                     3,
+    # Community-track internal review options
+    "Reviewed by Executive Director / Board":              3,
+    "Reviewed by community governance committee":          3,
+    "Reviewed by programme staff (no dedicated MEL)":     2,
 }
 
 EXTERNAL_REVIEW_LEVEL = {
@@ -78,6 +86,10 @@ EXTERNAL_REVIEW_LEVEL = {
     "Reviewed by donor representative":          5,
     "Third-party audit completed":               5,
     "Other":                                     4,
+    # Community-track external verification options
+    "Verified by ward / district committee":              4,
+    "Verified by community elder council":                3,
+    "Verified by peer organisation":                      4,
 }
 
 # Data-collection & traceability checklist bonus (Section 4.2)
@@ -436,6 +448,10 @@ _QUALITATIVE_EVIDENCE_TYPES = {
     "Outcome harvesting",
     "Beneficiary narrative / testimony",
     "Most Significant Change story",
+    # Community-track evidence types (exempt from ×0.6 non-numeric multiplier)
+    "Community register / village book",
+    "Community scorecard / participatory assessment",
+    "Participatory Rural Appraisal (PRA) output",
 }
 
 
@@ -685,7 +701,9 @@ def _level_from_verifier(text: str) -> int:
         return 5
     if any(k in t for k in ("partner", "external", "independent", "evaluator", "donor", "ngo", "district")):
         return 4
-    if any(k in t for k in ("m&e", "mel", "manager", "officer", "program", "field")):
+    if any(k in t for k in ("m&e", "mel", "manager", "officer", "program", "field",
+                             "elder", "chief", "assembly member", "village head",
+                             "community leader", "community board")):
         return 3
     return 2  # someone is named but role is unclear
 
@@ -1452,6 +1470,18 @@ def evaluate_submission(submission: dict) -> dict:
     ev_list  = submission.get("evidence", []) or []
     ev       = ev_list[0] if ev_list else {}
 
+    # Tiered threshold — CBO/Government = 3.5, National NGO = 3.75, INGO = 4.0
+    _org_type = submission.get("org_type", "International NGO (INGO)")
+    if "CBO" in _org_type or "Government" in _org_type:
+        _threshold   = 3.5
+        _track_label = "community standard"
+    elif "National" in _org_type:
+        _threshold   = 3.75
+        _track_label = "national standard"
+    else:
+        _threshold   = SUBMISSION_THRESHOLD
+        _track_label = "INGO standard"
+
     ev_type     = ev.get("type", "") or ""
     ev_desc     = (ev.get("description", "") or "").strip()
     verified_by = (ev.get("verified_by", "") or "").strip()
@@ -1564,9 +1594,9 @@ def evaluate_submission(submission: dict) -> dict:
         "governance_score":  gov_score_c,
     }
 
-    # Combined verdict (Section 3) — aligned with SUBMISSION_THRESHOLD from diagnostics
-    conf_high = confidence_score >= SUBMISSION_THRESHOLD
-    clar_high = clarity_score   >= SUBMISSION_THRESHOLD
+    # Combined verdict (Section 3) — threshold is org-type-aware
+    conf_high = confidence_score >= _threshold
+    clar_high = clarity_score   >= _threshold
     _verdicts = {
         (True,  True):  "Strong KPI — submission-ready on both axes",
         (True,  False): "Misleading KPI — sharpen the definition before submission",
@@ -1603,6 +1633,8 @@ def evaluate_submission(submission: dict) -> dict:
         "beneficiary_voice_bonus": bv_bonus,
         "verdict":               verdict,
         "fixes":                 fixes,
+        "threshold_used":        _threshold,
+        "track_label":           _track_label,
         # backward-compat keys
         "scores": {
             "overall":     {"score": confidence_score, "label": confidence_label, "meaning": confidence_meaning},

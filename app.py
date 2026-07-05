@@ -179,6 +179,9 @@ EVIDENCE_TYPES = [
     "Case study",
     "Outcome harvesting",
     "Beneficiary narrative or testimony",
+    "Community register / village book",
+    "Community scorecard / participatory assessment",
+    "Participatory Rural Appraisal (PRA) output",
     "Other",
 ]
 
@@ -188,6 +191,9 @@ QUALITATIVE_EVIDENCE_TYPES = (
     "Case study",
     "Outcome harvesting",
     "Beneficiary narrative or testimony",
+    "Community register / village book",
+    "Community scorecard / participatory assessment",
+    "Participatory Rural Appraisal (PRA) output",
 )
 
 # Per-type wording for the five Qualitative Rigor checkboxes (qual_sourcing,
@@ -1861,6 +1867,7 @@ def _init_session_state():
         # --- v3.3 additions ---
         "donor_other":         "",
         "donor_framework":     "Generic",
+        "org_type":            "International NGO (INGO)",
         # --- auth / payment ---
         "user_email":          "",
         "is_paid":             False,
@@ -2918,6 +2925,7 @@ def _build_submission_from_session(slot: int = 1) -> dict:
         "sector":                    sector,
         "project_name":              st.session_state.get("project_name", ""),
         "submission_type":           submission_type,
+        "org_type":                  st.session_state.get("org_type", "International NGO (INGO)"),
         "evidence": [{
             "type":        ev_type,
             "description": st.session_state.get(f"evidence_description{s}", ""),
@@ -3809,13 +3817,36 @@ def _render_tab3_slot(slot: int):
         st.divider()
         st.markdown("**Internal & External Review**")
         st.caption("📊 **Affects Verification score** (max 2.0/2.0) — independent review is the biggest single lever in Confidence")
-        int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
+        # Dynamic review options based on org_type
+        _rv_org = st.session_state.get("org_type", "International NGO (INGO)")
+        _rv_community = "CBO" in _rv_org or "Government" in _rv_org
+        _rv_national  = "National" in _rv_org
+        if _rv_community or _rv_national:
+            _INT_REVIEW_OPTS = [
+                "Choose an option...",
+                "Reviewed by Executive Director / Board",
+                "Reviewed by community governance committee",
+                "Reviewed by programme staff (no dedicated MEL)",
+                "Not reviewed",
+            ]
+            _EXT_REVIEW_OPTS = [
+                "Choose an option...",
+                "Verified by ward / district committee",
+                "Verified by community elder council",
+                "Verified by peer organisation",
+                "No external review",
+            ]
+        else:
+            _INT_REVIEW_OPTS = INTERNAL_REVIEW_OPTIONS
+            _EXT_REVIEW_OPTS = EXTERNAL_REVIEW_OPTIONS
+
+        int_rev = st.session_state.get(f"internal_review{s}", _INT_REVIEW_OPTS[0])
         _irc_widget(
-            st.selectbox, "Internal review", f"internal_review{s}", default=INTERNAL_REVIEW_OPTIONS[0],
-            options=INTERNAL_REVIEW_OPTIONS,
+            st.selectbox, "Internal review", f"internal_review{s}", default=_INT_REVIEW_OPTS[0],
+            options=_INT_REVIEW_OPTS,
             help="Did anyone in your organization review or cross-check this data?",
         )
-        int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
+        int_rev = st.session_state.get(f"internal_review{s}", _INT_REVIEW_OPTS[0])
         _int_vl = _evaluator.get_verification_level(int_rev, "No external review", "")
         _int_vs = round((_int_vl / 5) * 2.0, 1)
         if _int_vs == 0:
@@ -3824,11 +3855,11 @@ def _render_tab3_slot(slot: int):
             st.text_input("Specify internal reviewer", key=f"internal_review_other{s}")
 
         _irc_widget(
-            st.selectbox, "External review", f"external_review{s}", default=EXTERNAL_REVIEW_OPTIONS[0],
-            options=EXTERNAL_REVIEW_OPTIONS,
+            st.selectbox, "External review", f"external_review{s}", default=_EXT_REVIEW_OPTS[0],
+            options=_EXT_REVIEW_OPTS,
             help="Did an outside party verify the data? Government, partner, auditor, or evaluator.",
         )
-        ext_rev = st.session_state.get(f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0])
+        ext_rev = st.session_state.get(f"external_review{s}", _EXT_REVIEW_OPTS[0])
         verifier_text = st.session_state.get(f"verifier{s}", "")
         _full_vl = _evaluator.get_verification_level(int_rev, ext_rev, verifier_text)
         _full_vs = round((_full_vl / 5) * 2.0, 1)
@@ -5166,6 +5197,31 @@ def render_screen_1():
     )
 
     if _cur_tab == 0:
+
+        # Org type gate — drives tiered threshold and community-appropriate review options
+        def _on_org_type_change():
+            _n_active = st.session_state.get("active_slots", 1)
+            for _idx in range(1, _n_active + 1):
+                _sf = "" if _idx == 1 else f"_{_idx}"
+                st.session_state.pop(f"internal_review{_sf}", None)
+                st.session_state.pop(f"external_review{_sf}", None)
+
+        st.selectbox(
+            "Organisation type",
+            key="org_type",
+            options=[
+                "International NGO (INGO)",
+                "National NGO",
+                "Community-Based Organisation (CBO)",
+                "Government department / local authority",
+            ],
+            help=(
+                "Sets the evidence quality standard used for your determination. "
+                "INGO standard (4.0 threshold) for bilateral donors such as USAID and FCDO. "
+                "National / community standard (3.5–3.75) for national funders and district grants."
+            ),
+            on_change=_on_org_type_change,
+        )
 
         # Sector selector always visible — gates placeholder quality for all fields below
         st.selectbox(
@@ -7484,7 +7540,9 @@ def render_screen_2():
                 "✗", f"Not ready — {_top_fix_msg.rstrip('.')} before submitting.",
                 "#FEF3F2", "#B71C1C"
             )
-        st.caption("📋 Determination:")
+        _bv_threshold   = evs[0].get("threshold_used", 4.0) if evs else 4.0
+        _bv_track_label = evs[0].get("track_label", "INGO standard") if evs else "INGO standard"
+        st.caption(f"📋 Determination ({_bv_track_label}, threshold {_bv_threshold}):")
         st.markdown(
             f'<div style="background:{_bv_bg};border-left:4px solid {_bv_border};'
             f'border-radius:8px;padding:14px 20px;margin:0 0 16px 0;'
@@ -7492,6 +7550,13 @@ def render_screen_2():
             f'{_bv_sym} {_bv_msg}</div>',
             unsafe_allow_html=True,
         )
+        # Journey indicator — show INGO gap for CBO/National NGO users
+        if _bv_track_label != "INGO standard":
+            _ingo_gap = max(0.0, 4.0 - min(_bv_conf, _bv_clar))
+            if _ingo_gap == 0:
+                st.caption("📈 Capacity journey: ✓ also meets INGO standard (4.0)")
+            else:
+                st.caption(f"📈 Capacity journey: INGO-equivalent gap — {_ingo_gap:.1f} more needed on the weaker axis to meet the 4.0 bilateral-donor threshold.")
 
     # n≥2 portfolio readiness callout — shown at the moment of maximum engagement
     if n >= 2:
@@ -7705,18 +7770,27 @@ def render_screen_2():
 
     with st.expander("⚖️ Fairness & limitations", expanded=False):
         st.markdown(
-            "**This tool is calibrated to formal INGO reporting standards** (USAID, FCDO, GIZ, "
-            "Mastercard Foundation). Organisations using community-based verification, oral "
-            "documentation, participatory action research, or customary record-keeping may score "
-            "lower on formal dimensions — this reflects a **limitation of the rubric**, not the "
-            "quality of the work.\n\n"
-            "**What scores zero or near-zero in this rubric:**\n"
-            "- Community elder or peer-elected committee verification\n"
-            "- Oral testimony documented by community researchers\n"
-            "- Participatory M&E methods without a formal enumerator trail\n\n"
-            "If your programme uses these methods, describe them in the **Additional Context** "
-            "field — this contributes to your Governance score and ensures your approach is "
-            "documented in the Readiness Card.\n\n"
+            "**This tool now offers two evidence quality tracks:**\n\n"
+            "- **INGO standard (threshold 4.0)** — calibrated to USAID, FCDO, GIZ, and "
+            "Mastercard Foundation bilateral reporting requirements.\n"
+            "- **Community / National standard (threshold 3.5–3.75)** — calibrated to "
+            "local NGO, CBO, and national-funder contexts including STAR-Ghana, District "
+            "Assembly grants, and national government reporting.\n\n"
+            "Select your **Organisation type** on the evidence form (Tab 1) to activate "
+            "the appropriate track. Your determination banner shows which standard was applied.\n\n"
+            "**Community track recognises:**\n"
+            "- Community elder council and ward committee verification\n"
+            "- Community registers, village books, community scorecards, PRA outputs\n"
+            "- Executive Director / board review in place of a dedicated MEL Officer\n"
+            "- Oral testimony and participatory assessments in the qualitative evidence track\n\n"
+            "**Capacity journey indicator:** CBO and National NGO users also see their "
+            "INGO-equivalent score gap so the tool doubles as a capacity development roadmap — "
+            "showing both where you stand for current funders and what is needed for bilateral donors.\n\n"
+            "**Residual limitation:** Provenance bonuses (up to +0.60 on Confidence) still reward "
+            "formal sampling documentation, independent enumerators, and auditor-retrievable records. "
+            "Community organisations with informal but legitimate data collection may reach 3.5 "
+            "without maximising provenance. Describe your collection method in **Additional Context** "
+            "to document this in the Readiness Card.\n\n"
             "**On AI-assisted features:** The Council Assessment and Audit My Report functions "
             "use Anthropic's Claude API. These are advisory — not authoritative determinations. "
             "The evidence scoring engine itself makes no AI calls."
