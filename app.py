@@ -2038,7 +2038,7 @@ def _metrics_session_id() -> str:
 
 def _render_tagline_footer():
     st.markdown(
-        '<div class="trust-tagline">ImpactProof · Upload your report. Get a determination for every result. Submit with confidence. · Built in Accra 🇬🇭 · AI-powered, fabrication-proof</div>',
+        '<div class="trust-tagline">ImpactProof · Upload your report. Get a determination for every result. Submit with confidence. · Built in Accra 🇬🇭 · Deterministic scoring, AI-assisted, fabrication-proof</div>',
         unsafe_allow_html=True,
     )
     st.caption("We log anonymous usage counts only — never your results or documents.")
@@ -4758,7 +4758,7 @@ def _render_ph_landing():
             About to submit a result to your donor?
           </h1>
           <p style='color:#424242;font-size:1rem;margin:0 0 4px;'>
-            Run a 4-minute evidence quality check first.
+            Run a 60-second evidence quality check first.
           </p>
           <p style='color:#616161;font-size:0.85rem;margin:0 0 24px;'>
             For MEL officers, programme leads, and consultants — the people who answer for evidence quality. Reporting to FCDO, GIZ, World Bank, EU, and 7 more donors.
@@ -4792,7 +4792,7 @@ def _render_ph_landing():
                                                           "result":qc_result_ph,"ev_type":qc_ev_type_ph}
                     st.rerun()
                 except Exception:
-                    st.warning("Enter a result statement and select an evidence type.")
+                    st.error("Something went wrong scoring this — please try again.")
             else:
                 st.warning("Enter a result statement and select an evidence type.")
 
@@ -4880,7 +4880,7 @@ def render_screen_0():
                 "makes a determination for each, and ranks what to fix first — all in 60 seconds. "
                 "Download a filled Excel with determinations and ranked priorities."
             )
-            st.caption("First 3 uploads free · No registration needed")
+            st.caption("First 3 uploads free · Just your email, no password")
             if st.button("Upload and Audit →", key="cta_score_report", type="primary",
                          use_container_width=True):
                 _go_to_screen(3)
@@ -4927,7 +4927,7 @@ def render_screen_0():
         )
 
     # ── Quick Check (now secondary — inside expander) ──────────────────────
-    with st.expander("⚡ Quick Check — instant provisional scores (60 seconds)", expanded=True):
+    with st.expander("⚡ Quick Check — instant provisional scores (60 seconds)", expanded=False):
         st.caption("Fill 3 fields to instantly see provisional Confidence and Clarity scores. No form, no email required.")
         qc_result   = st.text_area("Your result statement", key="qc_result", height=80,
                                     placeholder="e.g., Trained 250 farmers in climate-smart practices in Northern Region, Jan–Jun 2025")
@@ -4961,7 +4961,7 @@ def render_screen_0():
                     }
                     st.rerun()
                 except Exception:
-                    st.warning("Fill in your result statement and select an evidence type.")
+                    st.error("Something went wrong scoring this — please try again.")
             else:
                 st.warning("Enter a result statement and select an evidence type.")
 
@@ -5002,8 +5002,7 @@ def render_screen_0():
     )
 
     st.caption(
-        f"[Pricing →](#) · [Try with a sample result →](#) · "
-        f"Your scoring data stays in your browser — never stored on our servers."
+        "Your scoring data stays in your browser — never stored on our servers."
     )
     _demo_scenario = st.radio(
         "Sample scenario:",
