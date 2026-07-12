@@ -357,9 +357,9 @@ GOLDEN = {
         "verdict": "High risk — strengthen both axes before relying on this result",
     },
     "count_only_indicator": {
-        "confidence_score": 3.2,
+        "confidence_score": 3.0,
         "clarity_score": 4.24,
-        # conf=3.2 < 4.0, clar=4.24 >= 4.0 → "Well-defined but weak"
+        # conf=3.0 < 4.0, clar=4.24 >= 4.0 → "Well-defined but weak"
         "verdict": "Well-defined but weak evidence — strengthen the verification chain",
     },
     "over_attributed": {
@@ -368,10 +368,10 @@ GOLDEN = {
         "verdict": "High risk — strengthen both axes before relying on this result",
     },
     "triangulated_contribution": {
-        "confidence_score": 4.0,
+        "confidence_score": 3.8,
         "clarity_score": 3.94,
-        # conf=4.0 >= 4.0 (True), clar=3.94 < 4.0 (False) → "Misleading KPI"
-        "verdict": "Misleading KPI — sharpen the definition before submission",
+        # conf=3.8 < 4.0 (False), clar=3.94 < 4.0 (False) → "High risk"
+        "verdict": "High risk — strengthen both axes before relying on this result",
     },
     "partial_logframe_mismatch": {
         "confidence_score": 2.2,
@@ -380,9 +380,9 @@ GOLDEN = {
         "verdict": "High risk — strengthen both axes before relying on this result",
     },
     "provenance_marked_na": {
-        "confidence_score": 3.4,
+        "confidence_score": 3.2,
         "clarity_score": 4.24,
-        # conf=3.4 < 4.0 (False), clar=4.24 >= 4.0 (True) → "Well-defined but weak"
+        # conf=3.2 < 4.0 (False), clar=4.24 >= 4.0 (True) → "Well-defined but weak"
         "verdict": "Well-defined but weak evidence — strengthen the verification chain",
     },
 }
