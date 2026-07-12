@@ -7,6 +7,10 @@ and a plain-English brief for non-MEL reporting teams.
 
 Projected scores are calculated deterministically from fixes[].score_impact_value
 — the AI does not invent score numbers, preserving the methodology guarantee.
+
+check_fabrication() is a deterministic, machine-checked backstop on the synthesis
+call's upgraded statements: any numeral/year/percentage not present in the user's
+own submission causes that statement to be withheld rather than shown.
 """
 
 from __future__ import annotations
@@ -329,6 +333,80 @@ def _calculate_projected_scores(ev: dict) -> tuple[float, float]:
 
 
 # ---------------------------------------------------------------------------
+# Fabrication guard — deterministic, no AI involvement
+#
+# The synthesis prompt instructs the model not to invent numbers, but that is
+# a soft instruction only. This is the machine-checked backstop: every
+# numeral/year/percentage in an AI-drafted statement must appear somewhere in
+# the user's own submission, or the statement is withheld rather than shown.
+# ---------------------------------------------------------------------------
+
+_NUMERIC_TOKEN_RE = re.compile(r"\d[\d,]*\.?\d*%?")
+
+
+def _extract_numeric_tokens(text: str) -> set[str]:
+    """Extract normalized numeric tokens (ints, decimals, percentages) from text.
+
+    Strips thousands-separator commas, a trailing '%', and a trailing '.' —
+    the last of which handles a sentence-ending period glued onto a match
+    (e.g. "...in 2025." must normalize to match a bare "2025" elsewhere)
+    without touching a genuine decimal like "3.5".
+    """
+    if not text:
+        return set()
+    tokens = set()
+    for raw in _NUMERIC_TOKEN_RE.findall(text):
+        norm = raw.replace(",", "").rstrip("%").rstrip(".")
+        if norm:
+            tokens.add(norm)
+    return tokens
+
+
+def _submission_fact_text(submission: dict) -> str:
+    """Concatenate the raw, untruncated user-supplied fields that count as
+    'the source input' for fabrication checking. Deliberately does NOT reuse
+    _build_shared_context's output, which is truncated and also contains
+    score-display numbers (e.g. "Confidence: 4.2/5.0") that are not project
+    facts — checking against it risks both false negatives (truncated-away
+    real facts) and false positives (a hallucinated number matching a score
+    readout instead of an actual fact).
+    """
+    parts = []
+    for key in (
+        "result_statement", "target_group", "timeframe", "geographic_scope",
+        "additional_context", "logframe_indicator", "logframe_target",
+        "logframe_achievement", "beneficiary_voice", "bv_method_detail",
+        "internal_review", "external_review",
+    ):
+        val = submission.get(key)
+        if val:
+            parts.append(str(val))
+
+    for item in submission.get("evidence", []) or []:
+        for key in ("type", "description", "recency", "verified_by"):
+            val = item.get(key)
+            if val:
+                parts.append(str(val))
+
+    for val in (submission.get("provenance_checklist") or {}).values():
+        if isinstance(val, str) and val:
+            parts.append(val)
+
+    return "\n".join(parts)
+
+
+def check_fabrication(draft: str, submission: dict) -> tuple[bool, list[str]]:
+    """Check that every numeral/year/percentage in `draft` appears somewhere
+    in the submission's own fields. Returns (is_clean, offending_tokens)."""
+    if not draft:
+        return True, []
+    draft_tokens  = _extract_numeric_tokens(draft)
+    allowed_tokens = _extract_numeric_tokens(_submission_fact_text(submission))
+    offending = sorted(draft_tokens - allowed_tokens)
+    return (len(offending) == 0), offending
+
+
+# ---------------------------------------------------------------------------
 # Main runner
 # ---------------------------------------------------------------------------
 
@@ -361,8 +439,8 @@ def run_council_assessment(submission: dict, ev: dict, api_key: str) -> dict:
                 "verdict_text": str
             }
         },
-        "upgraded_result_statement": str,
-        "upgraded_evidence_statement": str,
+        "upgraded_result_statement": str,   # "" if withheld by the fabrication guard
+        "upgraded_evidence_statement": str, # "" if withheld by the fabrication guard
         "reporting_team_brief": {
             "what_score_means": str,
             "what_to_change": [str, ...],
@@ -372,6 +450,10 @@ def run_council_assessment(submission: dict, ev: dict, api_key: str) -> dict:
         "projected_conf": float,
         "projected_clar": float,
         "error": str | None,
+        "withheld": {
+            "upgraded_result_statement": bool,
+            "upgraded_evidence_statement": bool,
+        },
     }
     """
     verdicts: dict[str, str] = {}
@@ -432,6 +514,17 @@ def run_council_assessment(submission: dict, ev: dict, api_key: str) -> dict:
     # --- Step 3: Deterministic projected scores ---
     proj_conf, proj_clar = _calculate_projected_scores(ev)
 
+    # --- Step 4: Fabrication guard — withhold any drafted statement that
+    # introduces a numeral/year/percentage not present in the user's own
+    # submission. No-fabrication is a non-negotiable product rule; this is
+    # the machine-checked backstop behind the synthesis prompt's instruction.
+    result_clean, _ = check_fabrication(upgraded_result, submission)
+    evidence_clean, _ = check_fabrication(upgraded_evidence, submission)
+    if not result_clean:
+        upgraded_result = ""
+    if not evidence_clean:
+        upgraded_evidence = ""
+
     return {
         "verdicts":                   ordered_verdicts,
         "upgraded_result_statement":  upgraded_result,
@@ -440,6 +533,10 @@ def run_council_assessment(submission: dict, ev: dict, api_key: str) -> dict:
         "projected_conf":             proj_conf,
         "projected_clar":             proj_clar,
         "error":                      ", ".join(errors) if errors else None,
+        "withheld": {
+            "upgraded_result_statement":   not result_clean,
+            "upgraded_evidence_statement": not evidence_clean,
+        },
     }
 
 

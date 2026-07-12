@@ -6804,11 +6804,17 @@ def _render_council_assessment(submission: dict, ev: dict, card_idx: int, api_ke
                 )
 
     # 4. Upgraded Statements
-    upg_rs = assessment.get("upgraded_result_statement", "")
-    upg_ev = assessment.get("upgraded_evidence_statement", "")
-    if upg_rs or upg_ev:
+    upg_rs   = assessment.get("upgraded_result_statement", "")
+    upg_ev   = assessment.get("upgraded_evidence_statement", "")
+    withheld = assessment.get("withheld", {})
+    rs_withheld = withheld.get("upgraded_result_statement", False)
+    ev_withheld = withheld.get("upgraded_evidence_statement", False)
+    if upg_rs or upg_ev or rs_withheld or ev_withheld:
         with st.expander("📝 Upgraded statements (council draft — review before use)", expanded=False):
-            if upg_rs:
+            if rs_withheld:
+                st.markdown("**Upgraded result statement:**")
+                st.warning("AI draft withheld — it introduced content not in your evidence.")
+            elif upg_rs:
                 st.markdown("**Upgraded result statement:**")
                 st.markdown(
                     f"<blockquote style='border-left:3px solid #1565C0;padding:8px 12px;"
@@ -6816,7 +6822,10 @@ def _render_council_assessment(submission: dict, ev: dict, card_idx: int, api_ke
                     f"{upg_rs}</blockquote>",
                     unsafe_allow_html=True,
                 )
-            if upg_ev:
+            if ev_withheld:
+                st.markdown("**Upgraded evidence statement:**")
+                st.warning("AI draft withheld — it introduced content not in your evidence.")
+            elif upg_ev:
                 st.markdown("**Upgraded evidence statement:**")
                 st.markdown(
                     f"<blockquote style='border-left:3px solid #E65100;padding:8px 12px;"
