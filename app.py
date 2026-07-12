@@ -2302,10 +2302,15 @@ def _compute_governance_score(slot: int):
 # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
 
-def _render_paywall(irc_context: bool = False):
-    """Show upgrade/payment options. irc_context=True suppresses the free-checks header."""
+def _render_paywall(irc_context: bool = False, custom_message: str | None = None):
+    """Show upgrade/payment options. irc_context=True suppresses the free-checks header.
+    custom_message overrides the default re-scoring copy for call sites gating a
+    different feature (e.g. Audit My Report, CSV Portfolio) so the paywall accurately
+    describes what the user actually got blocked on."""
     email = st.session_state.get("user_email", "")
-    if not irc_context:
+    if custom_message is not None:
+        st.markdown(custom_message)
+    elif not irc_context:
         st.markdown("### You've used your 3 free checks.")
         st.markdown(
             "Improved your evidence? Upgrade to re-score and see the impact:\n\n"
@@ -7639,8 +7644,11 @@ def render_screen_2():
             st.session_state["submissions_snapshot"] = subs
             st.rerun()
         except Exception as exc:
+            import logging as _logging
+            _logging.error("Evaluation failed on Screen 2", exc_info=True)
             st.session_state["error_message"] = (
-                f"Something went wrong during evaluation:\n\n{exc}\n\nPlease go back and try again."
+                "Something went wrong while scoring your result. Please go back and try again. "
+                "If the problem persists, contact us: info@impact-receipts.com"
             )
 
     if st.session_state.get("error_message"):
@@ -7731,7 +7739,8 @@ def render_screen_2():
             )
         _bv_threshold   = evs[0].get("threshold_used", 4.0) if evs else 4.0
         _bv_track_label = evs[0].get("track_label", "INGO standard") if evs else "INGO standard"
-        st.caption(f"📋 Determination ({_bv_track_label}, threshold {_bv_threshold}):")
+        _bv_scope_note = f" — Result 1 of {n}, see below for the rest" if n > 1 else ""
+        st.caption(f"📋 Determination ({_bv_track_label}, threshold {_bv_threshold}){_bv_scope_note}:")
         st.markdown(
             f'<div style="background:{_bv_bg};border-left:4px solid {_bv_border};'
             f'border-radius:8px;padding:14px 20px;margin:0 0 16px 0;'
@@ -8767,7 +8776,9 @@ def _extract_all_results_from_document(document_text: str, api_key: str,
 
         return [], "Could not extract any complete results from the document. The response may have been too large. Try uploading a shorter document or a document with fewer indicators."
     except Exception as e:
-        return [], f"Extraction failed: {type(e).__name__}: {e}"
+        import logging as _logging
+        _logging.error("Batch extraction failed", exc_info=True)
+        return [], "Extraction failed unexpectedly. Please try again, or try a shorter document."
 
 
 def _batch_results_to_portfolio_df(raw_results: list[dict]) -> tuple["pd.DataFrame", list[dict]]:
@@ -9566,7 +9577,14 @@ def _render_score_my_report_tab():
         st.warning(
             "You've used your 3 free checks. Upgrade to Professional to process more reports."
         )
-        _render_paywall()
+        _render_paywall(custom_message=(
+            "### Upgrade to keep using Audit My Report\n\n"
+            "You've used your 3 free document uploads. Upgrade to Professional to keep going:\n\n"
+            "- **Unlimited document uploads** — extract and determine every result automatically\n"
+            "- **Colour-coded Excel decision audit** — one row per result, traceable to named donor standards\n"
+            "- **Unlimited single-result checks and re-scores** too\n\n"
+            f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited*"
+        ))
         return
 
     run_btn = st.button("Extract & Get Determinations", type="primary", key="smr_run")
@@ -9583,7 +9601,9 @@ def _render_score_my_report_tab():
                     st.error(f"Could not read the document: {_doc_err}")
                     return
             except Exception as exc:
-                st.error(f"Could not read the document: {exc}")
+                import logging as _logging
+                _logging.error("Could not read uploaded document", exc_info=True)
+                st.error("Could not read the document. Try re-saving it and uploading again.")
                 return
         if not doc_text or len(doc_text.strip()) < 100:
             st.error("The document appears to be empty or image-based. Export as a text-based DOCX and try again.")
@@ -9598,7 +9618,9 @@ def _render_score_my_report_tab():
             try:
                 _smr_result_box["data"] = _score_report_from_document(doc_text, _api_key)
             except Exception as _e:
-                _smr_result_box["exc"] = str(_e)
+                import logging as _logging
+                _logging.error("Score My Report extraction failed", exc_info=True)
+                _smr_result_box["exc"] = True
             finally:
                 _smr_done.set()
 
@@ -9614,7 +9636,7 @@ def _render_score_my_report_tab():
         _smr_ph.empty()
 
         if _smr_result_box["exc"]:
-            st.error(f"Extraction failed: {_smr_result_box['exc']}")
+            st.error("Extraction failed unexpectedly. Please try again, or try a shorter document.")
             return
         input_df, evaluations, statuses, err = _smr_result_box["data"]
 
@@ -9878,26 +9900,54 @@ def render_screen_3():
         with st.expander("Column reference & accepted values"):
             st.caption(_PORTFOLIO_REVIEW_HINT)
 
+        _csvpf_email = st.session_state.get("user_email", "")
+        if not _csvpf_email:
+            st.warning("📧 **Enter your email to use CSV Portfolio.** We use it to track your free checks — no password needed.")
+            _render_email_gate_inline("_csvpf")
+        _csvpf_email  = st.session_state.get("user_email", "")
+        _csvpf_user   = get_user(_csvpf_email) if _csvpf_email else None
+        _csvpf_checks = (_csvpf_user or {}).get("free_checks_used", 0)
+        _csvpf_paid   = is_still_paid(_csvpf_user)
+        _csvpf_allowed = _csvpf_paid or _csvpf_checks < FREE_CHECKS_LIMIT
+
+        if not _csvpf_paid:
+            _csvpf_remaining = max(0, FREE_CHECKS_LIMIT - _csvpf_checks)
+            st.caption(f"Free checks remaining: **{_csvpf_remaining}/{FREE_CHECKS_LIMIT}** — each upload uses 1 check.")
+
         uploaded = st.file_uploader(
             "Upload your completed logframe (CSV or Excel)",
             type=["csv", "xlsx", "xls"],
             key="portfolio_upload",
         )
 
-        if uploaded is not None:
+        if uploaded is not None and not _csvpf_allowed:
+            st.warning("You've used your 3 free checks. Upgrade to Professional to keep using CSV Portfolio.")
+            _render_paywall(custom_message=(
+                "### Upgrade to keep using CSV Portfolio\n\n"
+                "You've used your 3 free uploads. Upgrade to Professional to keep going:\n\n"
+                "- **Unlimited portfolio uploads** — assess your full logframe or re-score after fixes\n"
+                "- **Portfolio heatmap** — see systemic gaps across every indicator\n"
+                "- **Unlimited single-result checks and Audit My Report uploads** too\n\n"
+                f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited*"
+            ))
+        elif uploaded is not None:
             try:
                 if uploaded.name.lower().endswith((".xlsx", ".xls")):
                     df = pd.read_excel(uploaded)
                 else:
                     df = pd.read_csv(uploaded)
             except Exception as exc:
-                st.error(f"Could not read the file: {exc}")
+                import logging as _logging
+                _logging.error("Could not read uploaded CSV/Excel file", exc_info=True)
+                st.error("Could not read the file. Confirm it's a valid CSV or Excel file and try again.")
                 df = None
 
             if df is not None:
                 results_df, warnings = _evaluate_portfolio(df)
                 st.session_state["portfolio_results"] = results_df
                 st.session_state["portfolio_warnings"] = warnings
+                if not _csvpf_paid and _csvpf_email:
+                    increment_checks(_csvpf_email)
 
         results_df = st.session_state.get("portfolio_results")
         warnings = st.session_state.get("portfolio_warnings") or []
