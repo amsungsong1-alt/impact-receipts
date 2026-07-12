@@ -11283,6 +11283,115 @@ def _build_portfolio_verification_summary_html(results_df, warnings: list, times
 # Admin view — hidden usage-metrics dashboard, ?admin=1 + passphrase-gated
 # ---------------------------------------------------------------------------
 
+_ADMIN_EVENT_LABELS = [
+    ("demo_viewed", "Demo views"),
+    ("check_completed", "Checks completed"),
+    ("ai_questions_generated", "AI reviews run"),
+    ("draft_withheld_fabrication", "Drafts withheld"),
+    ("payment_initiated", "Payments started"),
+    ("payment_completed", "Payments completed"),
+]
+
+
+def _admin_totals_chart(totals: dict):
+    """Horizontal bar chart of event totals — single brand hue (nominal
+    categories, no status/identity dimension to encode), sorted by magnitude,
+    value labelled at the bar tip."""
+    import pandas as pd
+    import altair as alt
+
+    df = pd.DataFrame([
+        {"Event": label, "Count": totals.get(key, 0)} for key, label in _ADMIN_EVENT_LABELS
+    ])
+    bar = alt.Chart(df).mark_bar(size=20, cornerRadiusEnd=4, color="#1B5E20").encode(
+        x=alt.X("Count:Q", title="Count"),
+        y=alt.Y("Event:N", sort="-x", title=None),
+        tooltip=[alt.Tooltip("Event:N", title="Event"), alt.Tooltip("Count:Q", title="Count")],
+    )
+    text = bar.mark_text(align="left", dx=4, color="#212121").encode(text="Count:Q")
+    return (bar + text).properties(width="container", height=alt.Step(28))
+
+
+def _admin_funnel_chart(funnel: dict):
+    """Funnel-stage bar chart — ordinal (stage order carries meaning), one
+    hue with a monotone opacity ramp so darker = further down the funnel."""
+    import pandas as pd
+    import altair as alt
+
+    stages = [
+        ("Demo viewed", funnel.get("demo_viewed", 0)),
+        ("Check completed", funnel.get("check_completed", 0)),
+        ("Payment completed", funnel.get("payment_completed", 0)),
+    ]
+    base = stages[0][1] or 1
+    df = pd.DataFrame([
+        {"Stage": s, "Sessions": v, "Order": i, "% of demo views": round(v / base * 100)}
+        for i, (s, v) in enumerate(stages)
+    ])
+    bar = alt.Chart(df).mark_bar(size=28, cornerRadiusEnd=4, color="#1B5E20").encode(
+        x=alt.X("Sessions:Q", title="Distinct sessions"),
+        y=alt.Y("Stage:N", sort=[s for s, _ in stages], title=None),
+        opacity=alt.Opacity("Order:O", scale=alt.Scale(range=[0.45, 1.0]), legend=None),
+        tooltip=[
+            alt.Tooltip("Stage:N", title="Stage"),
+            alt.Tooltip("Sessions:Q", title="Sessions"),
+            alt.Tooltip("% of demo views:Q", title="% of demo views"),
+        ],
+    )
+    text = bar.mark_text(align="left", dx=4, color="#212121").encode(text="Sessions:Q")
+    return (bar + text).properties(width="container", height=alt.Step(32))
+
+
+def _render_admin_charts(totals: dict, funnel: dict, daily: list):
+    """Render the three admin charts, Altair normally, Streamlit-native
+    charts in lite mode (same fallback convention as _render_trend_chart)."""
+    import pandas as pd
+
+    lite = st.session_state.get("lite_mode", False)
+
+    st.markdown("##### Totals by event")
+    if lite:
+        st.bar_chart(pd.DataFrame(
+            {"Count": [totals.get(k, 0) for k, _ in _ADMIN_EVENT_LABELS]},
+            index=[label for _, label in _ADMIN_EVENT_LABELS],
+        ))
+    else:
+        st.altair_chart(_admin_totals_chart(totals), use_container_width=True)
+
+    st.markdown("##### Conversion funnel")
+    if lite:
+        st.bar_chart(pd.DataFrame(
+            {"Sessions": [funnel.get("demo_viewed", 0), funnel.get("check_completed", 0),
+                          funnel.get("payment_completed", 0)]},
+            index=["Demo viewed", "Check completed", "Payment completed"],
+        ))
+    else:
+        st.altair_chart(_admin_funnel_chart(funnel), use_container_width=True)
+
+    st.markdown("##### Daily activity")
+    if not daily:
+        st.caption("No events logged yet.")
+        return
+    df = pd.DataFrame(daily)
+    if lite:
+        st.line_chart(df.set_index("date")[["count"]])
+    else:
+        import altair as alt
+        df["date"] = pd.to_datetime(df["date"])
+        line = (
+            alt.Chart(df)
+            .mark_line(point=alt.OverlayMarkDef(size=50, filled=True, color="#1B5E20"),
+                       color="#1B5E20", strokeWidth=2)
+            .encode(
+                x=alt.X("date:T", title="Date"),
+                y=alt.Y("count:Q", title="Events per day"),
+                tooltip=[alt.Tooltip("date:T", title="Date"), alt.Tooltip("count:Q", title="Events")],
+            )
+            .properties(width="container", height=200)
+        )
+        st.altair_chart(line, use_container_width=True)
+
+
 def _render_admin_view():
     st.markdown("### Admin — usage metrics")
     st.caption("Anonymous usage counts only — no result text or documents are ever logged.")
@@ -11304,18 +11413,11 @@ def _render_admin_view():
 
     summary = metrics.summarize()
     totals = summary["totals"]
+    funnel = summary["funnel"]
 
     st.markdown("#### Totals by event")
-    _event_labels = [
-        ("demo_viewed", "Demo views"),
-        ("check_completed", "Checks completed"),
-        ("ai_questions_generated", "AI reviews run"),
-        ("draft_withheld_fabrication", "Drafts withheld"),
-        ("payment_initiated", "Payments started"),
-        ("payment_completed", "Payments completed"),
-    ]
     _cols = st.columns(3)
-    for i, (key, label) in enumerate(_event_labels):
+    for i, (key, label) in enumerate(_ADMIN_EVENT_LABELS):
         with _cols[i % 3]:
             st.metric(label, totals.get(key, 0))
 
@@ -11323,7 +11425,6 @@ def _render_admin_view():
     st.metric("Average uplift per re-score", summary["average_uplift"])
 
     st.markdown("#### Conversion funnel (distinct sessions)")
-    funnel = summary["funnel"]
     _fcols = st.columns(3)
     with _fcols[0]:
         st.metric("Demo viewed", funnel["demo_viewed"])
@@ -11331,6 +11432,10 @@ def _render_admin_view():
         st.metric("Check completed", funnel["check_completed"])
     with _fcols[2]:
         st.metric("Payment completed", funnel["payment_completed"])
+
+    st.divider()
+    st.markdown("#### Dashboard")
+    _render_admin_charts(totals, funnel, metrics.daily_counts())
 
 
 # ---------------------------------------------------------------------------

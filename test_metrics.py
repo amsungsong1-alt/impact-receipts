@@ -68,7 +68,25 @@ def run():
         if summary["funnel"]["payment_completed"] != 1:
             failures.append(f"expected funnel payment_completed=1, got {summary['funnel']}")
 
-        # 6. read_events()/summarize() on a missing file return empty, not raise.
+        # 6. daily_counts() buckets by UTC calendar day and sorts oldest-first.
+        import time as _time
+        _day1 = _time.mktime(_time.strptime("2026-07-01", "%Y-%m-%d"))
+        _day2 = _time.mktime(_time.strptime("2026-07-03", "%Y-%m-%d"))
+        _fixed_events = [
+            {"ts": _day1, "event": "demo_viewed", "session": "a"},
+            {"ts": _day1 + 3600, "event": "check_completed", "session": "a"},
+            {"ts": _day2, "event": "demo_viewed", "session": "b"},
+        ]
+        daily = metrics.daily_counts(_fixed_events)
+        if [d["date"] for d in daily] != sorted(d["date"] for d in daily):
+            failures.append(f"daily_counts() must be sorted oldest-first, got {daily}")
+        _by_date = {d["date"]: d["count"] for d in daily}
+        if len(daily) != 2 or list(_by_date.values()) != [2, 1]:
+            failures.append(f"expected 2 days with counts [2, 1], got {daily}")
+        if metrics.daily_counts([]) != []:
+            failures.append("daily_counts([]) should return []")
+
+        # 7. read_events()/summarize() on a missing file return empty, not raise.
         metrics.METRICS_PATH = pathlib.Path(tmp) / "does_not_exist.jsonl"
         if metrics.read_events() != []:
             failures.append("read_events() on a missing file should return []")

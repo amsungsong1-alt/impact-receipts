@@ -119,3 +119,22 @@ def summarize(events: list[dict] | None = None) -> dict:
             "payment_completed": len(payment_sessions),
         },
     }
+
+
+def daily_counts(events: list[dict] | None = None) -> list[dict]:
+    """Total event volume per UTC calendar day, sorted oldest-first — the
+    input to a growth-over-time trend chart. Returns [{"date": "YYYY-MM-DD",
+    "count": int}, ...], one row per day that has at least one event (no
+    zero-filled gaps — the caller can reindex if it needs a continuous axis)."""
+    if events is None:
+        events = read_events()
+
+    counts: dict[str, int] = {}
+    for e in events:
+        ts = e.get("ts")
+        if not isinstance(ts, (int, float)):
+            continue
+        day = time.strftime("%Y-%m-%d", time.gmtime(ts))
+        counts[day] = counts.get(day, 0) + 1
+
+    return [{"date": d, "count": c} for d, c in sorted(counts.items())]
