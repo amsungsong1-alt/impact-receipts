@@ -6,3 +6,4 @@ outputs/
 __pycache__/
 *.pyc
 .streamlit/
+metrics_events.jsonl

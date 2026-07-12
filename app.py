@@ -25,6 +25,7 @@ from datetime import datetime, date
 
 import streamlit as st
 import evaluator as _evaluator
+import metrics
 from diagnostics import (
     _DIAGNOSTIC_BADGE, _READINESS_BAND, _READINESS_STYLE, _LIMITS_DISCLAIMER,
     _readiness_banner_html, get_diagnostic_state,
@@ -1996,6 +1997,9 @@ def _init_from_query_params() -> None:
             st.session_state[_k] = _v
         for _k, _v in _DEMO_SELECT_FIELDS.items():
             st.session_state[_k] = _v
+        if not st.session_state.get("_demo_viewed_logged"):
+            metrics.log_event("demo_viewed", _metrics_session_id())
+            st.session_state["_demo_viewed_logged"] = True
     # Track referral source for conversion analytics
     if "ref" in _p:
         st.session_state["_referral_source"] = _p["ref"]
@@ -2017,11 +2021,27 @@ def _go_to_screen(screen: int, reset: bool = False):
 # Shared UI helpers
 # ---------------------------------------------------------------------------
 
+def _metrics_session_id() -> str:
+    """A stable identifier for this browser session, for metrics hashing only.
+    Prefers the logged-in email (already hashed one-way by metrics.log_event);
+    falls back to a random id kept in session_state for anonymous visitors."""
+    email = st.session_state.get("user_email", "")
+    if email:
+        return email
+    sid = st.session_state.get("_anon_session_id", "")
+    if not sid:
+        import uuid
+        sid = str(uuid.uuid4())
+        st.session_state["_anon_session_id"] = sid
+    return sid
+
+
 def _render_tagline_footer():
     st.markdown(
         '<div class="trust-tagline">ImpactProof · Upload your report. Get a determination for every result. Submit with confidence. · Built in Accra</div>',
         unsafe_allow_html=True,
     )
+    st.caption("We log anonymous usage counts only — never your results or documents.")
 
 
 def _format_date(d) -> str:
@@ -2305,6 +2325,7 @@ def _render_paywall(irc_context: bool = False):
                 _url = initialize_payment(email, PRICE_PER_CHECK_GHS, "per_use")
             if _url:
                 st.session_state["_pay_once_url"] = _url
+                metrics.log_event("payment_initiated", _metrics_session_id())
                 st.rerun()
             else:
                 _detail = last_payment_error()
@@ -2320,6 +2341,7 @@ def _render_paywall(irc_context: bool = False):
                 _url = initialize_payment(email, PRICE_MONTHLY_GHS, "monthly")
             if _url:
                 st.session_state["_pay_monthly_url"] = _url
+                metrics.log_event("payment_initiated", _metrics_session_id())
                 st.rerun()
             else:
                 _detail = last_payment_error()
@@ -2335,6 +2357,7 @@ def _render_paywall(irc_context: bool = False):
                 _url = initialize_payment(email, PRICE_AGENCY_GHS, "agency")
             if _url:
                 st.session_state["_pay_agency_url"] = _url
+                metrics.log_event("payment_initiated", _metrics_session_id())
                 st.rerun()
             else:
                 _detail = last_payment_error()
@@ -4265,6 +4288,7 @@ def _complete_email_login(email: str) -> None:
             _pr_days = 365 if _pr.get("plan") == "annual" else (30 if _pr.get("plan") in ("monthly", "agency") else 1)
             mark_paid(email, days=_pr_days)
             st.session_state["is_paid"] = True
+            metrics.log_event("payment_completed", email)
     for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
         st.session_state.pop(_k, None)
     # Restore draft from Supabase if the user is returning after a refresh
@@ -6352,6 +6376,24 @@ def render_screen_1():
                     except Exception:
                         pass
                 # --- End tracking ---
+                # --- Metrics: privacy-safe usage instrumentation (no PII, no result text) ---
+                try:
+                    _m_ev = _evaluator.evaluate_submission(_build_submission_from_session(1))
+                    _m_session_id = _metrics_session_id()
+                    metrics.log_event(
+                        "check_completed", _m_session_id,
+                        score_band=_m_ev.get("confidence_label", ""),
+                    )
+                    _m_prev_conf = st.session_state.get("_last_logged_confidence")
+                    if _is_rescore and _m_prev_conf is not None:
+                        metrics.log_event(
+                            "score_uplift", _m_session_id,
+                            score_uplift=round(_m_ev.get("confidence_score", 0) - _m_prev_conf, 2),
+                        )
+                    st.session_state["_last_logged_confidence"] = _m_ev.get("confidence_score", 0)
+                except Exception:
+                    pass
+                # --- End metrics ---
                 st.session_state["screen"] = 2
                 st.rerun()
 
@@ -6765,6 +6807,14 @@ def _render_council_assessment(submission: dict, ev: dict, card_idx: int, api_ke
             with st.spinner("5 council members reviewing your result…"):
                 assessment = run_council_assessment(submission, ev, api_key)
                 st.session_state[cache_key] = assessment
+            try:
+                _m_session_id = _metrics_session_id()
+                metrics.log_event("ai_questions_generated", _m_session_id)
+                _m_withheld = assessment.get("withheld", {})
+                if _m_withheld.get("upgraded_result_statement") or _m_withheld.get("upgraded_evidence_statement"):
+                    metrics.log_event("draft_withheld_fabrication", _m_session_id)
+            except Exception:
+                pass
             st.rerun()
         return
 
@@ -11214,6 +11264,60 @@ def _build_portfolio_verification_summary_html(results_df, warnings: list, times
 
 
 # ---------------------------------------------------------------------------
+# Admin view — hidden usage-metrics dashboard, ?admin=1 + passphrase-gated
+# ---------------------------------------------------------------------------
+
+def _render_admin_view():
+    st.markdown("### Admin — usage metrics")
+    st.caption("Anonymous usage counts only — no result text or documents are ever logged.")
+
+    _admin_secret = (
+        st.secrets.get("ADMIN_PASSPHRASE", "")
+        if hasattr(st, "secrets") else
+        os.environ.get("ADMIN_PASSPHRASE", "")
+    )
+    if not _admin_secret:
+        st.error("Admin view is not configured — set ADMIN_PASSPHRASE in secrets.")
+        return
+
+    _entered = st.text_input("Passphrase", type="password", key="_admin_passphrase_input")
+    if _entered != _admin_secret:
+        if _entered:
+            st.warning("Incorrect passphrase.")
+        return
+
+    summary = metrics.summarize()
+    totals = summary["totals"]
+
+    st.markdown("#### Totals by event")
+    _event_labels = [
+        ("demo_viewed", "Demo views"),
+        ("check_completed", "Checks completed"),
+        ("ai_questions_generated", "AI reviews run"),
+        ("draft_withheld_fabrication", "Drafts withheld"),
+        ("payment_initiated", "Payments started"),
+        ("payment_completed", "Payments completed"),
+    ]
+    _cols = st.columns(3)
+    for i, (key, label) in enumerate(_event_labels):
+        with _cols[i % 3]:
+            st.metric(label, totals.get(key, 0))
+
+    st.markdown("#### Score uplift")
+    st.metric("Average uplift per re-score", summary["average_uplift"])
+
+    st.markdown("#### Conversion funnel (distinct sessions)")
+    funnel = summary["funnel"]
+    _fcols = st.columns(3)
+    with _fcols[0]:
+        st.metric("Demo viewed", funnel["demo_viewed"])
+    with _fcols[1]:
+        st.metric("Check completed", funnel["check_completed"])
+    with _fcols[2]:
+        st.metric("Payment completed", funnel["payment_completed"])
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -11262,6 +11366,7 @@ def main():
                 mark_paid(_pay_email, days=_days)
                 st.session_state["user_email"] = _pay_email
                 st.session_state["is_paid"] = True
+                metrics.log_event("payment_completed", _pay_email)
                 st.session_state.pop("_pay_once_url", None)
                 st.session_state.pop("_pay_monthly_url", None)
                 st.session_state.pop("_pay_agency_url", None)
@@ -11293,6 +11398,10 @@ def main():
     # --- End Paystack handler ---
 
     _init_from_query_params()
+    # Hidden admin view — usage metrics, passphrase-gated
+    if st.query_params.get("admin") == "1":
+        _render_admin_view()
+        return
     # Pricing overlay — shown regardless of screen
     if st.session_state.get("_show_pricing"):
         render_pricing_page()

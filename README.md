@@ -50,6 +50,7 @@ Set in `.streamlit/secrets.toml` (local) or Streamlit Cloud **App settings → S
 | `PAYSTACK_SECRET_KEY` | Yes | Paystack secret key (payments) |
 | `PAYSTACK_PUBLIC_KEY` | Yes | Paystack public key |
 | `APP_BASE_URL` | Yes | Your deployed app URL (used for Paystack callback) |
+| `ADMIN_PASSPHRASE` | No | Enables the hidden `?admin=1` usage-metrics view. Leave unset to disable it entirely. |
 
 ### Supabase Setup
 
