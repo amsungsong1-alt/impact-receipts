@@ -176,5 +176,73 @@ def run():
     print(f"PASS: fabrication guard verified across representative drafts and submissions.")
 
 
+def run_logframe_match():
+    """match_logframe_indicator() — pure JSON-parsing/validation logic, tested
+    by swapping out council._call_haiku so no network call happens."""
+    failures = []
+    indicators = [
+        "Indicator 1.2: Number of households with access to safe water",
+        "Indicator 2.1: % of farmers applying climate-smart practices",
+    ]
+    original_call_haiku = council._call_haiku
+
+    def _fake(_system, _user, _api_key, max_tokens=300, model=None):
+        return _fake.response
+
+    council._call_haiku = _fake
+    try:
+        # 1. A clean match to a real candidate is accepted as-is.
+        _fake.response = (
+            '{"best_match": "Indicator 2.1: % of farmers applying climate-smart practices", '
+            '"confidence_label": "Strong", "justification": "Result reports farmers adopting practices."}'
+        )
+        result = council.match_logframe_indicator(
+            "487 farmers applying climate-smart practices.", indicators, api_key="fake"
+        )
+        if result["best_match"] != indicators[1] or result["confidence_label"] != "Strong":
+            failures.append(f"clean_match: unexpected result {result!r}")
+
+        # 2. A model response inventing an indicator NOT in the candidate list
+        #    must be discarded — never force/substitute a match the user didn't give us.
+        _fake.response = (
+            '{"best_match": "Indicator 9.9: an indicator that was never pasted", '
+            '"confidence_label": "Strong", "justification": "x"}'
+        )
+        result = council.match_logframe_indicator("Some result.", indicators, api_key="fake")
+        if result["best_match"] != "" or result["confidence_label"] != "None":
+            failures.append(f"invented_indicator_rejected: unexpected result {result!r}")
+
+        # 3. Model explicitly declines to match — passed through as-is, never forced.
+        _fake.response = '{"best_match": "", "confidence_label": "None", "justification": "No indicator fits."}'
+        result = council.match_logframe_indicator("Unrelated result about roads.", indicators, api_key="fake")
+        if result["best_match"] != "" or result["confidence_label"] != "None":
+            failures.append(f"no_match_declined: unexpected result {result!r}")
+
+        # 4. Malformed JSON response degrades to "None" rather than raising.
+        _fake.response = "not valid json at all"
+        result = council.match_logframe_indicator("Some result.", indicators, api_key="fake")
+        if result["best_match"] != "" or result["confidence_label"] != "None":
+            failures.append(f"malformed_json: unexpected result {result!r}")
+
+        # 5. No indicators pasted / no result statement — never calls the API, returns None.
+        result = council.match_logframe_indicator("Some result.", [], api_key="fake")
+        if result["confidence_label"] != "None":
+            failures.append(f"no_indicators: unexpected result {result!r}")
+        result = council.match_logframe_indicator("", indicators, api_key="fake")
+        if result["confidence_label"] != "None":
+            failures.append(f"no_result_statement: unexpected result {result!r}")
+    finally:
+        council._call_haiku = original_call_haiku
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+
+    print("PASS: logframe match — accepts real candidates, rejects invented ones, degrades safely.")
+
+
 if __name__ == "__main__":
     run()
+    run_logframe_match()

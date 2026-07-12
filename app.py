@@ -2982,6 +2982,58 @@ def _render_slot_fields(slot: int):
         "rejected 3 times in 2024 because results weren't tied to logframe indicators. "
         "40+ hours of rework. We don't want that to happen to you."
     )
+
+    _lf_api_key = (
+        st.secrets.get("ANTHROPIC_API_KEY", "")
+        if hasattr(st, "secrets") else
+        os.environ.get("ANTHROPIC_API_KEY", "")
+    )
+    if _lf_api_key:
+        with st.expander("🎯 AI Logframe Match — paste your indicators, get a suggested match", expanded=False):
+            st.caption(
+                "Paste your approved logframe indicators (one per line). The AI suggests which "
+                "one this result reports against — it never forces a match, and it only quotes "
+                "words already in your result statement or your pasted indicators."
+            )
+            st.text_area(
+                "Your logframe indicators (one per line)",
+                key=f"_lf_paste{s}", height=100,
+                placeholder=(
+                    "Indicator 1.2: Number of households with access to safe water\n"
+                    "Indicator 2.1: % of farmers applying climate-smart practices"
+                ),
+            )
+            if st.button("Match my result to an indicator", key=f"lf_match_btn{s}"):
+                _lf_rs = st.session_state.get(f"result_statement{s}", "")
+                _lf_raw = st.session_state.get(f"_lf_paste{s}", "")
+                _lf_indicators = [ln.strip() for ln in _lf_raw.splitlines() if ln.strip()]
+                if not _lf_rs.strip():
+                    st.warning("Enter a result statement above first.")
+                elif not _lf_indicators:
+                    st.warning("Paste at least one logframe indicator above.")
+                else:
+                    with st.spinner("Matching your result to an indicator…"):
+                        from council import match_logframe_indicator
+                        _lf_match = match_logframe_indicator(_lf_rs, _lf_indicators, _lf_api_key)
+                    st.session_state[f"_lf_match_result{s}"] = _lf_match
+                    if _lf_match.get("confidence_label") != "None" and _lf_match.get("best_match"):
+                        st.session_state[f"logframe_indicator{s}"] = _lf_match["best_match"]
+                        st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
+                    st.rerun()
+
+            _lf_result = st.session_state.get(f"_lf_match_result{s}")
+            if _lf_result:
+                _lf_cl = _lf_result.get("confidence_label", "None")
+                if _lf_cl == "None" or not _lf_result.get("best_match"):
+                    st.info("No confident match found — enter the indicator manually below.")
+                else:
+                    st.success(
+                        f"AI-suggested match ({_lf_cl.lower()} confidence) — confirm against "
+                        f"your approved logframe before submitting."
+                    )
+                    if _lf_result.get("justification"):
+                        st.caption(_lf_result["justification"])
+
     _irc_widget(
         st.text_input,
         "Logframe indicator this result reports against",

@@ -746,6 +746,71 @@ def debate_evidence_type(description: str, result_statement: str,
 
 
 # ---------------------------------------------------------------------------
+# AI Logframe Match — single-call indicator matcher
+# ---------------------------------------------------------------------------
+# Matches a result statement against a user-pasted list of logframe
+# indicators. Never forces a match: returns confidence_label "None" when
+# nothing fits, and discards any suggestion that isn't verbatim one of the
+# indicators the user actually pasted (guards against the model inventing
+# an indicator that was never in the candidate list).
+
+def build_logframe_match_prompt(result_statement: str, indicators: list[str]) -> str:
+    numbered = "\n".join(f"{i + 1}. {ind}" for i, ind in enumerate(indicators))
+    return f"""You are matching a reported result to the logframe indicator it reports against.
+
+RESULT STATEMENT:
+{(result_statement or "")[:500]}
+
+CANDIDATE INDICATORS (numbered list — choose one, or none):
+{numbered}
+
+RULES:
+1. Choose the single indicator that most directly matches what the result statement reports.
+2. If no indicator is a reasonable match, say so plainly — do not force a match.
+3. Your justification must quote only words that appear in the result statement or the
+   chosen indicator — never introduce a new fact or number.
+4. Output ONLY valid JSON, no markdown fences, no prose:
+{{"best_match": "<exact indicator text from the list above, or empty string if none>", "confidence_label": "Strong" | "Partial" | "None", "justification": "<one sentence>"}}"""
+
+
+def match_logframe_indicator(result_statement: str, indicators: list[str], api_key: str) -> dict:
+    """
+    Suggest the closest-fit logframe indicator for a result statement from a
+    user-pasted candidate list.
+
+    Returns:
+    {"best_match": str, "confidence_label": "Strong"|"Partial"|"None", "justification": str}
+    """
+    if not result_statement or not result_statement.strip() or not indicators:
+        return {"best_match": "", "confidence_label": "None", "justification": ""}
+
+    prompt = build_logframe_match_prompt(result_statement, indicators)
+    raw = _call_haiku(
+        "You are a precise MEL logframe-matching assistant. Output strict JSON only.",
+        prompt, api_key, max_tokens=300,
+    )
+    clean = re.sub(r"```(?:json)?|```", "", raw).strip()
+    try:
+        parsed = json.loads(clean)
+        best_match       = parsed.get("best_match", "") or ""
+        confidence_label = parsed.get("confidence_label", "None")
+        justification     = parsed.get("justification", "")
+    except (json.JSONDecodeError, ValueError):
+        return {"best_match": "", "confidence_label": "None", "justification": ""}
+
+    # best_match must be verbatim one of the pasted candidates — never let the
+    # model substitute an indicator the user didn't actually give us.
+    if best_match not in indicators:
+        best_match, confidence_label = "", "None"
+
+    return {
+        "best_match":       best_match,
+        "confidence_label": confidence_label,
+        "justification":    justification,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Council XXIV — Competitive Position Debate (council XXIV)
 # ---------------------------------------------------------------------------
 # 5 council members debate a product/competitive positioning question.
