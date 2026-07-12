@@ -3267,7 +3267,10 @@ def _render_slot_fields(slot: int):
 
     prev_files = st.session_state.get(f"draft_uploaded_filenames{s}", [])
     if prev_files:
-        st.caption(f"Previously attached: {', '.join(prev_files)} — please re-attach below.")
+        st.caption(
+            f"For security, browsers don't let us keep re-uploaded files between sessions — "
+            f"please re-attach: {', '.join(prev_files)}"
+        )
     st.file_uploader(
         "Attach supporting documents (optional)", key=f"uploaded_files_widget{s}",
         accept_multiple_files=True,
@@ -3644,7 +3647,6 @@ def _render_tab1_slot(slot: int):
             with st.expander("Result statement quality check", expanded=True):
                 for _label, _pass in _ql_checks:
                     st.markdown(f"{'✅' if _pass else '⬜'} {_label}")
-                st.caption("Completing all 5 raises your Clarity score (Definition dimension).")
 
     _irc_widget(
         st.text_input, "Target group *", f"target_group{s}", default="",
@@ -3662,37 +3664,27 @@ def _render_tab1_slot(slot: int):
         help="Districts, regions, or specific sites. 'Volta Region' beats 'rural areas'.",
     )
     _tg = _ss_str(f"target_group{s}").strip()
-    _rs_filled = bool(_ss_str(f"result_statement{s}").strip())
-    _tg_hint = _ph.get("target_group", "")
-    if _rs_filled and not _tg:
-        st.caption(f"💡 Hint: {_tg_hint}")
-    elif len(_tg) > 5 and not any(m in _tg.lower() for m in _DEMO_MARKERS):
+    if len(_tg) > 5 and not any(m in _tg.lower() for m in _DEMO_MARKERS):
         st.warning("Target group should describe who you reached — include population type, age, or role.")
 
     _tf = _ss_str(f"timeframe{s}").strip()
-    if _rs_filled and not _tf:
-        st.caption("💡 Hint: e.g., January – June 2025 or Q1 2026")
-    elif len(_tf) > 3 and not any(m in _tf.lower() for m in _DATE_MARKERS):
+    if len(_tf) > 3 and not any(m in _tf.lower() for m in _DATE_MARKERS):
         st.warning("Timeframe should include a date range or period, e.g. January–June 2025.")
 
     _gs = _ss_str(f"geographic_scope{s}").strip()
     _gs_hint = _ph.get("geographic_scope", "")
-    if _rs_filled and not _gs:
-        st.caption(f"💡 Hint: {_gs_hint}")
-    elif len(_gs) > 5 and not any(m in _gs.lower() for m in _LOC_MARKERS):
+    if len(_gs) > 5 and not any(m in _gs.lower() for m in _LOC_MARKERS):
         _gs_example = re.sub(r"^e\.g\.,\s*", "", _gs_hint)
         st.warning(
             "Geographic scope should name specific districts, regions, or locations "
             f"(e.g., {_gs_example})."
         )
 
-    st.caption("Specificity in these fields adds to your Clarity score. Generic terms cap it.")
-
 
 def _render_tab2_slot(slot: int):
     s, _ph = _tab_slot_setup(slot)
     _render_fix_notes(slot, 1)
-    st.caption("Step 2 of 4 — Link this result to your approved logframe indicator. Fills up to +1.0 on your score.")
+    st.caption("Link this result to your approved logframe indicator. Fills up to +1.0 on your score.")
 
     # Show result statement as read-only reference so user can reconcile without scrolling back
     _rs_ref = st.session_state.get(f"result_statement{s}", "").strip()
@@ -3808,7 +3800,55 @@ def _render_tab2_slot(slot: int):
                 ),
             )
         else:
-            st.caption("Measurement not yet collected — this will be flagged in your report.")
+            st.caption("✓ Noted — no achievement figure needed for now.")
+
+
+_MONTH_NUM = {
+    "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+    "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7, "aug": 8,
+    "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+
+
+def _derive_reporting_period(timeframe_text: str):
+    """Parse the canonical timeframe formats _smart_extract_from_result() produces
+    ("Month–Month YYYY", "QN YYYY", "Month YYYY", "YYYY–YYYY") into (start, end)
+    dates, so the reporting-period pickers don't default to today for no reason
+    when the timeframe the user already typed already answers the question.
+    Returns (None, None) if the text doesn't match a known format."""
+    import calendar
+    if not timeframe_text:
+        return None, None
+    t = timeframe_text.strip()
+
+    m = re.match(r"([A-Za-z]+)[–\-]([A-Za-z]+)\s+(\d{4})$", t)
+    if m:
+        m1, m2, yr = m.group(1).lower(), m.group(2).lower(), int(m.group(3))
+        n1, n2 = _MONTH_NUM.get(m1), _MONTH_NUM.get(m2)
+        if n1 and n2:
+            return date(yr, n1, 1), date(yr, n2, calendar.monthrange(yr, n2)[1])
+
+    m = re.match(r"[Qq]([1-4])\s+(\d{4})$", t)
+    if m:
+        q, yr = int(m.group(1)), int(m.group(2))
+        n1 = (q - 1) * 3 + 1
+        n2 = n1 + 2
+        return date(yr, n1, 1), date(yr, n2, calendar.monthrange(yr, n2)[1])
+
+    m = re.match(r"([A-Za-z]+)\s+(\d{4})$", t)
+    if m:
+        mo, yr = m.group(1).lower(), int(m.group(2))
+        n = _MONTH_NUM.get(mo)
+        if n:
+            return date(yr, n, 1), date(yr, n, calendar.monthrange(yr, n)[1])
+
+    m = re.match(r"(\d{4})[–\-](\d{4})$", t)
+    if m:
+        y1, y2 = int(m.group(1)), int(m.group(2))
+        return date(y1, 1, 1), date(y2, 12, 31)
+
+    return None, None
 
 
 def _render_tab3_slot(slot: int):
@@ -4021,11 +4061,14 @@ def _render_tab3_slot(slot: int):
         st.divider()
         st.markdown("**Reporting Period**")
         st.caption("The period this submission covers. Evidence outside this range is flagged.")
+        _rp_derived_start, _rp_derived_end = _derive_reporting_period(st.session_state.get(f"timeframe{s}", ""))
         _rp_col1, _rp_col2 = st.columns(2)
         with _rp_col1:
-            _irc_widget(st.date_input, "Period start", f"reporting_start{s}", default=date.today())
+            _irc_widget(st.date_input, "Period start", f"reporting_start{s}",
+                       default=_rp_derived_start or date.today())
         with _rp_col2:
-            _irc_widget(st.date_input, "Period end",   f"reporting_end{s}",   default=date.today())
+            _irc_widget(st.date_input, "Period end",   f"reporting_end{s}",
+                       default=_rp_derived_end or date.today())
         _rp_s = st.session_state.get(f"reporting_start{s}")
         _rp_e = st.session_state.get(f"reporting_end{s}")
         if _ed and _rp_s and _rp_e and hasattr(_evaluator, "validate_reporting_period"):
@@ -4039,8 +4082,7 @@ def _render_tab3_slot(slot: int):
 
         st.divider()
         st.markdown("**Data Collection & Provenance**")
-        st.caption("📊 **Affects Verification score** — each 'Yes' adds up to +0.1 on Confidence. 'Not applicable' is neutral.")
-        st.caption("Answer 'Not applicable' where it honestly doesn't apply — that's neutral.")
+        st.caption("📊 **Affects Verification score** — each 'Yes' adds up to +0.1 on Confidence. 'Not applicable' is neutral where it honestly doesn't apply.")
         _ev_type_prov = st.session_state.get(f"evidence_type{s}", "")
         _prov_keys = _PROVENANCE_FOR_EV_TYPE.get(_ev_type_prov, _PROVENANCE_ALL)
         # Auto-set non-applicable provenance questions to "Not applicable" to avoid
@@ -4264,7 +4306,10 @@ def _render_tab3_slot(slot: int):
 
     prev_files = st.session_state.get(f"draft_uploaded_filenames{s}", [])
     if prev_files:
-        st.caption(f"Previously attached: {', '.join(prev_files)} — please re-attach below.")
+        st.caption(
+            f"For security, browsers don't let us keep re-uploaded files between sessions — "
+            f"please re-attach: {', '.join(prev_files)}"
+        )
     st.file_uploader(
         "Attach supporting documents (optional)", key=f"uploaded_files_widget{s}",
         accept_multiple_files=True,
@@ -5248,18 +5293,11 @@ def render_screen_1():
 
     _render_tutorial(1)
 
-    # Persistent save-draft affordance — sidebar Save Draft isn't visible on mobile/narrow screens
-    _sav_c1, _sav_c2, _sav_c3 = st.columns([4, 1, 1])
-    with _sav_c1:
-        if st.session_state.get("_last_saved_time"):
-            st.caption(f"💾 Draft saved at {st.session_state['_last_saved_time']} — download below to preserve across sessions.")
-        else:
-            st.caption("💾 Save your draft so you can resume later, even if your internet cuts out.")
-    with _sav_c2:
-        if st.button("Save", key="top_save_draft_btn", help="Save draft to disk"):
-            _save_draft()
-    with _sav_c3:
-        pass  # Back to Start removed — use Start Fresh on Tab 3 if needed
+    # Your progress auto-saves every render (see _save_draft() call at the end of
+    # this function) — no manual "Save" action needed. Download button for an
+    # actual on-disk copy lives on Tab 4.
+    if st.session_state.get("_last_saved_time"):
+        st.caption(f"💾 Auto-saved at {st.session_state['_last_saved_time']} — download a copy on the last tab to keep it across sessions.")
 
     _has_prefill = any(
         _ss_str(k).strip()
@@ -5355,10 +5393,6 @@ def render_screen_1():
             st.caption("Fill in the form to see live scores")
 
         st.divider()
-        if st.button("💾 Save Draft", key="sidebar_save_draft", use_container_width=True):
-            _save_draft()
-            st.toast("Draft saved!", icon="💾")
-        st.caption("─")
         if st.button("📊 Portfolio analysis →", key="sidebar_portfolio_cta", use_container_width=True):
             _go_to_screen(3)
     # --- END UX: DYNAMIC SIDEBAR (v3.2) ---
@@ -6250,7 +6284,7 @@ def render_screen_1():
         # --- END v3.3 ---
 
     elif _cur_tab == 2:
-        st.caption("Step 3 of 4 — Describe your evidence. This is where the system makes its core determination: what your evidence is worth to a donor, and how to improve it.")
+        st.caption("Describe your evidence. This is where the system makes its core determination: what your evidence is worth to a donor, and how to improve it.")
         if st.session_state.pop("_show_qc_tab2_hint", False):
             st.success("✓ **Evidence type and verifier pre-filled from Quick Check.** Add your evidence description below to complete the determination.")
         for slot in range(1, active + 1):
@@ -6520,20 +6554,10 @@ def render_screen_1():
 
         st.divider()
 
-        # Hibernate option — preserves data, pauses billing intent
-        if st.session_state.get("_show_hibernate"):
-            st.info("💤 **Hibernate mode** — your form data is saved. Come back when your next reporting cycle starts.")
-            _hib1, _hib2 = st.columns(2)
-            with _hib1:
-                if st.button("Resume later (save & close)", key="hibernate_confirm", type="primary", use_container_width=True):
-                    _save_draft()
-                    st.session_state.pop("_show_hibernate", None)
-                    _go_to_screen(0)
-            with _hib2:
-                if st.button("Cancel", key="hibernate_cancel", use_container_width=True):
-                    st.session_state.pop("_show_hibernate", None)
-                    st.rerun()
-        elif st.session_state.get("confirm_reset"):
+        # Hibernate option — preserves data, pauses billing intent. Acts immediately:
+        # it only saves (already happens automatically every render) and navigates
+        # home, so a confirm step protected nothing and just cost an extra click.
+        if st.session_state.get("confirm_reset"):
             # Exit survey before clearing
             st.warning("Clear all inputs and start over?")
             _exit_reason = st.selectbox(
@@ -6563,8 +6587,8 @@ def render_screen_1():
             _rst_c1, _rst_c2 = st.columns(2)
             with _rst_c1:
                 if st.button("💤 Hibernate (save & pause)", use_container_width=True, help="Saves your form. Come back next reporting cycle."):
-                    st.session_state["_show_hibernate"] = True
-                    st.rerun()
+                    _save_draft()
+                    _go_to_screen(0)
             with _rst_c2:
                 if st.button("🗑 Clear all & restart", use_container_width=True):
                     st.session_state["confirm_reset"] = True
@@ -6861,7 +6885,6 @@ def _render_council_assessment(submission: dict, ev: dict, card_idx: int, api_ke
 
     st.caption(
         "🤖 Generated by Claude AI (Anthropic — Fable 5 + Haiku models). "
-        "Advisory analysis only — not an expert audit. "
         "Verify specific donor requirements directly with the donor before submission."
     )
     is_paid   = st.session_state.get("is_paid", False)
@@ -7183,15 +7206,12 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         st.info(_pev)
 
     # Methodology disclaimer — shown for every verdict state, immediately after the badge
-    st.caption(
-        "This is a heuristic pre-submission check based on a fixed scoring rubric, "
-        "not an expert audit. Your donor reviewer makes the final determination."
-    )
     _used_threshold = ev.get("threshold_used", 4.0)
     st.caption(
-        f"⚠️ **This tool grades your evidence description, not your underlying data.** "
-        f"A passing score (≥{_used_threshold}) does not guarantee donor acceptance if the described evidence "
-        f"is incomplete or inaccurate."
+        f"This is a heuristic pre-submission check against your evidence *description*, not your "
+        f"underlying data — not an expert audit. A passing score (≥{_used_threshold}) does not guarantee "
+        f"donor acceptance if the described evidence is incomplete or inaccurate. Your donor reviewer "
+        f"makes the final determination."
     )
 
     # Near-boundary notice — shown when either axis is within 0.1 of the org-type threshold
