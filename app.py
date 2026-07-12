@@ -2882,11 +2882,11 @@ def _build_submission_from_session(slot: int = 1) -> dict:
     if ev_type == "Other":
         ev_type = st.session_state.get(f"evidence_type_other{s}", "") or "Other"
 
-    int_rev = st.session_state.get(f"internal_review{s}", "Not reviewed")
+    int_rev = st.session_state.get(f"internal_review{s}", "Choose an option...")
     if int_rev == "Other":
         int_rev = st.session_state.get(f"internal_review_other{s}", "") or "Other"
 
-    ext_rev = st.session_state.get(f"external_review{s}", "No external review")
+    ext_rev = st.session_state.get(f"external_review{s}", "Choose an option...")
     if ext_rev == "Other":
         ext_rev = st.session_state.get(f"external_review_other{s}", "") or "Other"
 
@@ -3265,8 +3265,8 @@ def _tab_slot_setup(slot: int):
     s = _slot_suffix(slot)
     for key, default in [
         (f"evidence_type{s}", EVIDENCE_TYPES[0]),
-        (f"internal_review{s}", "Not reviewed"),
-        (f"external_review{s}", "No external review"),
+        (f"internal_review{s}", "Choose an option..."),
+        (f"external_review{s}", "Choose an option..."),
         # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
         (f"gov_consent_status{s}", "Select consent status..."),
         (f"gov_anonymization_status{s}", "Select anonymization status..."),
@@ -3688,6 +3688,57 @@ def _render_tab2_slot(slot: int):
     if _fill_later:
         st.caption("Note: unfilled logframe fields reduce your Clarity score.")
     if not _fill_later:
+        _lf_api_key = (
+            st.secrets.get("ANTHROPIC_API_KEY", "")
+            if hasattr(st, "secrets") else
+            os.environ.get("ANTHROPIC_API_KEY", "")
+        )
+        if _lf_api_key:
+            with st.expander("🎯 AI Logframe Match — paste your indicators, get a suggested match", expanded=False):
+                st.caption(
+                    "Paste your approved logframe indicators (one per line). The AI suggests which "
+                    "one this result reports against — it never forces a match, and it only quotes "
+                    "words already in your result statement or your pasted indicators."
+                )
+                st.text_area(
+                    "Your logframe indicators (one per line)",
+                    key=f"_lf_paste{s}", height=100,
+                    placeholder=(
+                        "Indicator 1.2: Number of households with access to safe water\n"
+                        "Indicator 2.1: % of farmers applying climate-smart practices"
+                    ),
+                )
+                if st.button("Match my result to an indicator", key=f"lf_match_btn{s}"):
+                    _lf_rs = st.session_state.get(f"result_statement{s}", "")
+                    _lf_raw = st.session_state.get(f"_lf_paste{s}", "")
+                    _lf_indicators = [ln.strip() for ln in _lf_raw.splitlines() if ln.strip()]
+                    if not _lf_rs.strip():
+                        st.warning("Enter a result statement in Tab 1 first.")
+                    elif not _lf_indicators:
+                        st.warning("Paste at least one logframe indicator above.")
+                    else:
+                        with st.spinner("Matching your result to an indicator…"):
+                            from council import match_logframe_indicator
+                            _lf_match = match_logframe_indicator(_lf_rs, _lf_indicators, _lf_api_key)
+                        st.session_state[f"_lf_match_result{s}"] = _lf_match
+                        if _lf_match.get("confidence_label") != "None" and _lf_match.get("best_match"):
+                            st.session_state[f"logframe_indicator{s}"] = _lf_match["best_match"]
+                            st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
+                        st.rerun()
+
+                _lf_result = st.session_state.get(f"_lf_match_result{s}")
+                if _lf_result:
+                    _lf_cl = _lf_result.get("confidence_label", "None")
+                    if _lf_cl == "None" or not _lf_result.get("best_match"):
+                        st.info("No confident match found — enter the indicator manually below.")
+                    else:
+                        st.success(
+                            f"AI-suggested match ({_lf_cl.lower()} confidence) — confirm against "
+                            f"your approved logframe before submitting."
+                        )
+                        if _lf_result.get("justification"):
+                            st.caption(_lf_result["justification"])
+
         _irc_widget(
             st.text_input,
             "Logframe indicator",
@@ -3764,11 +3815,11 @@ def _render_tab3_slot(slot: int):
 
     st.caption("📊 **Affects Directness score** (max 2.0 — the system uses this to determine your evidence ceiling. Systematic Reviews and RCTs unlock the highest Directness score.)")
     _irc_widget(
-        st.radio, "Primary evidence type (select your strongest source)", f"evidence_type{s}", default=EVIDENCE_TYPES[1],
-        options=EVIDENCE_TYPES[1:],  # skip placeholder — radio shows all options at once
+        st.radio, "Primary evidence type (select your strongest source)", f"evidence_type{s}", default=EVIDENCE_TYPES[0],
+        options=EVIDENCE_TYPES,  # placeholder included as a real option so "not yet chosen" is a detectable state
         help=EVIDENCE_TYPE_HELP,
     )
-    ev_type = st.session_state.get(f"evidence_type{s}", EVIDENCE_TYPES[1])
+    ev_type = st.session_state.get(f"evidence_type{s}", EVIDENCE_TYPES[0])
     ev_desc = st.session_state.get(f"evidence_description{s}", "")
     _dl = _evaluator.get_directness_level(ev_type, ev_desc)
     _ds = round((_dl / 5) * 2.0, 1)
@@ -6293,7 +6344,10 @@ def render_screen_1():
         _checks_gate = (_u_gate or {}).get("free_checks_used", 0)
         _paid_gate = is_still_paid(_u_gate)  # DB-authoritative; session state is display-only
         if not _paid_gate and _checks_gate >= FREE_CHECKS_LIMIT:
-            st.warning("You've used your free checks — upgrade below to score this result.")
+            st.info(
+                "You've used your 3 free checks — scoring this result is still free. "
+                "Downloading the Readiness Card PDF or using Instant Report Check will need an upgrade."
+            )
 
         # GDPR consent — shown after email confirmed
         st.checkbox(
