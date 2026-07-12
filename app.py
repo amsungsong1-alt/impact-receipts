@@ -2038,7 +2038,7 @@ def _metrics_session_id() -> str:
 
 def _render_tagline_footer():
     st.markdown(
-        '<div class="trust-tagline">ImpactProof · Upload your report. Get a determination for every result. Submit with confidence. · Built in Accra</div>',
+        '<div class="trust-tagline">ImpactProof · Upload your report. Get a determination for every result. Submit with confidence. · Built in Accra 🇬🇭 · AI-powered, fabrication-proof</div>',
         unsafe_allow_html=True,
     )
     st.caption("We log anonymous usage counts only — never your results or documents.")
@@ -4909,6 +4909,22 @@ def render_screen_0():
     with _di_c3:
         st.metric("Fix routing", "Ranked by impact",
                   help="Each fix is ranked by score impact — the highest-leverage action is always first.")
+
+    with st.expander("🤖 How the AI works", expanded=False):
+        st.markdown(
+            "- **AI reads & interrogates** — the 5-Member Council Assessment asks the "
+            "questions a donor reviewer would ask, and AI Logframe Match suggests the "
+            "closest-fit indicator from your own list.\n"
+            "- **Rules score deterministically** — Confidence and Clarity always come from "
+            "the same eight rule-based criteria above, never from the AI. Same inputs, same "
+            "score, every time.\n"
+            "- **Nothing is ever fabricated** — every AI-drafted rewrite is machine-checked "
+            "against your own submission before it's shown; anything it can't verify is "
+            "withheld, not guessed.\n\n"
+            "Built with Ghana's Data Protection Act 843 and responsible-AI practice in mind — "
+            "AI output is always labelled and editable, and your documents are never used to "
+            "invent facts about your project."
+        )
 
     # ── Quick Check (now secondary — inside expander) ──────────────────────
     with st.expander("⚡ Quick Check — instant provisional scores (60 seconds)", expanded=True):
