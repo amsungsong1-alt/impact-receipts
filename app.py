@@ -2351,6 +2351,20 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
             else:
                 _detail = last_payment_error()
                 st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
+        if st.session_state.get("_pay_annual_url"):
+            st.link_button(f"Complete annual payment →", st.session_state["_pay_annual_url"],
+                           use_container_width=True)
+        elif st.button(f"Or pay GHS {PRICE_ANNUAL_GHS/100:.0f}/year (2 months free)",
+                       key="pay_annual", use_container_width=True):
+            with st.spinner("Preparing payment link…"):
+                _url = initialize_payment(email, PRICE_ANNUAL_GHS, "annual")
+            if _url:
+                st.session_state["_pay_annual_url"] = _url
+                metrics.log_event("payment_initiated", _metrics_session_id())
+                st.rerun()
+            else:
+                _detail = last_payment_error()
+                st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
     with _c3:
         st.markdown(f"**Agency:** GHS {PRICE_AGENCY_GHS/100:.0f}/month")
         st.caption("Portfolio analysis · 5 seats")
@@ -4968,9 +4982,11 @@ def render_screen_0():
 
     with st.expander("🤖 How the AI works", expanded=False):
         st.markdown(
-            "- **AI reads & interrogates** — the 5-Member Council Assessment asks the "
-            "questions a donor reviewer would ask, and AI Logframe Match suggests the "
-            "closest-fit indicator from your own list.\n"
+            "- **AI reads & interrogates** — a panel of 5 AI reviewers (each modelled on a "
+            "different reviewer type: evidence auditor, programme strategist, critical "
+            "reviewer, implementation guide, and donor representative) asks the questions a "
+            "real donor reviewer would ask, and AI Logframe Match suggests the closest-fit "
+            "indicator from your own list.\n"
             "- **Rules score deterministically** — Confidence and Clarity always come from "
             "the same eight rule-based criteria above, never from the AI. Same inputs, same "
             "score, every time.\n"
@@ -5128,7 +5144,7 @@ def render_screen_0():
                 <li><strong>ImpactProof decides — ChatGPT suggests.</strong> Our scoring engine determines evidence quality against named donor standards and routes you to your highest-impact fix. A chatbot gives you a paragraph. We give you a determination and a ranked fix queue.</li>
                 <li>Every determination traces to a <strong>named standard</strong> (USAID ADS 201.3.5.7, Bond 2024, FCDO)</li>
                 <li>The same result <strong>always produces the same determination</strong> — no LLM randomness</li>
-                <li>The output is a <strong>citable PDF with a reference ID</strong>, not a chat screenshot</li>
+                <li>The output is a <strong>citable Readiness Card PDF with a reference ID</strong>, not a chat screenshot</li>
                 <li>Audit My Report determines <strong>10+ results in 60 seconds</strong> against the same rubric — consistently</li>
               </ul>
             </div>
@@ -6271,10 +6287,19 @@ def render_screen_1():
             "result_statement": 0, "target_group": 0, "timeframe": 0, "geographic_scope": 0,
             "evidence_description": 2, "evidence_type": 2,
         }
+        # The Child Safeguarding Alert (Tab 3) implies a hard block -- make it one,
+        # rather than a red banner a user can submit straight past.
+        if _minors_possibly_involved(1):
+            _REQUIRED_FIELDS_B.append(
+                ("gov_child_safeguarding_status", "Child safeguarding check (Tab 3 — Data Governance Checklist)")
+            )
+            _TAB_IDX_B["gov_child_safeguarding_status"] = 2
         _missing_b = [
             (key, lbl) for key, lbl in _REQUIRED_FIELDS_B
             if not str(st.session_state.get(key, "")).strip()
-            or st.session_state.get(key, "") in (EVIDENCE_TYPES[0], "Choose an option...", "")
+            or st.session_state.get(key, "") in (
+                EVIDENCE_TYPES[0], "Choose an option...", "Select child safeguarding status...", ""
+            )
         ]
         _completed_b = len(_REQUIRED_FIELDS_B) - len(_missing_b)
 
@@ -6910,11 +6935,11 @@ def _render_council_assessment(submission: dict, ev: dict, card_idx: int, api_ke
                 st.markdown(
                     f"<div style='border:1px solid {v.get('color','#ccc')};border-radius:6px;"
                     f"padding:10px 12px;margin-bottom:6px;'>"
-                    f"<div style='font-size:12px;font-weight:700;color:{v.get('color','#333')};'>"
+                    f"<div style='font-size:13px;font-weight:700;color:{v.get('color','#333')};'>"
                     f"{v.get('icon','')} {v.get('name','')}</div>"
-                    f"<div style='font-size:10px;color:#757575;margin-bottom:6px;'>"
+                    f"<div style='font-size:11px;color:#757575;margin-bottom:6px;'>"
                     f"{v.get('archetype','')}</div>"
-                    f"<div style='font-size:12px;line-height:1.55;'>"
+                    f"<div style='font-size:13px;line-height:1.6;'>"
                     f"{v.get('verdict_text','').replace(chr(10),'<br>')}</div>"
                     f"</div>",
                     unsafe_allow_html=True,
@@ -7135,6 +7160,10 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         confidence=round(conf_score * 20),
         clarity=round(clar_score * 20),
         verified=True,
+    )
+    st.caption(
+        f"Shown out of 100 for a quick read — the same score is **{conf_score}/5.0** Confidence "
+        f"and **{clar_score}/5.0** Clarity in the breakdown below."
     )
     _pev = _PLAIN_ENGLISH_VERDICT.get(diag_state, "")
     if _pev:
@@ -7539,16 +7568,15 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     _rr_paid = st.session_state.get("is_paid", False)
     if diag_state in ("FUNDAMENTALLY WEAK", "UNDEREVIDENCED") and not _rr_paid:
         st.markdown(
-            "<div style='background:#FEF3F2;border:1px solid #FFCDD2;border-radius:8px;"
+            "<div style='background:#FFFBF2;border:1px solid #FFE0B2;border-radius:8px;"
             "padding:14px 18px;margin:12px 0;'>"
-            "<p style='font-weight:700;color:#B71C1C;margin:0 0 6px;font-size:0.95rem;'>"
-            "⚠️ This result risks donor rejection</p>"
+            "<p style='font-weight:700;color:#8A6500;margin:0 0 6px;font-size:0.95rem;'>"
+            "💡 Worth fixing before you submit</p>"
             "<p style='font-size:0.85rem;color:#374151;margin:0 0 8px;'>"
             "USAID Learning Lab (2024): 3 of 5 DQA failures are predictable from evidence "
-            "quality gaps like these — before the report is submitted. "
-            "Reworking a rejected USAID or FCDO quarterly report costs "
-            "<strong>40+ hours of senior staff time</strong> — at Ghana MEL consultant rates "
-            "of GHS 1,200–1,800/day, that is <strong>GHS 12,000–17,000 per rejection event.</strong>"
+            "quality gaps like these — catching them now is far cheaper than reworking a "
+            "rejected report later. At Ghana MEL consultant rates (GHS 1,200–1,800/day), "
+            "40+ hours of rework runs <strong>GHS 12,000–17,000</strong> — this fix list is free."
             "</p>"
             "<p style='font-size:0.85rem;color:#374151;margin:0;'>"
             "<strong>ImpactProof Professional catches this before your donor does "
@@ -11594,6 +11622,7 @@ def main():
                 st.session_state.pop("_pay_once_url", None)
                 st.session_state.pop("_pay_monthly_url", None)
                 st.session_state.pop("_pay_agency_url", None)
+                st.session_state.pop("_pay_annual_url", None)
                 st.session_state["screen"] = 1
                 st.session_state["current_tab"] = 0
                 st.query_params["screen"] = "1"
