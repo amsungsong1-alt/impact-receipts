@@ -3921,10 +3921,15 @@ def _render_tab3_slot(slot: int):
     _minors_triggered = _minors_possibly_involved(slot)
     _compliance_needed = _pii_triggered or _safeguarding_triggered or _minors_triggered
 
-    # ── ADVANCED DETAILS (collapsed by default; auto-opens for PII/safeguarding) ──
+    # ── ADVANCED DETAILS (auto-opens for PII/safeguarding, or until Verification —
+    # the single biggest lever in Confidence — has been answered at least once) ──
+    _verification_unanswered = (
+        st.session_state.get(f"internal_review{s}", "Choose an option...") == "Choose an option..."
+        or st.session_state.get(f"external_review{s}", "Choose an option...") == "Choose an option..."
+    )
     with st.expander(
         "⚙️ Improve your score — Advanced details (up to +2.0 points)" + (" — ⚠️ compliance required" if _compliance_needed else ""),
-        expanded=_compliance_needed,
+        expanded=(_compliance_needed or _verification_unanswered),
     ):
         st.caption("Filling these fields can improve your Confidence score by up to +2.0 points. Leave them blank to skip — you can always come back.")
         # Qualitative evidence checkbox + quality checks
@@ -6157,6 +6162,14 @@ def render_screen_1():
                             else:
                                 st.warning(f"Provisional Confidence: {_qc:.1f}/5.0 🔴 — evidence needs significant work.")
                             st.caption("Provisional only — complete Tabs 2–4 for your full scored report.")
+                            # Carry this through to Tab 3 instead of discarding it — only
+                            # seeds the real fields if they're still untouched there, so it
+                            # never overwrites something the user already typed in Tab 3.
+                            if not _ss_str("evidence_description").strip():
+                                st.session_state["evidence_description"] = _qe_desc
+                            if st.session_state.get("evidence_type", EVIDENCE_TYPES[0]) == EVIDENCE_TYPES[0]:
+                                st.session_state["evidence_type"] = _qe_type
+                            st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
                         except Exception:
                             pass
             st.success("✓ Result defined. A reviewer can now check this against your logframe — donor question 1 answered.")
@@ -7240,7 +7253,10 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         "✅ Reference breakdown — no action required" if diag_state == "STRONG"
         else "🔍 See full breakdown — scores, evidence ladder, donor readiness"
     )
-    _s2_breakdown_open = st.session_state.get(f"_s2_breakdown_open_{card_idx}", diag_state == "STRONG")
+    # Open by default for anything that isn't already STRONG -- those are exactly
+    # the users who need to see the diagnosis, not the ones who least need it.
+    _s2_breakdown_default = diag_state != "STRONG"
+    _s2_breakdown_open = st.session_state.get(f"_s2_breakdown_open_{card_idx}", _s2_breakdown_default)
     if st.button(
         ("▼ Hide breakdown" if _s2_breakdown_open else "▶ " + _s2_breakdown_label),
         key=f"s2_breakdown_toggle_{card_idx}",
@@ -7249,7 +7265,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         st.session_state[f"_s2_breakdown_open_{card_idx}"] = not _s2_breakdown_open
         st.rerun()
 
-    if not st.session_state.get(f"_s2_breakdown_open_{card_idx}", diag_state == "STRONG"):
+    if not st.session_state.get(f"_s2_breakdown_open_{card_idx}", _s2_breakdown_default):
         return  # User hasn't opened breakdown — show nothing more
 
     # --- Four Funder Questions summary (top of report) ---
@@ -7348,7 +7364,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         if hasattr(st, "secrets") else
         __import__("os").environ.get("ANTHROPIC_API_KEY", "")
     )
-    with st.expander("🏛 Council Assessment — Upgrade Recommendations", expanded=False):
+    with st.expander("🏛 Council Assessment — Upgrade Recommendations", expanded=(diag_state != "STRONG")):
         _render_council_assessment(submission, ev, card_idx, _ca_api_key)
 
     # Reporting period validation on Screen 2
@@ -7784,16 +7800,6 @@ def render_screen_2():
             else:
                 st.caption(f"📈 Capacity journey: INGO-equivalent gap — {_ingo_gap:.1f} more needed on the weaker axis to meet the 4.0 bilateral-donor threshold.")
 
-    # n≥2 portfolio readiness callout — shown at the moment of maximum engagement
-    if n >= 2:
-        if st.button(
-            f"📊 You've scored {n} results — run a portfolio analysis to see which is weakest →",
-            key="s2_portfolio_n2_cta",
-            use_container_width=True,
-            type="primary",
-        ):
-            _go_to_screen(3)
-
     # (Unfair advantage message removed — council XVIII: marketing copy at result stage is noise)
 
     # Primary download — 2–3 page Readiness Card (shareable with MEL lead / donor)
@@ -7843,8 +7849,13 @@ def render_screen_2():
         _render_paywall()
 
     # Post-download CTA — primary next step after getting the determination
+    _portfolio_cta_label = (
+        f"📊 You've scored {n} results — run a portfolio analysis to see which is weakest →"
+        if n >= 2 else
+        "📊 Portfolio analysis — score all your indicators at once →"
+    )
     if st.button(
-        "📊 Portfolio analysis — score all your indicators at once →",
+        _portfolio_cta_label,
         key="s2_portfolio_cta",
         use_container_width=True,
         help="Upload a CSV of your full logframe to see which indicators are weakest.",
@@ -7884,33 +7895,6 @@ def render_screen_2():
         "💡 **Save your Readiness Card.** The next time you check a result, your "
         "📈 Improvement over time tracker will show how your evidence quality has grown."
     )
-
-    # Elevated WhatsApp share CTA (Council XXVII) — front-and-centre, not buried in expander
-    if evs:
-        import urllib.parse as _urlparse
-        _wa_ev0 = evs[0]
-        _wa_cf = _wa_ev0.get("confidence_score", 0)
-        _wa_cl = _wa_ev0.get("clarity_score", 0)
-        _wa_fixes = _wa_ev0.get("fixes", [])
-        _wa_state = _wa_ev0.get("diagnostic_state", "")
-        _wa_tf = _wa_fixes[0]["message"] if _wa_fixes else "Review complete."
-        def _wa_icon(s): return "✅" if s >= 4.0 else "⚠️" if s >= 3.0 else "🔴"
-        _wa_text = (
-            f"📊 ImpactProof Evidence Check\n"
-            f"Confidence: {_wa_cf}/5.0 {_wa_icon(_wa_cf)}  ·  Clarity: {_wa_cl}/5.0 {_wa_icon(_wa_cl)}\n"
-            f"Verdict: {_wa_state}\n"
-            f"Top action: {_wa_tf}\n"
-            f"Check your report: https://impact-proof.streamlit.app"
-        )
-        _wa_url = "https://wa.me/?text=" + _urlparse.quote(_wa_text)
-        st.markdown(
-            f'<a href="{_wa_url}" target="_blank" '
-            f'style="display:block;text-align:center;background:#25D366;color:white;'
-            f'padding:13px 18px;border-radius:8px;text-decoration:none;font-weight:700;'
-            f'font-size:1rem;margin:8px 0;">📱 Share result on WhatsApp — tell your team what to fix</a>',
-            unsafe_allow_html=True,
-        )
-        st.caption("Opens WhatsApp with your score, verdict, and top action. Works on phone and desktop.")
 
     st.divider()
 
@@ -7959,6 +7943,35 @@ def render_screen_2():
                     )
             except Exception:
                 pass
+
+    # Elevated WhatsApp share CTA (Council XXVII) — moved here, after the fix queue
+    # (when there is one), so sharing happens once the user has seen what to fix.
+    # Unconditional on evs so a STRONG result with no fixes can still be shared.
+    if evs:
+        import urllib.parse as _urlparse
+        _wa_ev0 = evs[0]
+        _wa_cf = _wa_ev0.get("confidence_score", 0)
+        _wa_cl = _wa_ev0.get("clarity_score", 0)
+        _wa_fixes = _wa_ev0.get("fixes", [])
+        _wa_state = _wa_ev0.get("diagnostic_state", "")
+        _wa_tf = _wa_fixes[0]["message"] if _wa_fixes else "Review complete."
+        def _wa_icon(s): return "✅" if s >= 4.0 else "⚠️" if s >= 3.0 else "🔴"
+        _wa_text = (
+            f"📊 ImpactProof Evidence Check\n"
+            f"Confidence: {_wa_cf}/5.0 {_wa_icon(_wa_cf)}  ·  Clarity: {_wa_cl}/5.0 {_wa_icon(_wa_cl)}\n"
+            f"Verdict: {_wa_state}\n"
+            f"Top action: {_wa_tf}\n"
+            f"Check your report: https://impact-proof.streamlit.app"
+        )
+        _wa_url = "https://wa.me/?text=" + _urlparse.quote(_wa_text)
+        st.markdown(
+            f'<a href="{_wa_url}" target="_blank" '
+            f'style="display:block;text-align:center;background:#25D366;color:white;'
+            f'padding:13px 18px;border-radius:8px;text-decoration:none;font-weight:700;'
+            f'font-size:1rem;margin:8px 0;">📱 Share result on WhatsApp — tell your team what to fix</a>',
+            unsafe_allow_html=True,
+        )
+        st.caption("Opens WhatsApp with your score, verdict, and top action. Works on phone and desktop.")
         st.divider()
 
     for i, (sub, ev) in enumerate(zip(subs, evs)):
