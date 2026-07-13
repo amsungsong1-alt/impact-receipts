@@ -2355,12 +2355,15 @@ def _plan_code(secret_name: str) -> str:
     )
 
 
-def _render_paywall(irc_context: bool = False, custom_message: str | None = None):
+def _render_paywall(irc_context: bool = False, custom_message: str | None = None,
+                     prompt_context: str = "limit_hit"):
     """Show upgrade/payment options. irc_context=True suppresses the free-checks header.
     custom_message overrides the default re-scoring copy for call sites gating a
     different feature (e.g. Audit My Report, CSV Portfolio) so the paywall accurately
-    describes what the user actually got blocked on."""
+    describes what the user actually got blocked on. prompt_context identifies which
+    high-intent moment triggered this paywall, for upgrade_prompt_shown/_clicked metrics."""
     email = st.session_state.get("user_email", "")
+    metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context=prompt_context)
     if custom_message is not None:
         st.markdown(custom_message)
     elif not irc_context:
@@ -2370,7 +2373,9 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
             "- **Re-score after every fix** — see exactly how much each change moves your score\n"
             "- **⚡ Instant Report Check** — upload your draft report and auto-fill all fields in seconds\n"
             "- **Downloadable PDF report** — shareable with your supervisor or donor\n\n"
-            f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited*"
+            f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited*\n\n"
+            "💡 *The ROI is immediate: GHS 50/month vs. GHS 12,000–17,000 in rework costs "
+            "from a donor-queried report.*"
         )
     _c1, _c2, _c3 = st.columns(3)
     with _c1:
@@ -2384,6 +2389,7 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
             if _url:
                 st.session_state["_pay_once_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
+                metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context=prompt_context)
                 st.rerun()
             else:
                 _detail = last_payment_error()
@@ -2405,6 +2411,7 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
             if _url:
                 st.session_state["_pay_monthly_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
+                metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context=prompt_context)
                 st.rerun()
             else:
                 _detail = last_payment_error()
@@ -2424,6 +2431,7 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
             if _url:
                 st.session_state["_pay_annual_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
+                metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context=prompt_context)
                 st.rerun()
             else:
                 _detail = last_payment_error()
@@ -2445,6 +2453,7 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
             if _url:
                 st.session_state["_pay_agency_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
+                metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context=prompt_context)
                 st.rerun()
             else:
                 _detail = last_payment_error()
@@ -5703,9 +5712,10 @@ def render_screen_1():
                         "- **Upload your report** — AI reads it and pre-fills all form fields instantly\n"
                         "- **Fills every field your document contains** — skips only what isn't there, flags it clearly\n"
                         "- **Honest extraction** — only fills what's in your document, never invents\n\n"
-                        f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited checks + IRC*"
+                        f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited checks + IRC*\n\n"
+                        "💡 *GHS 50/month vs. GHS 12,000–17,000 in rework costs from a donor-queried report.*"
                     )
-                    _render_paywall(irc_context=True)
+                    _render_paywall(irc_context=True, prompt_context="irc_attempt")
                 else:
                     # Multi-result extraction UI
                     _irc_n = st.radio(
@@ -6996,6 +7006,7 @@ def _render_council_assessment(submission: dict, ev: dict, card_idx: int, api_ke
         return "High Risk"
 
     if not has_access:
+        metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context="council_attempt")
         st.markdown(
             "**5-Member Council Assessment** reviews your result from 5 expert lenses "
             "and produces a plain-English upgrade brief your reporting team can act on."
@@ -7012,8 +7023,10 @@ def _render_council_assessment(submission: dict, ev: dict, card_idx: int, api_ke
         with col_d:
             st.metric("Clarity (projected)", f"{proj_clar}/5.0",
                       delta=f"+{round(proj_clar - clar_score, 2)}")
-        st.caption("Upgrade to Professional to run the full council assessment.")
+        st.caption("Upgrade to Professional to run the full council assessment — "
+                   "GHS 50/month vs. GHS 12,000–17,000 in rework costs from a donor-queried report.")
         if st.button("Upgrade to Professional →", key=f"council_upgrade_{card_idx}", type="primary"):
+            metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context="council_attempt")
             st.session_state["_show_pricing"] = True
             st.rerun()
         return
@@ -7182,11 +7195,14 @@ def _render_help_chat(submission: dict, ev: dict, donor: str = "", card_idx: int
     has_access = check_access(email)["allowed"]
 
     if not has_access:
+        metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context="chat_attempt")
         st.info(
             "Score chat is available on the **Professional plan**. "
-            "Upgrade to ask questions about your score and get rubric-based guidance."
+            "Upgrade to ask questions about your score and get rubric-based guidance — "
+            "GHS 50/month vs. GHS 12,000–17,000 in rework costs from a donor-queried report."
         )
         if st.button("Upgrade to Professional →", key=f"chat_upgrade_{card_idx}", type="primary"):
+            metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context="chat_attempt")
             st.session_state["_show_pricing"] = True
             st.rerun()
         return
@@ -7694,7 +7710,9 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
 
     # Fear-of-rejection ROI hook (Council XXVII) — surface rework cost for highest-risk results
     _rr_paid = st.session_state.get("is_paid", False)
-    if diag_state in ("FUNDAMENTALLY WEAK", "UNDEREVIDENCED") and not _rr_paid:
+    if diag_state in ("FUNDAMENTALLY WEAK", "UNDEREVIDENCED", "MISLEADING") and not _rr_paid:
+        _rr_context = f"high_risk_{diag_state.lower().replace(' ', '_')}"
+        metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context=_rr_context)
         st.markdown(
             "<div style='background:#FFFBF2;border:1px solid #FFE0B2;border-radius:8px;"
             "padding:14px 18px;margin:12px 0;'>"
@@ -7718,6 +7736,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             type="primary",
             use_container_width=True,
         ):
+            metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context=_rr_context)
             st.session_state["_show_pricing"] = True
             st.rerun()
 
@@ -7958,7 +7977,7 @@ def render_screen_2():
             )
     else:
         st.info("📄 **Your score is above.** Upgrade to download the Readiness Card.")
-        _render_paywall()
+        _render_paywall(prompt_context="limit_hit")
 
     # Post-download CTA — primary next step after getting the determination
     _portfolio_cta_label = (
@@ -8186,7 +8205,7 @@ def render_screen_2():
             _go_to_screen(1, reset=True)
 
     # Stage 2 Engagement Card — shown only for weak results
-    if evs and evs[0].get("diagnostic_state", "") in ("FUNDAMENTALLY WEAK", "UNDEREVIDENCED"):
+    if evs and evs[0].get("diagnostic_state", "") in ("FUNDAMENTALLY WEAK", "UNDEREVIDENCED", "MISLEADING"):
         st.divider()
         with st.container(border=True):
             st.markdown("#### Want someone to look at this with you?")
@@ -9729,7 +9748,7 @@ def _render_score_my_report_tab():
         st.warning(
             "You've used your 3 free checks. Upgrade to Professional to process more reports."
         )
-        _render_paywall(custom_message=(
+        _render_paywall(prompt_context="audit_attempt", custom_message=(
             "### Upgrade to keep using Audit My Report\n\n"
             "You've used your 3 free document uploads. Upgrade to Professional to keep going:\n\n"
             "- **Unlimited document uploads** — extract and determine every result automatically\n"
@@ -9986,13 +10005,16 @@ def _render_score_my_report_tab():
     _portfolio_chat_allowed = check_access(_smr_email)["allowed"]
     with st.expander("💬 Ask about your results", expanded=False):
         if not _portfolio_chat_allowed:
+            metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context="portfolio_chat_attempt")
             st.info(
                 "Portfolio Q&A is available on the **Professional plan**. "
                 "Ask the system direct decision questions: 'Which KPI needs the most work?', "
                 "'What is my systemic gap?', 'Which results are at risk of a donor query?' "
-                "— the system routes you to the highest-leverage actions across your entire portfolio."
+                "— the system routes you to the highest-leverage actions across your entire portfolio. "
+                "GHS 50/month vs. GHS 12,000–17,000 in rework costs from a donor-queried report."
             )
             if st.button("Upgrade to Professional →", key="smr_chat_upgrade", type="primary"):
+                metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context="portfolio_chat_attempt")
                 st.session_state["_show_pricing"] = True
                 st.rerun()
         else:
@@ -10070,7 +10092,7 @@ def render_screen_3():
 
         if uploaded is not None and not _csvpf_allowed:
             st.warning("You've used your 3 free checks. Upgrade to Professional to keep using CSV Portfolio.")
-            _render_paywall(custom_message=(
+            _render_paywall(prompt_context="csv_portfolio_attempt", custom_message=(
                 "### Upgrade to keep using CSV Portfolio\n\n"
                 "You've used your 3 free uploads. Upgrade to Professional to keep going:\n\n"
                 "- **Unlimited portfolio uploads** — assess your full logframe or re-score after fixes\n"

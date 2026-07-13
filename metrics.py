@@ -32,6 +32,8 @@ EVENT_TYPES = {
     "payment_initiated",
     "payment_completed",
     "score_uplift",
+    "upgrade_prompt_shown",
+    "upgrade_prompt_clicked",
 }
 
 
@@ -42,9 +44,14 @@ def session_hash(raw_id: str) -> str:
 
 
 def log_event(event_type: str, session_id: str, score_band: str = "",
-              score_uplift: float | None = None) -> None:
+              score_uplift: float | None = None, context: str = "") -> None:
     """Append one event. Never raises — a metrics failure must not break the
-    product, the same graceful-degradation contract as the AI features."""
+    product, the same graceful-degradation contract as the AI features.
+
+    context: which trigger fired an upgrade_prompt_shown/upgrade_prompt_clicked
+    event (e.g. "limit_hit", "high_risk_misleading", "irc_attempt") — optional,
+    ignored by every other event type.
+    """
     if event_type not in EVENT_TYPES:
         return
     record = {
@@ -56,6 +63,8 @@ def log_event(event_type: str, session_id: str, score_band: str = "",
         record["score_band"] = score_band
     if score_uplift is not None:
         record["score_uplift"] = score_uplift
+    if context:
+        record["context"] = context
     try:
         with open(METRICS_PATH, "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
