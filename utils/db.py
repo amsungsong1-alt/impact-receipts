@@ -68,13 +68,26 @@ def upsert_user(email: str) -> dict | None:
 
 
 def increment_checks(email: str) -> None:
-    """Increment free_checks_used by 1."""
+    """Increment free_checks_used by 1, atomically.
+
+    Tries the increment_free_checks Postgres RPC first (see
+    supabase/migrations/0001_users_billing_columns.sql), which does the
+    read-modify-write as a single statement and is safe under concurrent
+    calls. Falls back to the previous read-then-upsert behaviour if the RPC
+    isn't available yet (e.g. the migration hasn't been applied in some
+    environment) -- never crashes, only un-atomically races until migrated.
+    """
     if not email:
         return
     try:
         c = _get_client()
         if not c:
             return
+        try:
+            c.rpc("increment_free_checks", {"p_email": email}).execute()
+            return
+        except Exception:
+            pass  # RPC not available yet -- fall back below
         user = get_user(email)
         current = (user or {}).get("free_checks_used", 0)
         c.table("users").upsert({"email": email, "free_checks_used": current + 1}).execute()
