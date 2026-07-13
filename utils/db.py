@@ -252,3 +252,24 @@ def get_examples(field_name: str, sector: str, k: int = 5) -> list[str]:
         return [r["value"] for r in (res.data or [])]
     except Exception:
         return []
+
+
+def get_payment_history(email: str, limit: int = 50) -> list[dict]:
+    """Return this account's payment/invoice history (payments table, newest
+    first), for the billing settings page. [] on any failure or missing email
+    -- the billing page should render an empty state, never crash."""
+    if not email:
+        return []
+    try:
+        c = _get_client()
+        if not c:
+            return []
+        res = (c.table("payments")
+               .select("*")
+               .eq("email", email)
+               .order("created_at", desc=True)
+               .limit(limit)
+               .execute())
+        return res.data or []
+    except Exception:
+        return []

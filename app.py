@@ -48,10 +48,11 @@ try:
         get_user, upsert_user, mark_paid,
         is_still_paid, save_example, get_examples,
         save_user_draft, load_user_draft, clear_user_draft,
+        get_payment_history,
     )
     from utils.paystack import (
         initialize_payment, verify_payment, last_payment_error,
-        initialize_subscription_payment,
+        initialize_subscription_payment, disable_subscription,
     )
     from utils.anonymize import anonymize as _anonymize_value
     from utils.auth import (
@@ -72,10 +73,12 @@ except ImportError:
     def load_user_draft(email): return None
     def clear_user_draft(email): pass
     def get_examples(f, s, k=5): return []
+    def get_payment_history(e, limit=50): return []
     def initialize_payment(e, a, p="per_use"): return ""
     def verify_payment(r): return {"status": "error", "amount": 0, "plan": ""}
     def last_payment_error(): return ""
     def initialize_subscription_payment(e, a, plan_code, plan_label): return ""
+    def disable_subscription(subscription_code, email_token): return False, "Billing is not configured."
     def _anonymize_value(v): return None
     def send_login_email(e, base_url): return False, "Login is not configured.", ""
     def verify_magic_link_token(t): return None
@@ -2024,6 +2027,8 @@ def _init_from_query_params() -> None:
     # Track referral source for conversion analytics
     if "ref" in _p:
         st.session_state["_referral_source"] = _p["ref"]
+    if _p.get("billing") == "1":
+        st.session_state["_show_billing"] = True
 
 
 def _restore_session_from_query_param() -> None:
@@ -4975,6 +4980,116 @@ def render_pricing_page():
                        build_wa_url("pricing_questions", _pq_email),
                        use_container_width=True)
         st.caption("✓ Notified — we'll reply within 24 hours.")
+
+
+def render_billing_page():
+    """Billing & account settings — current plan, invoice history,
+    cancellation, and signed-in devices. Shown when _show_billing=True."""
+    if st.button("← Back", key="billing_back"):
+        st.session_state.pop("_show_billing", None)
+        st.query_params.pop("billing", None)
+        st.rerun()
+
+    st.markdown("## Billing & account")
+
+    email = st.session_state.get("user_email", "")
+    if not email:
+        st.info("Enter your email to view your billing details.")
+        _render_email_gate_inline("_billing")
+        return  # unreachable in practice -- the gate above calls st.stop()
+
+    user = get_user(email) or {}
+    is_paid = is_still_paid(user)
+    plan = (user.get("plan") or "free").capitalize()
+    paid_until = user.get("paid_until", "")
+    subscription_status = user.get("subscription_status", "")
+
+    st.markdown(f"**Account:** {email}")
+    if is_paid:
+        _renewal = f" · active until **{paid_until}**" if paid_until else ""
+        st.success(f"**Plan:** {plan}{_renewal}")
+        if subscription_status == "attention":
+            st.warning("Your last renewal charge failed. Please update your payment method "
+                       "to avoid losing access when your current period ends.")
+    else:
+        _checks_used = user.get("free_checks_used", 0)
+        st.info("**Plan:** Free")
+        st.caption(f"Free checks used: {_checks_used}/{FREE_CHECKS_LIMIT}")
+    if st.button("View plans →", key="billing_view_plans"):
+        st.session_state.pop("_show_billing", None)
+        st.query_params.pop("billing", None)
+        st.session_state["_show_pricing"] = True
+        st.rerun()
+
+    # --- Cancellation ---
+    _sub_code = user.get("paystack_subscription_code", "")
+    _sub_token = user.get("paystack_email_token", "")
+    if is_paid and _sub_code:
+        st.divider()
+        st.markdown("#### Cancel subscription")
+        if st.session_state.get("_confirm_cancel_sub"):
+            st.warning(f"Cancel your subscription? You'll keep access until "
+                       f"{paid_until or 'your current period ends'}.")
+            _cc1, _cc2 = st.columns(2)
+            with _cc1:
+                if st.button("Yes, cancel", key="billing_cancel_confirm",
+                             type="primary", use_container_width=True):
+                    _ok, _msg = disable_subscription(_sub_code, _sub_token)
+                    if _ok:
+                        st.success(f"Subscription cancelled. {_msg}")
+                    else:
+                        st.error(f"Could not cancel automatically: {_msg}. "
+                                 "Contact us and we'll cancel it manually within 24 hours.")
+                        from utils.whatsapp import notify_founder
+                        notify_founder("payment_support", user_email=email)
+                    st.session_state.pop("_confirm_cancel_sub", None)
+            with _cc2:
+                if st.button("Keep subscription", key="billing_cancel_abort",
+                             use_container_width=True):
+                    st.session_state.pop("_confirm_cancel_sub", None)
+                    st.rerun()
+        else:
+            if st.button("Cancel subscription", key="billing_cancel_start"):
+                st.session_state["_confirm_cancel_sub"] = True
+                st.rerun()
+
+    # --- Invoice history ---
+    st.divider()
+    st.markdown("#### Invoice history")
+    _history = get_payment_history(email)
+    if not _history:
+        st.caption("No payments yet.")
+    else:
+        _rows = [{
+            "Date": (h.get("created_at") or "")[:10],
+            "Plan": h.get("plan") or "—",
+            "Amount (GHS)": round((h.get("amount_pesewas") or 0) / 100, 2),
+            "Status": h.get("status", ""),
+        } for h in _history]
+        st.dataframe(_rows, use_container_width=True, hide_index=True)
+
+    # --- Devices / sessions ---
+    st.divider()
+    st.markdown("#### Signed-in devices")
+    _sessions = list_sessions(email)
+    if not _sessions:
+        st.caption("No active sessions found.")
+    else:
+        for _s in _sessions:
+            _s_label = _s.get("user_agent") or "Unknown device"
+            _s_last = (_s.get("last_seen_at") or "")[:16].replace("T", " ")
+            _sc1, _sc2 = st.columns([3, 1])
+            with _sc1:
+                st.caption(f"{_s_label} · last used {_s_last}")
+            with _sc2:
+                if st.button("Sign out", key=f"revoke_{_s.get('token_hash', '')[:12]}",
+                             use_container_width=True):
+                    revoke_session(_s.get("token_hash", ""), email)
+                    st.rerun()
+        if len(_sessions) > 1:
+            if st.button("Sign out of all devices", key="billing_revoke_all"):
+                revoke_all_sessions(email)
+                st.rerun()
 
 
 def _render_ph_landing():
@@ -11736,6 +11851,10 @@ def main():
                  "downloadable report — for offices with slow or unreliable "
                  "internet.",
         )
+        if st.button("💳 Billing & account", key="sidebar_billing_btn", use_container_width=True):
+            st.session_state["_show_billing"] = True
+            st.query_params["billing"] = "1"
+            st.rerun()
 
     # --- Paystack payment callback handler ---
     # Paystack always appends "?trxref=...&reference=..." to the callback_url
@@ -11806,6 +11925,10 @@ def main():
     # Pricing overlay — shown regardless of screen
     if st.session_state.get("_show_pricing"):
         render_pricing_page()
+        return
+    # Billing & account overlay — shown regardless of screen
+    if st.session_state.get("_show_billing"):
+        render_billing_page()
         return
     try:
         screen = st.session_state["screen"]
