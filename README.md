@@ -49,30 +49,47 @@ Set in `.streamlit/secrets.toml` (local) or Streamlit Cloud **App settings → S
 | `SUPABASE_ANON_KEY` | Yes | Supabase anon/public key |
 | `PAYSTACK_SECRET_KEY` | Yes | Paystack secret key (payments) |
 | `PAYSTACK_PUBLIC_KEY` | Yes | Paystack public key |
-| `APP_BASE_URL` | Yes | Your deployed app URL (used for Paystack callback) |
+| `PAYSTACK_PLAN_PROFESSIONAL_MONTHLY` | No | Professional monthly Plan code from `scripts/setup_paystack_plans.py`. Subscribe buttons fall back to a one-off charge if unset. |
+| `PAYSTACK_PLAN_PROFESSIONAL_ANNUAL` | No | Professional annual Plan code, same script. |
+| `PAYSTACK_PLAN_AGENCY_MONTHLY` | No | Agency monthly Plan code, same script. |
+| `APP_BASE_URL` | Yes | Your deployed app URL (used for Paystack callback, magic-link login emails) |
+| `RESEND_API_KEY` | No | Enables magic-link/OTP login emails and results/welcome emails via Resend. Login falls back to unverified email entry if unset. |
+| `RESEND_FROM` | No | From: address for those emails, e.g. `ImpactProof <you@yourdomain.com>`. |
 | `ADMIN_PASSPHRASE` | No | Enables the hidden `?admin=1` usage-metrics view. Leave unset to disable it entirely. |
 
 ### Supabase Setup
 
-Run this SQL in your Supabase SQL editor:
+Apply the migration files in `supabase/migrations/` in order — either `supabase db push`
+(recommended; requires the [Supabase CLI](https://supabase.com/docs/guides/cli) linked to your
+project), or paste each file's SQL into the Supabase SQL editor by hand, oldest first. This
+creates/extends the `users`, `examples`, `wa_conversations`, `login_tokens`, `sessions`, and
+`payments` tables plus the `increment_free_checks` function. Do not hand-write new `ALTER TABLE`
+statements against a running project — add a new numbered file to `supabase/migrations/` instead,
+so the schema stays reproducible from a clean project.
 
-```sql
-create table users (
-  email text primary key,
-  free_checks_used int default 0,
-  is_paid bool default false,
-  paid_until date,
-  created_at timestamptz default now()
-);
+### Webhook setup
 
-create table examples (
-  id bigserial primary key,
-  field_name text not null,
-  sector text not null,
-  value text not null,
-  created_at timestamptz default now()
-);
+Two Supabase Edge Functions need their own deploy step, separate from Streamlit Cloud's
+auto-deploy-on-push:
+
+```bash
+supabase functions deploy whatsapp-webhook
+supabase functions deploy paystack-webhook
 ```
+
+Each function reads its own secrets via `supabase secrets set KEY=value` — **not** the same
+store as Streamlit's `st.secrets`/App settings, even when a value (e.g. `PAYSTACK_SECRET_KEY`)
+is the same key duplicated into both places. After deploying, register each function's URL with
+its provider:
+
+- WhatsApp: Meta developer portal → your app → Webhooks →
+  `https://<PROJECT_REF>.supabase.co/functions/v1/whatsapp-webhook`
+- Paystack: Dashboard → Settings → API Keys & Webhooks →
+  `https://<PROJECT_REF>.supabase.co/functions/v1/paystack-webhook`
+
+Deploy and register `paystack-webhook` *before* pasting real `PAYSTACK_PLAN_*` codes into
+Streamlit secrets — otherwise a subscription's renewal/failure/cancellation events have nowhere
+to land until the webhook exists.
 
 ## Run Locally
 
