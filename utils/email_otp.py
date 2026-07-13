@@ -5,7 +5,7 @@ returns False so callers can fall back to unverified email entry.
 """
 from __future__ import annotations
 import os
-import random
+import secrets
 
 
 _APP_NAME = "ImpactProof"
@@ -38,7 +38,7 @@ def otp_enabled() -> bool:
 
 
 def generate_otp() -> str:
-    return f"{random.randint(0, 999999):06d}"
+    return f"{secrets.randbelow(1_000_000):06d}"
 
 
 def send_otp_email(to_email: str, code: str) -> tuple[bool, str]:
@@ -73,6 +73,50 @@ def send_otp_email(to_email: str, code: str) -> tuple[bool, str]:
         # and can only send to the account owner's address.  Signal this with a
         # special prefix so callers can fall back to simple email entry rather
         # than blocking the user entirely.
+        if resp.status_code == 403 and "domain" in resp.text.lower():
+            return False, "DOMAIN_NOT_VERIFIED:" + resp.text[:200]
+        return False, f"Email service returned {resp.status_code}: {resp.text[:200]}"
+    except Exception as e:
+        return False, str(e)
+
+
+def send_login_email(to_email: str, link_url: str, code: str) -> tuple[bool, str]:
+    """Send a magic-link login email that also carries a 6-digit fallback code
+    (some corporate email security scanners pre-fetch links and silently burn a
+    single-use token before the real user clicks it -- the code lets them in
+    anyway). Returns (success, error_message)."""
+    api_key = _get_secret("RESEND_API_KEY")
+    if not api_key:
+        return False, "Email verification is not configured."
+    from_address = _from_address()
+    try:
+        import requests
+        resp = requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "from": from_address,
+                "to": [to_email],
+                "subject": f"Log in to {_APP_NAME}",
+                "html": (
+                    "<div style='font-family:sans-serif;'>"
+                    "<p>Click below to log in:</p>"
+                    f"<p><a href='{link_url}' "
+                    "style='background:#1B5E20;color:white;padding:10px 20px;border-radius:8px;"
+                    "text-decoration:none;font-weight:700;display:inline-block;'>Log in →</a></p>"
+                    "<p style='color:#616161;font-size:0.875rem;'>This link expires in 20 minutes "
+                    "and works once.</p>"
+                    "<p>Or enter this code instead:</p>"
+                    f"<p style='font-size:28px;font-weight:700;letter-spacing:6px;'>{code}</p>"
+                    "<p style='color:#424242;font-size:0.875rem;'>This code expires in 10 minutes. "
+                    "If you didn't request this, you can safely ignore this email.</p>"
+                    "</div>"
+                ),
+            },
+            timeout=10,
+        )
+        if resp.status_code in (200, 201):
+            return True, ""
         if resp.status_code == 403 and "domain" in resp.text.lower():
             return False, "DOMAIN_NOT_VERIFIED:" + resp.text[:200]
         return False, f"Email service returned {resp.status_code}: {resp.text[:200]}"

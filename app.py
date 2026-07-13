@@ -51,6 +51,11 @@ try:
     )
     from utils.paystack import initialize_payment, verify_payment, last_payment_error
     from utils.anonymize import anonymize as _anonymize_value
+    from utils.auth import (
+        send_login_email, verify_magic_link_token, redeem_magic_link_token,
+        issue_session_token, verify_session_token,
+        list_sessions, revoke_session, revoke_all_sessions,
+    )
     _UTILS_AVAILABLE = True
 except ImportError:
     _UTILS_AVAILABLE = False
@@ -68,15 +73,21 @@ except ImportError:
     def verify_payment(r): return {"status": "error", "amount": 0, "plan": ""}
     def last_payment_error(): return ""
     def _anonymize_value(v): return None
+    def send_login_email(e, base_url): return False, "Login is not configured.", ""
+    def verify_magic_link_token(t): return None
+    def redeem_magic_link_token(t): return None
+    def issue_session_token(e, user_agent=""): return ""
+    def verify_session_token(t): return None
+    def list_sessions(e): return []
+    def revoke_session(token_hash, e): pass
+    def revoke_all_sessions(e): pass
 # --- End utils imports ---
 
 # --- OTP email verification ---
 try:
-    from utils.email_otp import otp_enabled, generate_otp, send_otp_email
+    from utils.email_otp import otp_enabled
 except ImportError:
     def otp_enabled(): return False
-    def generate_otp(): return "000000"
-    def send_otp_email(e, c): return False, "Email verification is not configured."
 # --- End OTP email verification ---
 
 # --- UX: INSTANT REPORT CHECK IMPORTS (v3.2) ---
@@ -1976,7 +1987,7 @@ def _init_from_query_params() -> None:
         return
     st.session_state["_nav_initialized"] = True
     _p = st.query_params
-    if any(k in _p for k in ("paystack_ref", "reference", "trxref")):
+    if any(k in _p for k in ("paystack_ref", "reference", "trxref", "login_token")):
         return
     if "screen" in _p:
         try:
@@ -2003,6 +2014,25 @@ def _init_from_query_params() -> None:
     # Track referral source for conversion analytics
     if "ref" in _p:
         st.session_state["_referral_source"] = _p["ref"]
+
+
+def _restore_session_from_query_param() -> None:
+    """Silently re-authenticate a returning visitor from a bookmarked
+    ?session=... URL. Deliberately lighter-weight than _complete_email_login,
+    which does one-time things (welcome email, pending-payment resolution,
+    draft restore, an unconditional rerun) that shouldn't fire on every normal
+    page load just because a valid session token was found."""
+    if st.session_state.get("user_email"):
+        return
+    _tok = st.query_params.get("session", "")
+    if not _tok:
+        return
+    _email = verify_session_token(_tok)
+    if _email:
+        st.session_state["user_email"] = _email
+        _u = get_user(_email)
+        if _u and is_still_paid(_u):
+            st.session_state["is_paid"] = True
 
 
 def _go_to_screen(screen: int, reset: bool = False):
@@ -4427,6 +4457,11 @@ def _complete_email_login(email: str) -> None:
                 st.session_state["_draft_restored_from_cloud"] = True
         except Exception:
             pass
+    # Issue a durable session token so this browser is recognised on future
+    # visits without retyping the email — mirrored into the URL like screen/tab.
+    _session_tok = issue_session_token(email)
+    if _session_tok:
+        st.query_params["session"] = _session_tok
     st.rerun()
 
 
@@ -4439,7 +4474,8 @@ def _render_email_gate_inline(form_key_suffix: str = "") -> None:
             for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
                 st.session_state.pop(_k, None)
             st.rerun()
-        st.caption(f"We sent a 6-digit code to **{_otp_email}**. Enter it below (expires in 10 minutes).")
+        st.caption(f"We sent a login link and a 6-digit code to **{_otp_email}**. Click the link, "
+                   "or enter the code below (expires in 10 minutes).")
         with st.form(f"otp_verify_form{form_key_suffix}"):
             _otp_input = st.text_input("Verification code", max_chars=6, placeholder="123456")
             _verify_clicked = st.form_submit_button("Verify →", use_container_width=True)
@@ -4458,14 +4494,13 @@ def _render_email_gate_inline(form_key_suffix: str = "") -> None:
         _otp_c1, _otp_c2 = st.columns(2)
         with _otp_c1:
             if st.button("Resend code", use_container_width=True, key=f"resend_otp{form_key_suffix}"):
-                _new_code = generate_otp()
-                with st.spinner("Sending verification code…"):
-                    _ok, _err = send_otp_email(_otp_email, _new_code)
+                with st.spinner("Sending a new login link and code…"):
+                    _ok, _err, _new_code = send_login_email(_otp_email, APP_URL)
                 if _ok:
                     st.session_state["_otp_code"] = _new_code
                     st.session_state["_otp_sent_at"] = time.time()
                     st.session_state["_otp_attempts"] = 0
-                    st.success("New code sent.")
+                    st.success("New link and code sent.")
                 else:
                     st.error(f"Could not send code: {_err}")
         with _otp_c2:
@@ -4475,7 +4510,7 @@ def _render_email_gate_inline(form_key_suffix: str = "") -> None:
                 st.rerun()
     else:
         st.caption(
-            "No password needed. We'll email you a 6-digit code to confirm it's yours."
+            "No password needed. We'll email you a login link and a 6-digit code."
             if otp_enabled() else
             "No password needed. We use your email to save your paid access."
         )
@@ -4489,7 +4524,7 @@ def _render_email_gate_inline(form_key_suffix: str = "") -> None:
                 "Contact: info@impact-receipts.com"
             )
             _gate_email = st.text_input("Email address", placeholder="you@organisation.org")
-            _submit_label = "Send verification code" if otp_enabled() else "Continue →"
+            _submit_label = "Email me a login link" if otp_enabled() else "Continue →"
             if st.form_submit_button(_submit_label, use_container_width=True):
                 if "@" not in _gate_email or "." not in _gate_email.split("@")[-1]:
                     st.warning("Please enter a valid email address.")
@@ -4498,9 +4533,8 @@ def _render_email_gate_inline(form_key_suffix: str = "") -> None:
                 else:
                     _e = _gate_email.strip().lower()
                     if otp_enabled():
-                        _code = generate_otp()
-                        with st.spinner("Sending verification code…"):
-                            _ok, _err = send_otp_email(_e, _code)
+                        with st.spinner("Sending your login link…"):
+                            _ok, _err, _code = send_login_email(_e, APP_URL)
                         if _ok:
                             st.session_state["_otp_email"] = _e
                             st.session_state["_otp_code"] = _code
@@ -4518,6 +4552,37 @@ def _render_email_gate_inline(form_key_suffix: str = "") -> None:
                     else:
                         _complete_email_login(_e)
     st.stop()
+
+
+def _render_login_link_landing(raw_token: str) -> None:
+    """Confirm-click landing for a magic-link login URL (?login_token=...).
+
+    Deliberately requires an explicit click rather than logging in on the bare
+    GET — some corporate email security scanners pre-fetch links, which would
+    otherwise silently burn a single-use token before the real user opens it.
+    """
+    st.markdown("## Log in to ImpactProof")
+    _email = verify_magic_link_token(raw_token)
+    if not _email:
+        st.error("This login link is invalid or has expired. Please request a new one.")
+        if st.button("← Back to ImpactProof"):
+            try:
+                st.query_params.clear()
+            except Exception:
+                pass
+            st.rerun()
+        return
+    st.markdown(f"Log in as **{_email}**?")
+    if st.button("Yes, log me in →", type="primary", use_container_width=True):
+        _confirmed_email = redeem_magic_link_token(raw_token)
+        if _confirmed_email:
+            try:
+                st.query_params.clear()
+            except Exception:
+                pass
+            _complete_email_login(_confirmed_email)
+        else:
+            st.error("This link was already used or has expired. Please request a new one.")
 
 
 # ============================================================
@@ -11617,6 +11682,7 @@ def main():
     st.markdown(CSS, unsafe_allow_html=True)
     inject_matchday_css()
     _init_session_state()
+    _restore_session_from_query_param()
 
     with st.sidebar:
         st.toggle(
@@ -11684,6 +11750,11 @@ def main():
     # --- End Paystack handler ---
 
     _init_from_query_params()
+    # Magic-link login confirm-click landing — shown regardless of screen
+    _login_token = st.query_params.get("login_token", "")
+    if _login_token:
+        _render_login_link_landing(_login_token)
+        return
     # Hidden admin view — usage metrics, passphrase-gated
     if st.query_params.get("admin") == "1":
         _render_admin_view()
