@@ -1,6 +1,12 @@
 """
 Supabase persistence layer — users table + examples table.
 All functions degrade gracefully on DB failure (never crash the app).
+
+Schema (users/login_tokens/sessions/payments columns and tables, plus the
+increment_free_checks RPC used by increment_checks below) is tracked in
+supabase/migrations/ -- apply new migration files in order (`supabase db push`,
+or paste each file's SQL into the Supabase SQL editor) rather than hand-writing
+ALTER TABLE statements against a running project.
 """
 from __future__ import annotations
 import os
