@@ -49,7 +49,10 @@ try:
         is_still_paid, save_example, get_examples,
         save_user_draft, load_user_draft, clear_user_draft,
     )
-    from utils.paystack import initialize_payment, verify_payment, last_payment_error
+    from utils.paystack import (
+        initialize_payment, verify_payment, last_payment_error,
+        initialize_subscription_payment,
+    )
     from utils.anonymize import anonymize as _anonymize_value
     from utils.auth import (
         send_login_email, verify_magic_link_token, redeem_magic_link_token,
@@ -72,6 +75,7 @@ except ImportError:
     def initialize_payment(e, a, p="per_use"): return ""
     def verify_payment(r): return {"status": "error", "amount": 0, "plan": ""}
     def last_payment_error(): return ""
+    def initialize_subscription_payment(e, a, plan_code, plan_label): return ""
     def _anonymize_value(v): return None
     def send_login_email(e, base_url): return False, "Login is not configured.", ""
     def verify_magic_link_token(t): return None
@@ -2338,6 +2342,19 @@ def _compute_governance_score(slot: int):
 # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
 
+def _plan_code(secret_name: str) -> str:
+    """Read a PAYSTACK_PLAN_* code from secrets/env (see
+    scripts/setup_paystack_plans.py). Empty string if not configured yet --
+    callers fall back to a plain one-off transaction in that case, so a
+    Subscribe button never breaks just because a plan code hasn't been
+    pasted into secrets."""
+    return (
+        st.secrets.get(secret_name, "")
+        if hasattr(st, "secrets") else
+        os.environ.get(secret_name, "")
+    )
+
+
 def _render_paywall(irc_context: bool = False, custom_message: str | None = None):
     """Show upgrade/payment options. irc_context=True suppresses the free-checks header.
     custom_message overrides the default re-scoring copy for call sites gating a
@@ -2379,7 +2396,12 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                            use_container_width=True, type="primary")
         elif st.button("Subscribe Professional", key="pay_monthly", use_container_width=True, type="primary"):
             with st.spinner("Preparing payment link…"):
-                _url = initialize_payment(email, PRICE_MONTHLY_GHS, "monthly")
+                _plan_monthly = _plan_code("PAYSTACK_PLAN_PROFESSIONAL_MONTHLY")
+                _url = (
+                    initialize_subscription_payment(email, PRICE_MONTHLY_GHS, _plan_monthly, "monthly")
+                    if _plan_monthly else
+                    initialize_payment(email, PRICE_MONTHLY_GHS, "monthly")
+                )
             if _url:
                 st.session_state["_pay_monthly_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
@@ -2393,7 +2415,12 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
         elif st.button(f"Or pay GHS {PRICE_ANNUAL_GHS/100:.0f}/year (2 months free)",
                        key="pay_annual", use_container_width=True):
             with st.spinner("Preparing payment link…"):
-                _url = initialize_payment(email, PRICE_ANNUAL_GHS, "annual")
+                _plan_annual = _plan_code("PAYSTACK_PLAN_PROFESSIONAL_ANNUAL")
+                _url = (
+                    initialize_subscription_payment(email, PRICE_ANNUAL_GHS, _plan_annual, "annual")
+                    if _plan_annual else
+                    initialize_payment(email, PRICE_ANNUAL_GHS, "annual")
+                )
             if _url:
                 st.session_state["_pay_annual_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
@@ -2409,7 +2436,12 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                            use_container_width=True)
         elif st.button("Subscribe Agency", key="pay_agency", use_container_width=True):
             with st.spinner("Preparing payment link…"):
-                _url = initialize_payment(email, PRICE_AGENCY_GHS, "agency")
+                _plan_agency = _plan_code("PAYSTACK_PLAN_AGENCY_MONTHLY")
+                _url = (
+                    initialize_subscription_payment(email, PRICE_AGENCY_GHS, _plan_agency, "agency")
+                    if _plan_agency else
+                    initialize_payment(email, PRICE_AGENCY_GHS, "agency")
+                )
             if _url:
                 st.session_state["_pay_agency_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
