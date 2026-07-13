@@ -4,6 +4,8 @@ Supports MTN MoMo, Telecel/AirtelTigo Money, and bank cards (Ghana).
 All secrets via st.secrets / environment variables.
 """
 from __future__ import annotations
+import hashlib
+import hmac
 import os
 import requests
 
@@ -135,3 +137,137 @@ def verify_payment(reference: str) -> dict:
         return {"status": "failed", "amount": 0, "plan": "", "email": ""}
     except Exception:
         return {"status": "error", "amount": 0, "plan": "", "email": ""}
+
+
+def initialize_subscription_payment(email: str, amount_kobo: int, plan_code: str, plan_label: str) -> str:
+    """
+    Same as initialize_payment(), but ties the transaction to a Paystack Plan
+    code (see scripts/setup_paystack_plans.py) instead of leaving it a plain
+    one-off charge. Per Paystack's subscription flow, the first successful
+    charge against a plan-tied transaction creates a recurring Subscription
+    that auto-renews (VERIFY against current Paystack docs before relying on
+    this). plan_label keeps flowing through metadata.plan exactly like
+    initialize_payment(), so verify_payment()'s existing metadata-reading
+    logic needs no changes. Returns authorization_url or "" on failure.
+    """
+    global _last_payment_error
+    _last_payment_error = ""
+    key = _secret_key()
+    if not key:
+        _last_payment_error = "PAYSTACK_SECRET_KEY not configured."
+        return ""
+    if not plan_code:
+        _last_payment_error = "Plan not configured."
+        return ""
+    payload = {
+        "email": email,
+        "amount": amount_kobo,
+        "currency": "GHS",
+        "callback_url": _base_url(),
+        "plan": plan_code,
+        "metadata": {"plan": plan_label, "custom_fields": [
+            {"display_name": "Plan", "variable_name": "plan", "value": plan_label}
+        ]},
+    }
+    try:
+        r = requests.post(
+            "https://api.paystack.co/transaction/initialize",
+            json=payload,
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=10,
+        )
+        data = r.json()
+        if data.get("status"):
+            return data["data"].get("authorization_url", "")
+        _last_payment_error = data.get("message", "Paystack returned an error.")
+        return ""
+    except Exception as exc:
+        _last_payment_error = str(exc)
+        return ""
+
+
+def disable_subscription(subscription_code: str, email_token: str) -> tuple[bool, str]:
+    """
+    POST /subscription/disable (VERIFY exact field names against current
+    Paystack docs before relying on this). Cancels a recurring subscription --
+    per Paystack's semantics this does not itself revoke access immediately;
+    the account keeps access until its already-paid-for period lapses, so
+    callers should not flip is_paid here. Returns (success, message).
+    """
+    key = _secret_key()
+    if not key:
+        return False, "PAYSTACK_SECRET_KEY not configured."
+    if not subscription_code or not email_token:
+        return False, "Missing subscription details."
+    try:
+        r = requests.post(
+            "https://api.paystack.co/subscription/disable",
+            json={"code": subscription_code, "token": email_token},
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=10,
+        )
+        data = r.json()
+        if data.get("status"):
+            return True, data.get("message", "Subscription cancelled.")
+        return False, data.get("message", "Paystack returned an error.")
+    except Exception as exc:
+        return False, str(exc)
+
+
+def get_customer(email: str) -> dict:
+    """GET /customer/{email} -- reconciliation helper, not on the page-render
+    hot path. Returns the raw Paystack customer object, or {} on failure."""
+    key = _secret_key()
+    if not key or not email:
+        return {}
+    try:
+        r = requests.get(
+            f"https://api.paystack.co/customer/{email}",
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=10,
+        )
+        data = r.json()
+        return data.get("data", {}) if data.get("status") else {}
+    except Exception:
+        return {}
+
+
+def list_transactions(email: str, limit: int = 20) -> list[dict]:
+    """GET /transaction?customer=... -- reconciliation/debugging helper, not
+    a page-render dependency (the billing page reads the local `payments`
+    table instead, so it never hits the Paystack API synchronously on every
+    load). Returns a list of raw Paystack transaction objects, or [] on
+    failure."""
+    key = _secret_key()
+    if not key or not email:
+        return []
+    try:
+        r = requests.get(
+            "https://api.paystack.co/transaction",
+            params={"customer": email, "perPage": limit},
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=10,
+        )
+        data = r.json()
+        return data.get("data", []) if data.get("status") else []
+    except Exception:
+        return []
+
+
+def verify_webhook_signature(raw_body: bytes, signature_header: str) -> bool:
+    """
+    HMAC-SHA512 of raw_body using the Paystack secret key, compared
+    (constant-time) against signature_header (Paystack's x-paystack-signature
+    request header).
+
+    The production webhook receiver is the Deno Edge Function
+    (supabase/functions/paystack-webhook) -- an independent implementation of
+    this same scheme, since Python and Deno can't share code. This copy
+    exists for a future Python-side reconciliation/replay-debug tool. If the
+    verification scheme ever changes, both must be updated together.
+    """
+    key = _secret_key()
+    if not key or not signature_header:
+        return False
+    computed = hmac.new(key.encode("utf-8"), raw_body, hashlib.sha512).hexdigest()
+    return hmac.compare_digest(computed, signature_header)
