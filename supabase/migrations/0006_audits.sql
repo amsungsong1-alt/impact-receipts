@@ -16,7 +16,7 @@ create table if not exists audits (
   active_slots            int not null,
   submissions_json        jsonb not null,
   evaluations_json        jsonb not null,
-  donor_framework         text,
+  donor                   text,
   sector                  text,
   org_type                text,
   primary_confidence_score double precision,
@@ -25,7 +25,7 @@ create table if not exists audits (
 );
 
 create index if not exists audits_email_idx on audits(email, created_at desc);
-create index if not exists audits_bucket_idx on audits(donor_framework, sector, org_type);
+create index if not exists audits_bucket_idx on audits(donor, sector, org_type);
 
 -- This app has no Supabase Auth integration -- access is enforced in
 -- application code (utils/audits.py scopes every query by email), not RLS.
