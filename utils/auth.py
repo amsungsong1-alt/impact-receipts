@@ -27,6 +27,15 @@ LOGIN_TOKEN_TTL_MINUTES = 20
 SESSION_TOKEN_TTL_DAYS = 60
 SESSION_REFRESH_THRESHOLD_HOURS = 24  # don't write an expiry extension more often than this
 
+_last_token_error: str = ""
+
+
+def last_token_error() -> str:
+    """Reason the most recent generate_magic_link_token()/issue_session_token()
+    call returned "" -- same last-error-string pattern as
+    utils.paystack.last_payment_error()."""
+    return _last_token_error
+
 
 def _hash_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
@@ -60,13 +69,17 @@ def generate_magic_link_token(email: str) -> str:
     constraint and silently returns "" (caught by the except below), which
     is exactly the "Could not create a login link" bug this fixes.
     """
+    global _last_token_error
+    _last_token_error = ""
     if not email:
+        _last_token_error = "No email provided."
         return ""
     upsert_user(email)
     raw = secrets.token_urlsafe(32)
     try:
         c = _get_client()
         if not c:
+            _last_token_error = "No Supabase client (SUPABASE_URL/SUPABASE_ANON_KEY not configured, or connection failed)."
             return ""
         expires_at = (_now() + timedelta(minutes=LOGIN_TOKEN_TTL_MINUTES)).isoformat()
         c.table("login_tokens").insert({
@@ -75,7 +88,8 @@ def generate_magic_link_token(email: str) -> str:
             "expires_at": expires_at,
         }).execute()
         return raw
-    except Exception:
+    except Exception as exc:
+        _last_token_error = f"{type(exc).__name__}: {exc}"
         return ""
 
 
@@ -140,7 +154,8 @@ def send_login_email(email: str, app_base_url: str) -> tuple[bool, str, str]:
         return False, "No email provided.", ""
     raw_token = generate_magic_link_token(email)
     if not raw_token:
-        return False, "Could not create a login link. Please try again.", ""
+        _detail = last_token_error()
+        return False, f"Could not create a login link. Please try again.{' (' + _detail + ')' if _detail else ''}", ""
     code = email_otp.generate_otp()
     sep = "&" if "?" in app_base_url else "?"
     link_url = f"{app_base_url}{sep}login_token={raw_token}"
@@ -159,13 +174,17 @@ def issue_session_token(email: str, user_agent: str = "") -> str:
     upsert_user() first so this doesn't depend on every caller remembering
     to have done that already (see generate_magic_link_token's docstring).
     """
+    global _last_token_error
+    _last_token_error = ""
     if not email:
+        _last_token_error = "No email provided."
         return ""
     upsert_user(email)
     raw = secrets.token_urlsafe(32)
     try:
         c = _get_client()
         if not c:
+            _last_token_error = "No Supabase client (SUPABASE_URL/SUPABASE_ANON_KEY not configured, or connection failed)."
             return ""
         expires_at = (_now() + timedelta(days=SESSION_TOKEN_TTL_DAYS)).isoformat()
         c.table("sessions").insert({
@@ -175,7 +194,8 @@ def issue_session_token(email: str, user_agent: str = "") -> str:
             "user_agent": (user_agent or "")[:200],
         }).execute()
         return raw
-    except Exception:
+    except Exception as exc:
+        _last_token_error = f"{type(exc).__name__}: {exc}"
         return ""
 
 
