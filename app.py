@@ -62,20 +62,13 @@ try:
     )
     from utils.metering import check_access, record_check, FREE_CHECKS_LIMIT
     _UTILS_AVAILABLE = True
-    _UTILS_IMPORT_ERROR_DETAIL = ""
-except ImportError as _utils_import_exc:
+except ImportError:
     _UTILS_AVAILABLE = False
     import logging as _logging
-    import traceback as _traceback
-    _UTILS_IMPORT_ERROR_DETAIL = (
-        f"{type(_utils_import_exc).__name__}: {_utils_import_exc}"
-    )
     _logging.exception(
         "Payment/auth/DB utils failed to import -- app is running in degraded "
         "stub mode (no login, no payments, no usage tracking) until this is fixed."
     )
-    print("=== utils import failure (temporary diagnostic) ===")
-    print(_traceback.format_exc())
     def get_user(e): return None
     def upsert_user(e): return None
     def mark_paid(e, days=30): pass
@@ -92,8 +85,7 @@ except ImportError as _utils_import_exc:
     def initialize_subscription_payment(e, a, plan_code, plan_label): return ""
     def disable_subscription(subscription_code, email_token): return False, "Billing is not configured."
     def _anonymize_value(v): return None
-    def send_login_email(e, base_url):
-        return False, f"Login is not configured. [{_UTILS_IMPORT_ERROR_DETAIL}]", ""
+    def send_login_email(e, base_url): return False, "Login is not configured.", ""
     def verify_magic_link_token(t): return None
     def redeem_magic_link_token(t): return None
     def issue_session_token(e, user_agent=""): return ""

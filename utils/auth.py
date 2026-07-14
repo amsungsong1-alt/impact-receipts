@@ -21,7 +21,7 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from utils.db import _get_client
+from utils.db import _get_client, upsert_user
 
 LOGIN_TOKEN_TTL_MINUTES = 20
 SESSION_TOKEN_TTL_DAYS = 60
@@ -50,9 +50,19 @@ def _parse_ts(value) -> datetime | None:
 # ---------------------------------------------------------------------------
 
 def generate_magic_link_token(email: str) -> str:
-    """Create a login_tokens row; returns the raw token (email it, never store it)."""
+    """Create a login_tokens row; returns the raw token (email it, never store it).
+
+    login_tokens.email is a foreign key to users(email) (see
+    0002_login_tokens.sql), so a brand-new email that has never completed
+    login before has no users row yet -- upsert_user() first ensures one
+    exists, the same way _complete_email_login() already does before
+    issue_session_token(). Without this, the INSERT below fails its FK
+    constraint and silently returns "" (caught by the except below), which
+    is exactly the "Could not create a login link" bug this fixes.
+    """
     if not email:
         return ""
+    upsert_user(email)
     raw = secrets.token_urlsafe(32)
     try:
         c = _get_client()
@@ -143,9 +153,15 @@ def send_login_email(email: str, app_base_url: str) -> tuple[bool, str, str]:
 # ---------------------------------------------------------------------------
 
 def issue_session_token(email: str, user_agent: str = "") -> str:
-    """Create a sessions row; returns the raw token (mirror into ?session=...)."""
+    """Create a sessions row; returns the raw token (mirror into ?session=...).
+
+    sessions.email is a foreign key to users(email), same as login_tokens --
+    upsert_user() first so this doesn't depend on every caller remembering
+    to have done that already (see generate_magic_link_token's docstring).
+    """
     if not email:
         return ""
+    upsert_user(email)
     raw = secrets.token_urlsafe(32)
     try:
         c = _get_client()
