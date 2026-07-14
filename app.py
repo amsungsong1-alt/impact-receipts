@@ -8135,6 +8135,25 @@ def render_screen_2():
         st.info("📄 **Your score is above.** Upgrade to download the Readiness Card.")
         _render_paywall(prompt_context="limit_hit")
 
+    # Opt-in saved audit history — consent toggle right after the download,
+    # the natural "also save this" moment. Off by default; a user who never
+    # checks this sees no other change to this screen.
+    _audit_email = st.session_state.get("user_email", "")
+    if _audit_email:
+        st.checkbox(
+            "💾 Save this audit to my private history (encrypted at rest)",
+            key="save_audit_consent",
+            help="Stored in your account only. View, re-download, or delete past "
+                 "audits anytime from My Audits in the sidebar.",
+        )
+        _audit_saved_key = f"_audit_saved_{_ref_id}"
+        if st.session_state.get("save_audit_consent") and not st.session_state.get(_audit_saved_key):
+            if save_audit(_audit_email, subs, evs, _ref_id):
+                st.session_state[_audit_saved_key] = True
+                st.success("✓ Saved to your private history.")
+            else:
+                st.warning("Could not save this audit right now — your download above still works.")
+
     # Post-download CTA — primary next step after getting the determination
     _portfolio_cta_label = (
         f"📊 You've scored {n} results — run a portfolio analysis to see which is weakest →"
