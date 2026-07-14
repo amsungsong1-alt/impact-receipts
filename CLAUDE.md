@@ -56,7 +56,10 @@ equivalent) before rendering its output.
   (one-off payments + Plan-tied subscriptions, cancellation, webhook signature verification),
   `auth.py` (magic-link login tokens + durable session tokens), `metering.py` (centralized
   free-check/paid-plan access checks — the single place every feature gate should read),
-  `whatsapp.py` (WhatsApp Cloud API notifications/deep-links), `email_otp.py`, `anonymize.py`.
+  `audits.py` (SQLAlchemy-backed opt-in saved audit history, Logframe Library, anonymized
+  benchmark — a second, direct-Postgres access path into the same Supabase database, alongside
+  `db.py`'s REST-based one), `whatsapp.py` (WhatsApp Cloud API notifications/deep-links),
+  `email_otp.py`, `anonymize.py`.
 
 ## Billing & auth
 
@@ -84,6 +87,31 @@ since Streamlit Cloud can't host a custom inbound route) handles renewal/failure
 events and is the DB-authoritative writer for subscription status; `payments` is the durable
 invoice-history table read by the billing settings page.
 
+## Opt-in audit persistence, Logframe Library, benchmark
+
+Off by default, and the stateless no-storage path stays fully functional for anyone who never
+opts in. `utils/audits.py` connects to the same Supabase Postgres database `utils/db.py` uses,
+but directly via SQLAlchemy (a `SUPABASE_DB_URL` connection-string secret) rather than through
+Supabase's REST API — schema lives in `supabase/migrations/0006`–`0008` (the SQLAlchemy models
+map onto that schema, they don't generate it), and every new table there has RLS explicitly
+disabled, matching `0005`'s fix and this app's anon-key/app-level-auth security model.
+
+A user who checks "Save this audit to my private history" on Screen 2 gets one `audits` row per
+submission-run (not per individual result — `evaluations`/`submissions_snapshot` are always a
+run's worth together), viewable/re-downloadable/deletable from the My Audits page. The Logframe
+Library (`logframe_libraries`/`logframe_library_items`) lets a user save a named, reusable
+indicator list from Screen 1's Logframe tab and load it into a future audit instead of retyping
+it — reuses the same column shape as CSV Portfolio upload and IRC batch extraction.
+
+The "How you compare" benchmark (`audit_aggregate_stats`) buckets by `(donor, sector, org_type)`
+— `org_type` matters because it changes the actual pass/fail threshold used for scoring (3.5
+CBO/Government, 3.75 National NGO, 4.0 INGO), so bucketing by donor+sector alone would compare
+submissions scored against different bars. Buckets store raw score arrays only (no submission
+content), recomputed synchronously right after each opt-in save; `get_benchmark()` returns
+`None` below `MIN_BENCHMARK_SAMPLE` (10) rather than showing a percentile from a near-empty
+bucket. Shown both on-screen (`_render_result_card()`) and on the exported PDF
+(`_build_html_report_card()`).
+
 ## AI call sites and models
 
 All Claude calls read `ANTHROPIC_API_KEY` from `st.secrets` with an `os.environ` fallback, and
@@ -96,21 +124,24 @@ recommended aliases before introducing a new call site.
 
 ## Testing
 
-Four plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
+Five plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
 (API-calling functions are tested by temporarily swapping `council._call_haiku`, or
-`utils.paystack.requests`/`utils.db._get_client`/`utils.auth._get_client`, for a fake):
+`utils.paystack.requests`/`utils.db._get_client`/`utils.auth._get_client`, for a fake;
+`test_audits.py` swaps `utils.audits._get_engine` for an in-memory SQLite engine instead, since
+the same SQLAlchemy models work unchanged against either dialect):
 
 ```powershell
 python test_app.py       # evaluator.py + diagnostics.py scoring behaviour
 python test_council.py   # fabrication guard + logframe match
 python test_metrics.py   # metrics event logging/summarization
 python test_billing.py   # auth token lifecycle, metering, Paystack subscriptions/webhook sig
+python test_audits.py    # saved audits, logframe library, benchmark sample-size gate
 ```
 
-All four must pass before pushing a change that touches scoring, AI post-processing, metrics, or
-billing/auth. When you intentionally change scoring behavior, re-baseline `test_app.py`'s golden
-values in the same commit — a scoring change that leaves the golden values stale silently
-breaks the safety net for the next change.
+All five must pass before pushing a change that touches scoring, AI post-processing, metrics,
+billing/auth, or audit persistence. When you intentionally change scoring behavior, re-baseline
+`test_app.py`'s golden values in the same commit — a scoring change that leaves the golden values
+stale silently breaks the safety net for the next change.
 
 ## Deployment
 

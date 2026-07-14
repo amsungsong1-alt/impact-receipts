@@ -47,6 +47,7 @@ Set in `.streamlit/secrets.toml` (local) or Streamlit Cloud **App settings → S
 | `ANTHROPIC_API_KEY` | Yes | Claude API key for Instant Report Check |
 | `SUPABASE_URL` | Yes | Supabase project URL |
 | `SUPABASE_ANON_KEY` | Yes | Supabase anon/public key |
+| `SUPABASE_DB_URL` | No | Direct Postgres connection string (Dashboard → Project Settings → Database → Connection string, **Transaction pooler** mode recommended) for `utils/audits.py`'s SQLAlchemy connection — a separate access path from `SUPABASE_URL`/`SUPABASE_ANON_KEY`'s REST API. Saved audit history, Logframe Library, and the comparison benchmark are unavailable if unset; nothing else is affected. |
 | `PAYSTACK_SECRET_KEY` | Yes | Paystack secret key (payments) |
 | `PAYSTACK_PUBLIC_KEY` | Yes | Paystack public key |
 | `PAYSTACK_PLAN_PROFESSIONAL_MONTHLY` | No | Professional monthly Plan code from `scripts/setup_paystack_plans.py`. Subscribe buttons fall back to a one-off charge if unset. |
@@ -62,10 +63,11 @@ Set in `.streamlit/secrets.toml` (local) or Streamlit Cloud **App settings → S
 Apply the migration files in `supabase/migrations/` in order — either `supabase db push`
 (recommended; requires the [Supabase CLI](https://supabase.com/docs/guides/cli) linked to your
 project), or paste each file's SQL into the Supabase SQL editor by hand, oldest first. This
-creates/extends the `users`, `examples`, `wa_conversations`, `login_tokens`, `sessions`, and
-`payments` tables plus the `increment_free_checks` function. Do not hand-write new `ALTER TABLE`
-statements against a running project — add a new numbered file to `supabase/migrations/` instead,
-so the schema stays reproducible from a clean project.
+creates/extends the `users`, `examples`, `wa_conversations`, `login_tokens`, `sessions`,
+`payments`, `audits`, `logframe_libraries`, `logframe_library_items`, and
+`audit_aggregate_stats` tables plus the `increment_free_checks` function. Do not hand-write new
+`ALTER TABLE` statements against a running project — add a new numbered file to
+`supabase/migrations/` instead, so the schema stays reproducible from a clean project.
 
 ### Webhook setup
 
