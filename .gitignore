@@ -7,3 +7,4 @@ __pycache__/
 *.pyc
 .streamlit/
 metrics_events.jsonl
+supabase/.temp/
