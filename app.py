@@ -3824,6 +3824,78 @@ def _render_tab2_slot(slot: int):
     if _fill_later:
         st.caption("Note: unfilled logframe fields reduce your Clarity score.")
     if not _fill_later:
+        _lib_email = st.session_state.get("user_email", "")
+        if _lib_email:
+            with st.expander("📁 Logframe Library — load or save indicators", expanded=False):
+                _libs = list_logframe_libraries(_lib_email)
+                _lib_names = {lib["name"]: lib["id"] for lib in _libs}
+                if _libs:
+                    _chosen_lib_name = st.selectbox(
+                        "Load from a saved library",
+                        options=["Choose a library..."] + list(_lib_names.keys()),
+                        key=f"_lf_lib_pick{s}",
+                    )
+                    if _chosen_lib_name != "Choose a library...":
+                        _chosen_lib_id = _lib_names[_chosen_lib_name]
+                        _items = get_library_items(_chosen_lib_id, _lib_email)
+                        if _items:
+                            _item_labels = {
+                                (it.get("indicator_name") or it.get("logframe_indicator") or f"Item {i + 1}"): it
+                                for i, it in enumerate(_items)
+                            }
+                            _chosen_item_label = st.selectbox(
+                                "Indicator to load",
+                                options=["Choose an indicator..."] + list(_item_labels.keys()),
+                                key=f"_lf_item_pick{s}",
+                            )
+                            if _chosen_item_label != "Choose an indicator..." and st.button(
+                                "Load into this result", key=f"_lf_lib_load_btn{s}"
+                            ):
+                                _it = _item_labels[_chosen_item_label]
+                                st.session_state[f"logframe_indicator{s}"] = _it.get("logframe_indicator", "")
+                                st.session_state[f"logframe_baseline{s}"] = _it.get("logframe_baseline", "")
+                                st.session_state[f"logframe_target{s}"] = _it.get("logframe_target", "")
+                                st.session_state[f"logframe_achievement{s}"] = _it.get("logframe_achievement", "")
+                                st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
+                                st.rerun()
+                        else:
+                            st.caption("This library has no saved indicators yet.")
+                else:
+                    st.caption("No saved libraries yet — save one below. Manage libraries from My Audits.")
+
+                st.divider()
+                st.caption("Save this result's indicator to a library, to reuse in future audits:")
+                _save_lib_options = ["+ New library..."] + list(_lib_names.keys())
+                _save_lib_choice = st.selectbox("Save to", options=_save_lib_options, key=f"_lf_save_lib_pick{s}")
+                _new_lib_name = ""
+                if _save_lib_choice == "+ New library...":
+                    _new_lib_name = st.text_input(
+                        "New library name", key=f"_lf_new_lib_name{s}",
+                        placeholder="e.g., USAID WASH Program 2025",
+                    )
+                if st.button("Save this indicator to library", key=f"_lf_save_item_btn{s}"):
+                    _cur_indicator = st.session_state.get(f"logframe_indicator{s}", "").strip()
+                    if not _cur_indicator:
+                        st.warning("Fill in a logframe indicator above before saving it to a library.")
+                    else:
+                        _target_lib_id = _lib_names.get(_save_lib_choice)
+                        if _save_lib_choice == "+ New library...":
+                            if _new_lib_name.strip():
+                                _target_lib_id = create_logframe_library(_lib_email, _new_lib_name.strip())
+                            else:
+                                st.warning("Enter a name for the new library.")
+                                _target_lib_id = None
+                        if _target_lib_id:
+                            add_library_items(_target_lib_id, _lib_email, [{
+                                "indicator_name": _cur_indicator,
+                                "logframe_indicator": _cur_indicator,
+                                "logframe_baseline": st.session_state.get(f"logframe_baseline{s}", ""),
+                                "logframe_target": st.session_state.get(f"logframe_target{s}", ""),
+                                "logframe_achievement": st.session_state.get(f"logframe_achievement{s}", ""),
+                                "sector": st.session_state.get("sector", ""),
+                            }])
+                            st.success("Saved to your Logframe Library.")
+
         _lf_api_key = (
             st.secrets.get("ANTHROPIC_API_KEY", "")
             if hasattr(st, "secrets") else
@@ -5160,7 +5232,6 @@ def render_my_audits_page():
     _audits = list_audits(email)
     if not _audits:
         st.caption("No saved audits yet.")
-        return
 
     for _a in _audits:
         _a_id = _a.get("id")
@@ -5204,6 +5275,30 @@ def render_my_audits_page():
                 st.session_state.pop(f"_audit_pdf_{_a_id}", None)
                 st.rerun()
         st.divider()
+
+    # --- Logframe Library management ---
+    st.markdown("#### Logframe Library")
+    st.caption("Named indicator lists you've saved from Screen 1's Logframe tab, reusable across audits.")
+    _libs = list_logframe_libraries(email)
+    if not _libs:
+        st.caption("No libraries saved yet — save one from the Logframe tab while filling out a result.")
+    else:
+        for _lib in _libs:
+            _lib_id = _lib.get("id")
+            _lib_items = get_library_items(_lib_id, email)
+            _lc1, _lc2 = st.columns([3, 1])
+            with _lc1:
+                st.markdown(f"**{_lib.get('name', '')}** — {len(_lib_items)} indicator(s)")
+            with _lc2:
+                if st.button("Delete library", key=f"my_audits_del_lib_{_lib_id}", use_container_width=True):
+                    delete_logframe_library(_lib_id, email)
+                    st.rerun()
+            if _lib_items:
+                with st.expander("View indicators", expanded=False):
+                    for _it in _lib_items:
+                        st.caption(f"• {_it.get('indicator_name') or _it.get('logframe_indicator', '')} "
+                                   f"— baseline {_it.get('logframe_baseline') or '—'}, "
+                                   f"target {_it.get('logframe_target') or '—'}")
 
 
 def _render_ph_landing():
