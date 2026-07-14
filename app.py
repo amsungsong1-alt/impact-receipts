@@ -7633,6 +7633,27 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         f"Shown out of 100 for a quick read — the same score is **{conf_score}/5.0** Confidence "
         f"and **{clar_score}/5.0** Clarity in the breakdown below."
     )
+
+    # "How you compare" — anonymized percentile benchmark, derived from other
+    # users' opted-in saved audits. Viewing this doesn't require this user to
+    # have opted in themselves; the underlying data is score-only, no content.
+    _bm_donor, _bm_sector, _bm_org_type = (
+        submission.get("donor", ""), submission.get("sector", ""), submission.get("org_type", ""))
+    if _bm_donor and _bm_sector and _bm_org_type:
+        _benchmark = get_benchmark(_bm_donor, _bm_sector, _bm_org_type, conf_score, clar_score)
+        if _benchmark:
+            st.caption(
+                f"📊 **How you compare:** your Confidence score is higher than "
+                f"{_benchmark['confidence_percentile']}% and your Clarity score is higher than "
+                f"{_benchmark['clarity_percentile']}% of {_benchmark['sample_size']} saved {_bm_donor} "
+                f"audits in {_bm_sector} at your organisation type."
+            )
+        else:
+            st.caption(
+                f"📊 **How you compare:** not enough saved audits yet in {_bm_sector} for {_bm_donor} "
+                f"at your organisation type to show a comparison — check back as more MEL teams use ImpactProof."
+            )
+
     _pev = _PLAIN_ENGLISH_VERDICT.get(diag_state, "")
     if _pev:
         st.info(_pev)
@@ -10710,6 +10731,22 @@ def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str,
     diag_state = evaluation.get("diagnostic_state", "")
     ev_stmt    = _generate_evidence_statement(submission) if callable(globals().get("_generate_evidence_statement")) else ""
 
+    # "How you compare" — same anonymized benchmark shown on-screen in
+    # _render_result_card(), included here so it appears on the exported
+    # Readiness Card PDF too, not just the live view.
+    _bm_donor, _bm_sector, _bm_org_type = (
+        submission.get("donor", ""), submission.get("sector", ""), submission.get("org_type", ""))
+    _benchmark_html = ""
+    if _bm_donor and _bm_sector and _bm_org_type:
+        _bm = get_benchmark(_bm_donor, _bm_sector, _bm_org_type, conf_score, clar_score)
+        if _bm:
+            _benchmark_html = (
+                f"<p style='font-size:11px;color:#424242;margin:0 0 12px;{P}'>"
+                f"📊 How you compare: your Confidence is higher than {_bm['confidence_percentile']}% and your "
+                f"Clarity is higher than {_bm['clarity_percentile']}% of {_bm['sample_size']} saved {_bm_donor} "
+                f"audits in {_bm_sector} at your organisation type.</p>"
+            )
+
     rs       = submission.get("result_statement", "—")
     li       = submission.get("logframe_indicator", "")
     lt       = submission.get("logframe_target", "")
@@ -10980,6 +11017,8 @@ Evidence standard: <strong>{_card_track_label}</strong> &middot; threshold {_car
   <p style="font-size:10px;font-weight:700;color:{lfg};margin:4px 0 0;{P}">CLARITY &mdash; {clar_label.upper()}</p>
 </td>
 </tr></table>
+
+{_benchmark_html}
 
 <!-- Verdict rationale (council XXI) -->
 {_verdict_rationale_html}
