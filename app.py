@@ -64,6 +64,11 @@ try:
     _UTILS_AVAILABLE = True
 except ImportError:
     _UTILS_AVAILABLE = False
+    import logging as _logging
+    _logging.exception(
+        "Payment/auth/DB utils failed to import -- app is running in degraded "
+        "stub mode (no login, no payments, no usage tracking) until this is fixed."
+    )
     def get_user(e): return None
     def upsert_user(e): return None
     def mark_paid(e, days=30): pass
