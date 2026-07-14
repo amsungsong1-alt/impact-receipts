@@ -2070,6 +2070,8 @@ def _init_from_query_params() -> None:
         st.session_state["_referral_source"] = _p["ref"]
     if _p.get("billing") == "1":
         st.session_state["_show_billing"] = True
+    if _p.get("my_audits") == "1":
+        st.session_state["_show_my_audits"] = True
 
 
 def _restore_session_from_query_param() -> None:
@@ -5131,6 +5133,77 @@ def render_billing_page():
             if st.button("Sign out of all devices", key="billing_revoke_all"):
                 revoke_all_sessions(email)
                 st.rerun()
+
+
+def render_my_audits_page():
+    """My Audits — saved audit history (opt-in only). Shown when
+    _show_my_audits=True. Re-download regenerates the Readiness Card PDF from
+    the stored submission+evaluation via the same builders render_screen_2
+    uses; IRC field-source highlighting and Council Assessment content are
+    session-only extras not captured at save time, so a re-download
+    reproduces the core card faithfully but not those two enrichments."""
+    if st.button("← Back", key="my_audits_back"):
+        st.session_state.pop("_show_my_audits", None)
+        st.query_params.pop("my_audits", None)
+        st.rerun()
+
+    st.markdown("## My Audits")
+    st.caption("Audits you've explicitly saved. Nothing appears here unless you checked "
+               "\"Save this audit to my private history\" after a check.")
+
+    email = st.session_state.get("user_email", "")
+    if not email:
+        st.info("Enter your email to view your saved audits.")
+        _render_email_gate_inline("_my_audits")
+        return  # unreachable in practice -- the gate above calls st.stop()
+
+    _audits = list_audits(email)
+    if not _audits:
+        st.caption("No saved audits yet.")
+        return
+
+    for _a in _audits:
+        _a_id = _a.get("id")
+        _a_date = str(_a.get("created_at") or "")[:16].replace("T", " ")
+        _a_conf = _a.get("primary_confidence_score")
+        _a_clar = _a.get("primary_clarity_score")
+        st.markdown(f"**{_a.get('donor') or 'No donor specified'} · {_a.get('sector') or 'No sector'}** — {_a_date}")
+        if _a_conf is not None and _a_clar is not None:
+            st.caption(f"Confidence {_a_conf:.1f} · Clarity {_a_clar:.1f} · {_a.get('primary_verdict', '')}")
+        else:
+            st.caption(_a.get("primary_verdict", ""))
+
+        _mc1, _mc2 = st.columns(2)
+        with _mc1:
+            _pdf_key = f"_audit_pdf_{_a_id}"
+            if st.session_state.get(_pdf_key):
+                st.download_button(
+                    "⬇️ Download PDF", data=st.session_state[_pdf_key],
+                    file_name=f"readiness_card_{_a_id}.pdf", mime="application/pdf",
+                    key=f"my_audits_dl_{_a_id}", use_container_width=True,
+                )
+            elif st.button("Re-download PDF", key=f"my_audits_redl_{_a_id}", use_container_width=True):
+                _full = get_audit(email, _a_id)
+                _subs = (_full or {}).get("submissions") or []
+                _evs = (_full or {}).get("evaluations") or []
+                if _full and _subs and _evs:
+                    _ts = (_full.get("ref_id") or "").replace("IMP-", "")
+                    _redl_html = _build_html_report_card(_subs[0], _evs[0], _ts,
+                                                          field_sources=None, council_assessment=None)
+                    _redl_pdf = _html_to_pdf_bytes(_redl_html)
+                    if _redl_pdf:
+                        st.session_state[_pdf_key] = _redl_pdf
+                        st.rerun()
+                    else:
+                        st.warning("Could not regenerate this audit's PDF.")
+                else:
+                    st.warning("Could not load this audit's saved data.")
+        with _mc2:
+            if st.button("Delete", key=f"my_audits_delete_{_a_id}", use_container_width=True):
+                delete_audit(email, _a_id)
+                st.session_state.pop(f"_audit_pdf_{_a_id}", None)
+                st.rerun()
+        st.divider()
 
 
 def _render_ph_landing():
@@ -11915,6 +11988,10 @@ def main():
             st.session_state["_show_billing"] = True
             st.query_params["billing"] = "1"
             st.rerun()
+        if st.button("📁 My Audits", key="sidebar_my_audits_btn", use_container_width=True):
+            st.session_state["_show_my_audits"] = True
+            st.query_params["my_audits"] = "1"
+            st.rerun()
 
     # --- Paystack payment callback handler ---
     # Paystack always appends "?trxref=...&reference=..." to the callback_url
@@ -11989,6 +12066,10 @@ def main():
     # Billing & account overlay — shown regardless of screen
     if st.session_state.get("_show_billing"):
         render_billing_page()
+        return
+    # My Audits overlay — shown regardless of screen
+    if st.session_state.get("_show_my_audits"):
+        render_my_audits_page()
         return
     try:
         screen = st.session_state["screen"]
