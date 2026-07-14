@@ -107,6 +107,42 @@ except ImportError:
     def otp_enabled(): return False
 # --- End OTP email verification ---
 
+# --- Opt-in audit persistence / Logframe Library / benchmark ---
+# Isolated in its own try/except (not bundled with the payment/auth/DB block
+# above) so a failure here degrades only these opt-in features, not login or
+# payments -- exactly the kind of hard-to-diagnose bundled failure that
+# turned out to be the root cause of an earlier production incident this
+# session (see CLAUDE.md/git history: a single shared except ImportError
+# silently masked which of five unrelated modules had actually failed).
+try:
+    from utils.audits import (
+        save_audit, list_audits, get_audit, delete_audit,
+        create_logframe_library, list_logframe_libraries,
+        add_library_items, get_library_items, delete_logframe_library,
+        get_benchmark, MIN_BENCHMARK_SAMPLE,
+    )
+    _AUDITS_AVAILABLE = True
+except ImportError:
+    _AUDITS_AVAILABLE = False
+    import logging as _logging
+    _logging.exception(
+        "utils.audits failed to import -- saved audit history, Logframe "
+        "Library, and the comparison benchmark are unavailable until fixed. "
+        "Scoring, login, and payments are unaffected."
+    )
+    def save_audit(email, submissions, evaluations, ref_id): return None
+    def list_audits(email, limit=50): return []
+    def get_audit(email, audit_id): return None
+    def delete_audit(email, audit_id): pass
+    def create_logframe_library(email, name): return None
+    def list_logframe_libraries(email): return []
+    def add_library_items(library_id, email, items): pass
+    def get_library_items(library_id, email): return []
+    def delete_logframe_library(library_id, email): pass
+    def get_benchmark(donor, sector, org_type, my_confidence, my_clarity): return None
+    MIN_BENCHMARK_SAMPLE = 10
+# --- End opt-in audit persistence ---
+
 # --- UX: INSTANT REPORT CHECK IMPORTS (v3.2) ---
 import anthropic as _anthropic
 try:
