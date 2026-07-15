@@ -119,7 +119,7 @@ try:
         save_audit, list_audits, get_audit, delete_audit,
         create_logframe_library, list_logframe_libraries,
         add_library_items, get_library_items, delete_logframe_library,
-        get_benchmark, MIN_BENCHMARK_SAMPLE,
+        get_benchmark, MIN_BENCHMARK_SAMPLE, check_rate_limit, log_access,
     )
     _AUDITS_AVAILABLE = True
 except ImportError:
@@ -141,6 +141,8 @@ except ImportError:
     def delete_logframe_library(library_id, email): pass
     def get_benchmark(donor, sector, org_type, my_confidence, my_clarity): return None
     MIN_BENCHMARK_SAMPLE = 10
+    def check_rate_limit(email, action, max_count, window_seconds): return True  # fail open
+    def log_access(email, action, resource_type=None, resource_id=None, ip_address=None): pass
 # --- End opt-in audit persistence ---
 
 # --- UX: INSTANT REPORT CHECK IMPORTS (v3.2) ---
@@ -3893,7 +3895,11 @@ def _render_tab2_slot(slot: int):
                             else:
                                 st.warning("Enter a name for the new library.")
                                 _target_lib_id = None
-                        if _target_lib_id:
+                        if _target_lib_id and not check_rate_limit(
+                            _lib_email, "add_library_items", max_count=30, window_seconds=3600
+                        ):
+                            st.warning("You've saved a lot of indicators in the last hour — please wait a bit before adding more.")
+                        elif _target_lib_id:
                             add_library_items(_target_lib_id, _lib_email, [{
                                 "indicator_name": _cur_indicator,
                                 "logframe_indicator": _cur_indicator,
@@ -6113,7 +6119,12 @@ def render_screen_1():
                     except Exception as _draft_exc:
                         st.error(f"Could not read the draft file: {_draft_exc}")
                     # --- END v3.4 ---
+                elif _irc_run_clicked and not check_rate_limit(
+                    st.session_state.get("user_email", ""), "irc_extraction", max_count=20, window_seconds=3600
+                ):
+                    st.warning("You've run a lot of Instant Report Checks in the last hour — please wait a bit before running more.")
                 elif _irc_run_clicked:
+                    log_access(st.session_state.get("user_email", ""), "irc_extraction")
                     _irc_should_rerun = False
                     with st.spinner("Reading your document(s) and pre-filling the form…"):
                         try:
@@ -8345,7 +8356,9 @@ def render_screen_2():
         )
         _audit_saved_key = f"_audit_saved_{_ref_id}"
         if st.session_state.get("save_audit_consent") and not st.session_state.get(_audit_saved_key):
-            if save_audit(_audit_email, subs, evs, _ref_id):
+            if not check_rate_limit(_audit_email, "save_audit", max_count=10, window_seconds=3600):
+                st.warning("You've saved a lot of audits in the last hour — please wait a bit before saving more.")
+            elif save_audit(_audit_email, subs, evs, _ref_id):
                 st.session_state[_audit_saved_key] = True
                 st.success("✓ Saved to your private history.")
             else:
@@ -10472,7 +10485,12 @@ def render_screen_3():
                 "- **Unlimited single-result checks and Audit My Report uploads** too\n\n"
                 f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited*"
             ))
+        elif uploaded is not None and not check_rate_limit(
+            _csvpf_email, "portfolio_upload", max_count=15, window_seconds=3600
+        ):
+            st.warning("You've uploaded a lot of portfolios in the last hour — please wait a bit before uploading more.")
         elif uploaded is not None:
+            log_access(_csvpf_email, "portfolio_upload")
             try:
                 if uploaded.name.lower().endswith((".xlsx", ".xls")):
                     df = pd.read_excel(uploaded)
