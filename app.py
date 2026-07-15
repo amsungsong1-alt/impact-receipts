@@ -3005,7 +3005,15 @@ def _load_from_inputs_json(data: dict):
     if data.get("has_seen_tutorial"):
         st.session_state["has_seen_tutorial"] = True
         st.session_state["tutorial_step"] = 99  # skip all steps
-    if data.get("user_email"):
+    if data.get("user_email") and not st.session_state.get("user_email"):
+        # Only fill in an email if no session is already authenticated -- an
+        # uploaded/imported JSON is user-controlled input (e.g. via the
+        # Instant Report Check file uploader), so it must never be allowed to
+        # overwrite an already-verified session's identity. Without this
+        # guard, a crafted {"user_email": "victim@example.com"} in an
+        # uploaded file would silently hijack the uploader's own session into
+        # acting as that other account for every subsequent utils/audits.py
+        # call (list/view/delete their saved audits, save new ones as them).
         st.session_state["user_email"] = data["user_email"]
     # --- END UX: SMART DEFAULTS (v3.2) ---
     # bump version so _irc_widget-backed fields re-seed from the freshly loaded values
