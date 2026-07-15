@@ -5768,6 +5768,19 @@ def render_screen_0():
 # ---------------------------------------------------------------------------
 
 def render_screen_1():
+    # Apply any IRC-extracted values staged for "global" (non-slot) widgets
+    # like sector/donor_selected/submission_type/governance status/etc.
+    # BEFORE any widget in this screen renders. Those widgets bind directly
+    # to their own session_state key (unlike slot fields, which go through
+    # _irc_widget()'s shadow-key indirection), so writing to that key AFTER
+    # the widget has already instantiated in the same run raises
+    # StreamlitAPIException ("cannot be modified after the widget ... is
+    # instantiated") -- this is what caused IRC extraction to crash the app.
+    _irc_pending_global = st.session_state.pop("_irc_pending_global", None)
+    if _irc_pending_global:
+        for _pg_key, _pg_val in _irc_pending_global.items():
+            st.session_state[_pg_key] = _pg_val
+
     _cur_tab = st.session_state.get("current_tab", 0)
     render_pitch_strip(["enter", "logframe", "evidence", "review"][_cur_tab])
 
@@ -6369,6 +6382,22 @@ def render_screen_1():
                                         except Exception:
                                             _skipped.append(key)
 
+                                    def _irc_set_global(key, val, count=True):
+                                        """Like _irc_set, but for fields whose widget binds
+                                        directly to `key` (sector, donor_selected, submission_type,
+                                        governance status, beneficiary_voice, checklist items) --
+                                        those widgets have already rendered earlier in this same
+                                        script run, so writing to st.session_state[key] here would
+                                        raise StreamlitAPIException. Stage it instead; render_screen_1()
+                                        applies staged values at the top of the NEXT run, before any
+                                        widget in this screen has instantiated. count=False preserves
+                                        call sites that originally didn't increment _irc_filled
+                                        (e.g. donor_framework, a bonus derived field)."""
+                                        nonlocal _irc_filled
+                                        st.session_state.setdefault("_irc_pending_global", {})[key] = val
+                                        if count:
+                                            _irc_filled += 1
+
                                     # --- Result Basics ---
                                     _irc_set("result_statement", _rb.get("result_statement"))
                                     _irc_set("target_group",     _rb.get("target_group"))
@@ -6451,11 +6480,10 @@ def render_screen_1():
                                         if _sec_raw and _sec_raw != "Not found":
                                             _sec_mt = _irc_match_option(_sec_raw, SECTOR_OPTIONS)
                                             if _sec_mt and _sec_mt != SECTOR_OPTIONS[0]:
-                                                st.session_state["sector"] = _sec_mt; _irc_filled += 1
+                                                _irc_set_global("sector", _sec_mt)
                                             else:
-                                                st.session_state["sector"] = "Other"
-                                                st.session_state["sector_other"] = _sec_raw
-                                                _irc_filled += 1
+                                                _irc_set_global("sector", "Other", count=False)
+                                                _irc_set_global("sector_other", _sec_raw)
                                     except Exception:
                                         pass
 
@@ -6465,16 +6493,15 @@ def render_screen_1():
                                         if _donor_raw and _donor_raw != "Not found":
                                             _don_mt = _irc_match_option(_donor_raw, ["USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "EU / EuropeAid"])
                                             if _don_mt:
-                                                st.session_state["donor_selected"] = _don_mt; _irc_filled += 1
+                                                _irc_set_global("donor_selected", _don_mt)
                                                 try:
                                                     _df_mt = _irc_match_option(_don_mt, list(DONOR_PROFILES.keys()))
-                                                    if _df_mt: st.session_state["donor_framework"] = _df_mt
+                                                    if _df_mt: _irc_set_global("donor_framework", _df_mt, count=False)
                                                 except Exception:
                                                     pass
                                             else:
-                                                st.session_state["donor_selected"] = "Other"
-                                                st.session_state["donor_other"] = _donor_raw
-                                                _irc_filled += 1
+                                                _irc_set_global("donor_selected", "Other", count=False)
+                                                _irc_set_global("donor_other", _donor_raw)
                                     except Exception:
                                         pass
 
@@ -6485,7 +6512,7 @@ def render_screen_1():
                                         if _sub_raw and _sub_raw != "Not found":
                                             _matched_sub_type = _irc_match_option(_sub_raw, list(SUBMISSION_CHECKLIST.keys()))
                                             if _matched_sub_type:
-                                                st.session_state["submission_type"] = _matched_sub_type; _irc_filled += 1
+                                                _irc_set_global("submission_type", _matched_sub_type)
                                     except Exception:
                                         pass
 
@@ -6497,8 +6524,7 @@ def render_screen_1():
                                                 for _docref in _docs_ref:
                                                     _docref_str = _irc_to_str(_docref)
                                                     if _docref_str and _irc_match_option(_docref_str, [_clabel]):
-                                                        st.session_state[_ckey] = True
-                                                        _irc_filled += 1
+                                                        _irc_set_global(_ckey, True)
                                                         break
                                     except Exception:
                                         pass
@@ -6508,42 +6534,42 @@ def render_screen_1():
                                         _con_raw = _irc_to_str(_ev3.get("consent_documented",""))
                                         if _con_raw and _con_raw != "Not found":
                                             _con_mt = _irc_match_option(_con_raw, list(CONSENT_CHECKLIST_MAP.keys()))
-                                            if _con_mt: st.session_state["gov_consent_status"] = _con_mt; _irc_filled += 1
+                                            if _con_mt: _irc_set_global("gov_consent_status", _con_mt)
                                     except Exception:
                                         pass
                                     try:
                                         _anon_raw = _irc_to_str(_ev3.get("data_anonymised",""))
                                         if _anon_raw and _anon_raw != "Not found":
                                             _anon_mt = _irc_match_option(_anon_raw, list(ANON_CHECKLIST_MAP.keys()))
-                                            if _anon_mt: st.session_state["gov_anonymization_status"] = _anon_mt; _irc_filled += 1
+                                            if _anon_mt: _irc_set_global("gov_anonymization_status", _anon_mt)
                                     except Exception:
                                         pass
                                     try:
                                         _law_raw = _irc_to_str(_ev3.get("data_protection_compliant",""))
                                         if _law_raw and _law_raw != "Not found":
                                             _law_mt = _irc_match_option(_law_raw, list(LAW_CHECKLIST_MAP.keys()))
-                                            if _law_mt: st.session_state["gov_compliance_law_status"] = _law_mt; _irc_filled += 1
+                                            if _law_mt: _irc_set_global("gov_compliance_law_status", _law_mt)
                                     except Exception:
                                         pass
                                     try:
                                         _sfg_raw = _irc_to_str(_ev3.get("safeguarding_measures",""))
                                         if _sfg_raw and _sfg_raw != "Not found":
                                             _sfg_mt = _irc_match_option(_sfg_raw, list(SAFEGUARDING_CHECKLIST_MAP.keys()))
-                                            if _sfg_mt: st.session_state["gov_safeguarding_status"] = _sfg_mt; _irc_filled += 1
+                                            if _sfg_mt: _irc_set_global("gov_safeguarding_status", _sfg_mt)
                                     except Exception:
                                         pass
                                     try:
                                         _csg_raw = _irc_to_str(_ev3.get("child_safeguarding",""))
                                         if _csg_raw and _csg_raw != "Not found":
                                             _csg_mt = _irc_match_option(_csg_raw, list(CHILD_SAFEGUARDING_CHECKLIST_MAP.keys()))
-                                            if _csg_mt: st.session_state["gov_child_safeguarding_status"] = _csg_mt; _irc_filled += 1
+                                            if _csg_mt: _irc_set_global("gov_child_safeguarding_status", _csg_mt)
                                     except Exception:
                                         pass
                                     try:
                                         _sec_raw2 = _irc_to_str(_ev3.get("secure_data_handling",""))
                                         if _sec_raw2 and _sec_raw2 != "Not found":
                                             _sec_mt2 = _irc_match_option(_sec_raw2, list(SECURE_HANDLING_CHECKLIST_MAP.keys()))
-                                            if _sec_mt2: st.session_state["gov_secure_handling_status"] = _sec_mt2; _irc_filled += 1
+                                            if _sec_mt2: _irc_set_global("gov_secure_handling_status", _sec_mt2)
                                     except Exception:
                                         pass
                                     _irc_set("project_name", _em.get("project_name"))
@@ -6565,7 +6591,7 @@ def render_screen_1():
                                         if _bv_raw and _bv_raw != "Not found":
                                             _bv_mt = _irc_match_option(_bv_raw, _BV_OPTIONS)
                                             if _bv_mt and _bv_mt != _BV_OPTIONS[0]:
-                                                st.session_state["beneficiary_voice"] = _bv_mt; _irc_filled += 1
+                                                _irc_set_global("beneficiary_voice", _bv_mt)
                                     except Exception:
                                         pass
 
@@ -6577,8 +6603,7 @@ def render_screen_1():
                                                 for _eitem in _esc:
                                                     _eitem_str = _irc_to_str(_eitem)
                                                     if _eitem_str and _irc_match_option(_eitem_str, [_elabel]):
-                                                        st.session_state[_ekey] = True
-                                                        _irc_filled += 1
+                                                        _irc_set_global(_ekey, True)
                                                         break
                                     except Exception:
                                         pass
