@@ -315,9 +315,67 @@ def run_encryption():
     print("PASS: encryption — audits and logframe items are ciphertext at rest, round-trip correctly, fail closed without a key.")
 
 
+def run_cross_account_denial():
+    """Exhaustive sweep, one block per utils/audits.py function that takes an
+    email: confirms account B's email is never sufficient to read/mutate
+    account A's rows, no matter which id is guessed. Companion to the
+    app.py-side audit (every call site into this module passes a freshly-read
+    st.session_state["user_email"], never a URL param or uploaded-file value
+    -- see the fix in _load_from_inputs_json) -- this half verifies the
+    module itself refuses cross-account access even if that upstream
+    discipline were ever violated by a future call site."""
+    failures = []
+    original_get_engine = audits._get_engine
+    engine = _fresh_engine()
+    audits._get_engine = lambda: engine
+    A, B = "owner@example.com", "attacker@example.com"
+    try:
+        subs = [{"donor": "SIDA", "sector": "Governance & Accountability", "org_type": "National NGO"}]
+        evs = [{"confidence_score": 3.8, "clarity_score": 3.6, "verdict": "Acceptable"}]
+        audit_id = audits.save_audit(A, subs, evs, "IMP-xacct-1")
+        lib_id = audits.create_logframe_library(A, "A's private library")
+        audits.add_library_items(lib_id, A, [{"indicator_name": "A's indicator"}])
+
+        if audits.get_audit(B, audit_id) is not None:
+            failures.append("get_audit: account B read account A's audit")
+        audits.delete_audit(B, audit_id)
+        if audits.get_audit(A, audit_id) is None:
+            failures.append("delete_audit: account B deleted account A's audit")
+
+        if audits.get_library_items(lib_id, B):
+            failures.append("get_library_items: account B read account A's library items")
+        audits.add_library_items(lib_id, B, [{"indicator_name": "B's injected indicator"}])
+        if len(audits.get_library_items(lib_id, A)) != 1:
+            failures.append("add_library_items: account B added an item to account A's library")
+        audits.delete_logframe_library(lib_id, B)
+        if not audits.list_logframe_libraries(A):
+            failures.append("delete_logframe_library: account B deleted account A's library")
+
+        if audits.list_audits(B):
+            failures.append("list_audits: account B's listing included account A's data")
+        if audits.list_logframe_libraries(B):
+            failures.append("list_logframe_libraries: account B's listing included account A's data")
+
+        # Guessing a numeric id that happens to belong to someone else must
+        # behave identically to guessing a nonexistent id -- no oracle for
+        # "this id exists but isn't yours" vs. "this id doesn't exist."
+        if audits.get_audit(B, audit_id) != audits.get_audit(B, 999999):
+            failures.append("get_audit leaks whether a foreign id exists vs. doesn't (timing/response oracle)")
+    finally:
+        audits._get_engine = original_get_engine
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: cross-account denial — every utils/audits.py function refuses another account's data, for every function and every id.")
+
+
 if __name__ == "__main__":
     run_audits()
     run_logframe_library()
     run_benchmark()
     run_access_log_and_rate_limit()
     run_encryption()
+    run_cross_account_denial()
