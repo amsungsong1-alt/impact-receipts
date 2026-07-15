@@ -6,12 +6,19 @@ Unlike utils/db.py (which talks to Supabase over its REST API via the anon
 key), this module connects directly to the same underlying Postgres database
 via SQLAlchemy, using a separate SUPABASE_DB_URL secret (the Postgres
 connection string, not the SUPABASE_URL/SUPABASE_ANON_KEY pair). Schema is
-tracked in supabase/migrations/0006-0010 -- the models below map onto that
+tracked in supabase/migrations/0006-0011 -- the models below map onto that
 already-created schema, they don't generate it. 0009 creates a
 least-privilege Postgres role (app_audits_rw) that SUPABASE_DB_URL should
 connect as instead of the default superuser -- see that migration's header
 comment for why this matters: a superuser bypasses every GRANT/REVOKE check,
 so the access_log table's append-only guarantee (0010) has no teeth without it.
+
+Audit content (submissions_json/evaluations_json, and the Logframe Library's
+free-text indicator columns) is encrypted at rest via utils/crypto.py
+(Fernet/AES, key in AUDIT_ENCRYPTION_KEY) -- see 0011's migration comment for
+what this does and does NOT cover (existing rows are not retroactively
+encrypted). The denormalized donor/sector/org_type/score columns stay
+unencrypted by design, so listing and benchmarking never need decryption.
 
 All functions degrade gracefully on DB failure (never crash the app),
 matching utils/db.py's convention. Nothing here runs unless a user has
@@ -20,11 +27,14 @@ Logframe Library actions) -- a user who never opts in sees zero behavior
 change.
 """
 from __future__ import annotations
+import json
 import os
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import Column, BigInteger, Integer, Text, DateTime, Float, JSON, ForeignKey, func
 from sqlalchemy.orm import declarative_base, Session
+
+from utils.crypto import encrypt_text, decrypt_text
 
 Base = declarative_base()
 
@@ -45,8 +55,8 @@ class Audit(Base):
     ref_id = Column(Text, nullable=False, unique=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     active_slots = Column(Integer, nullable=False)
-    submissions_json = Column(JSON, nullable=False)
-    evaluations_json = Column(JSON, nullable=False)
+    submissions_json = Column(Text, nullable=False)  # Fernet ciphertext, not raw JSON -- see utils/crypto.py
+    evaluations_json = Column(Text, nullable=False)  # same
     donor = Column(Text)
     sector = Column(Text)
     org_type = Column(Text)
@@ -135,6 +145,12 @@ def save_audit(email: str, submissions: list, evaluations: list, ref_id: str) ->
     engine = _get_engine()
     if not engine:
         return None
+    enc_submissions = encrypt_text(json.dumps(submissions))
+    enc_evaluations = encrypt_text(json.dumps(evaluations))
+    if enc_submissions is None or enc_evaluations is None:
+        # Fail closed -- never fall back to storing plaintext content just
+        # because AUDIT_ENCRYPTION_KEY is missing or encryption failed.
+        return None
     try:
         first_sub = submissions[0] or {}
         first_ev = evaluations[0] or {}
@@ -146,8 +162,8 @@ def save_audit(email: str, submissions: list, evaluations: list, ref_id: str) ->
                 email=email,
                 ref_id=ref_id,
                 active_slots=len(submissions),
-                submissions_json=submissions,
-                evaluations_json=evaluations,
+                submissions_json=enc_submissions,
+                evaluations_json=enc_evaluations,
                 donor=donor,
                 sector=sector,
                 org_type=org_type,
@@ -209,11 +225,15 @@ def get_audit(email: str, audit_id: int) -> dict | None:
             row = session.get(Audit, audit_id)
             if not row or row.email != email:
                 return None
+            dec_submissions = decrypt_text(row.submissions_json)
+            dec_evaluations = decrypt_text(row.evaluations_json)
+            if dec_submissions is None or dec_evaluations is None:
+                return None  # wrong/missing key, or corrupted ciphertext -- never return partial content
             return {
                 "id": row.id, "ref_id": row.ref_id, "created_at": row.created_at,
                 "active_slots": row.active_slots,
-                "submissions": row.submissions_json,
-                "evaluations": row.evaluations_json,
+                "submissions": json.loads(dec_submissions),
+                "evaluations": json.loads(dec_evaluations),
                 "donor": row.donor, "sector": row.sector, "org_type": row.org_type,
             }
     except Exception:
@@ -277,11 +297,19 @@ def list_logframe_libraries(email: str) -> list[dict]:
         return []
 
 
+_LIBRARY_ENCRYPTED_FIELDS = (
+    "indicator_name", "logframe_indicator", "logframe_baseline",
+    "logframe_target", "logframe_achievement",
+)  # sector is deliberately excluded -- low-cardinality/constrained, not free text
+
+
 def add_library_items(library_id: int, email: str, items: list) -> None:
     """items: list of dicts with indicator_name/logframe_indicator/
     logframe_baseline/logframe_target/logframe_achievement/sector keys --
     the same shape CSV Portfolio upload and IRC batch extraction already
-    produce. email is re-checked as an ownership guard, not just a filter."""
+    produce. email is re-checked as an ownership guard, not just a filter.
+    The five free-text fields are encrypted at rest (see utils/crypto.py);
+    fails closed (stores nothing) if AUDIT_ENCRYPTION_KEY is missing."""
     if not library_id or not email or not items:
         return
     engine = _get_engine()
@@ -293,14 +321,16 @@ def add_library_items(library_id: int, email: str, items: list) -> None:
             if not lib or lib.email != email:
                 return
             for item in items:
+                encrypted = {}
+                for field in _LIBRARY_ENCRYPTED_FIELDS:
+                    val = encrypt_text(item.get(field, "") or "")
+                    if val is None:
+                        return  # fail closed -- never store plaintext content
+                    encrypted[field] = val
                 session.add(LogframeLibraryItem(
                     library_id=library_id,
-                    indicator_name=item.get("indicator_name", ""),
-                    logframe_indicator=item.get("logframe_indicator", ""),
-                    logframe_baseline=item.get("logframe_baseline", ""),
-                    logframe_target=item.get("logframe_target", ""),
-                    logframe_achievement=item.get("logframe_achievement", ""),
                     sector=item.get("sector", ""),
+                    **encrypted,
                 ))
             lib.updated_at = datetime.now(timezone.utc)
             session.commit()
@@ -324,14 +354,11 @@ def get_library_items(library_id: int, email: str) -> list[dict]:
                     .filter(LogframeLibraryItem.library_id == library_id)
                     .order_by(LogframeLibraryItem.created_at.asc())
                     .all())
-            return [{
-                "id": r.id, "indicator_name": r.indicator_name,
-                "logframe_indicator": r.logframe_indicator,
-                "logframe_baseline": r.logframe_baseline,
-                "logframe_target": r.logframe_target,
-                "logframe_achievement": r.logframe_achievement,
-                "sector": r.sector,
-            } for r in rows]
+            items = []
+            for r in rows:
+                decrypted = {f: (decrypt_text(getattr(r, f)) or "") for f in _LIBRARY_ENCRYPTED_FIELDS}
+                items.append({"id": r.id, "sector": r.sector, **decrypted})
+            return items
     except Exception:
         return []
 

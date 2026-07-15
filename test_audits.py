@@ -11,12 +11,21 @@ the same SQLAlchemy models work unchanged against either dialect. Run with:
 python test_audits.py
 """
 
+import json
+import os
 from datetime import datetime, timedelta, timezone
 
+from cryptography.fernet import Fernet
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+# A real (test-only) Fernet key so save_audit()/add_library_items()'s
+# fail-closed encryption doesn't reject every write in this test run --
+# must be set before utils.audits/utils.crypto's first use.
+os.environ.setdefault("AUDIT_ENCRYPTION_KEY", Fernet.generate_key().decode())
+
 import utils.audits as audits
+import utils.crypto as crypto
 
 
 def _fresh_engine():
@@ -237,8 +246,78 @@ def run_access_log_and_rate_limit():
     print("PASS: access log — save_audit logging, rate-limit threshold/window/fail-open verified.")
 
 
+def run_encryption():
+    failures = []
+    original_get_engine = audits._get_engine
+    engine = _fresh_engine()
+    audits._get_engine = lambda: engine
+    try:
+        subs = [{"donor": "GIZ", "sector": "Health & Nutrition", "org_type": "International NGO (INGO)",
+                 "result_statement": "Trained 200 nurses in maternal health."}]
+        evs = [{"confidence_score": 4.0, "clarity_score": 3.5, "verdict": "Strong"}]
+        audit_id = audits.save_audit("enc@example.com", subs, evs, "IMP-enc-1")
+        if not audit_id:
+            failures.append("save_audit returned falsy id with a valid encryption key configured")
+
+        # The raw stored value must be genuine ciphertext, not plaintext JSON.
+        with Session(engine) as session:
+            row = session.get(audits.Audit, audit_id)
+            if row.submissions_json == json.dumps(subs):
+                failures.append("submissions_json is stored as plaintext, not encrypted")
+            if "Trained 200 nurses" in (row.submissions_json or ""):
+                failures.append("plaintext result_statement content is visible in the raw stored column")
+
+        # get_audit() must still round-trip correctly through decryption.
+        full = audits.get_audit("enc@example.com", audit_id)
+        if not full or full["submissions"] != subs or full["evaluations"] != evs:
+            failures.append("get_audit did not correctly decrypt back to the original content")
+
+        # Logframe Library items: same ciphertext-at-rest + round-trip checks.
+        lib_id = audits.create_logframe_library("enc@example.com", "Encryption test library")
+        audits.add_library_items(lib_id, "enc@example.com", [{
+            "indicator_name": "Sensitive indicator name", "logframe_indicator": "Ind 9.9",
+            "logframe_baseline": "10", "logframe_target": "50", "sector": "Health & Nutrition",
+        }])
+        with Session(engine) as session:
+            item_row = session.query(audits.LogframeLibraryItem).filter(
+                audits.LogframeLibraryItem.library_id == lib_id).first()
+            if item_row.indicator_name == "Sensitive indicator name":
+                failures.append("logframe_library_items.indicator_name is stored as plaintext")
+        items = audits.get_library_items(lib_id, "enc@example.com")
+        if not items or items[0]["indicator_name"] != "Sensitive indicator name":
+            failures.append("get_library_items did not correctly decrypt indicator_name")
+
+        # Fail closed: without a usable key, save_audit/add_library_items must
+        # refuse to store anything rather than silently falling back to plaintext.
+        original_get_fernet = crypto._get_fernet
+        crypto._get_fernet = lambda: None
+        try:
+            if audits.save_audit("enc@example.com", subs, evs, "IMP-enc-nofail") is not None:
+                failures.append("save_audit did not fail closed when no encryption key is available")
+            if audits.add_library_items(lib_id, "enc@example.com", [{"indicator_name": "should not save"}]) is not None:
+                pass  # add_library_items returns None either way; verified via row count below
+            with Session(engine) as session:
+                count_after = session.query(audits.LogframeLibraryItem).filter(
+                    audits.LogframeLibraryItem.library_id == lib_id).count()
+            if count_after != 1:
+                failures.append(f"add_library_items stored a row without a usable encryption key "
+                                 f"(expected still 1, found {count_after})")
+        finally:
+            crypto._get_fernet = original_get_fernet
+    finally:
+        audits._get_engine = original_get_engine
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: encryption — audits and logframe items are ciphertext at rest, round-trip correctly, fail closed without a key.")
+
+
 if __name__ == "__main__":
     run_audits()
     run_logframe_library()
     run_benchmark()
     run_access_log_and_rate_limit()
+    run_encryption()
