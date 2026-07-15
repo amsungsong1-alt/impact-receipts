@@ -40,6 +40,18 @@ Base = declarative_base()
 
 MIN_BENCHMARK_SAMPLE = 10  # don't show a percentile from a near-empty bucket
 
+_last_audit_error: str = ""
+
+
+def last_audit_error() -> str:
+    """Reason the most recent save_audit()/add_library_items() call returned
+    None/failed -- same last-error-string pattern as
+    utils.paystack.last_payment_error()/utils.auth.last_token_error(), so a
+    silent "could not save" in the UI can be traced to an actual cause
+    (missing SUPABASE_DB_URL, missing AUDIT_ENCRYPTION_KEY, a DB error, etc.)
+    instead of guessed at."""
+    return _last_audit_error
+
 # SQLite's rowid-alias autoincrement requires the PK column to compile to
 # exactly "INTEGER PRIMARY KEY" -- BigInteger alone doesn't qualify on that
 # dialect (it's fine on real Postgres, where these map to bigserial). Swap to
@@ -140,16 +152,21 @@ def save_audit(email: str, submissions: list, evaluations: list, ref_id: str) ->
     org_type and result-#1's scores from the run for fast listing, then
     triggers a best-effort aggregate-bucket recompute (a failed recompute
     must not fail the save itself)."""
+    global _last_audit_error
+    _last_audit_error = ""
     if not email or not submissions or not evaluations or not ref_id:
+        _last_audit_error = "Missing email, submissions, evaluations, or ref_id."
         return None
     engine = _get_engine()
     if not engine:
+        _last_audit_error = "No database engine (SUPABASE_DB_URL is missing, malformed, or unreachable)."
         return None
     enc_submissions = encrypt_text(json.dumps(submissions))
     enc_evaluations = encrypt_text(json.dumps(evaluations))
     if enc_submissions is None or enc_evaluations is None:
         # Fail closed -- never fall back to storing plaintext content just
         # because AUDIT_ENCRYPTION_KEY is missing or encryption failed.
+        _last_audit_error = "Encryption failed (AUDIT_ENCRYPTION_KEY is missing or invalid)."
         return None
     try:
         first_sub = submissions[0] or {}
@@ -174,7 +191,8 @@ def save_audit(email: str, submissions: list, evaluations: list, ref_id: str) ->
             session.add(row)
             session.commit()
             audit_id = row.id
-    except Exception:
+    except Exception as exc:
+        _last_audit_error = f"{type(exc).__name__}: {exc}"
         return None
     log_access(email, "save_audit", resource_type="audit", resource_id=audit_id)
     if donor and sector and org_type:
@@ -310,22 +328,29 @@ def add_library_items(library_id: int, email: str, items: list) -> None:
     produce. email is re-checked as an ownership guard, not just a filter.
     The five free-text fields are encrypted at rest (see utils/crypto.py);
     fails closed (stores nothing) if AUDIT_ENCRYPTION_KEY is missing."""
+    global _last_audit_error
+    _last_audit_error = ""
     if not library_id or not email or not items:
+        _last_audit_error = "Missing library_id, email, or items."
         return
     engine = _get_engine()
     if not engine:
+        _last_audit_error = "No database engine (SUPABASE_DB_URL is missing, malformed, or unreachable)."
         return
     try:
         with Session(engine) as session:
             lib = session.get(LogframeLibrary, library_id)
             if not lib or lib.email != email:
+                _last_audit_error = "Library not found, or not owned by this account."
                 return
             for item in items:
                 encrypted = {}
                 for field in _LIBRARY_ENCRYPTED_FIELDS:
                     val = encrypt_text(item.get(field, "") or "")
                     if val is None:
-                        return  # fail closed -- never store plaintext content
+                        # fail closed -- never store plaintext content
+                        _last_audit_error = "Encryption failed (AUDIT_ENCRYPTION_KEY is missing or invalid)."
+                        return
                     encrypted[field] = val
                 session.add(LogframeLibraryItem(
                     library_id=library_id,
@@ -334,7 +359,8 @@ def add_library_items(library_id: int, email: str, items: list) -> None:
                 ))
             lib.updated_at = datetime.now(timezone.utc)
             session.commit()
-    except Exception:
+    except Exception as exc:
+        _last_audit_error = f"{type(exc).__name__}: {exc}"
         return
     log_access(email, "add_library_items", resource_type="logframe_library", resource_id=library_id)
 

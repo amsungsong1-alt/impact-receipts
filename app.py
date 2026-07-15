@@ -121,7 +121,7 @@ try:
         create_logframe_library, list_logframe_libraries,
         add_library_items, get_library_items, delete_logframe_library,
         get_benchmark, MIN_BENCHMARK_SAMPLE, check_rate_limit, log_access,
-        purge_account_audit_content,
+        purge_account_audit_content, last_audit_error,
     )
     _AUDITS_AVAILABLE = True
 except ImportError:
@@ -146,6 +146,7 @@ except ImportError:
     def check_rate_limit(email, action, max_count, window_seconds): return True  # fail open
     def log_access(email, action, resource_type=None, resource_id=None, ip_address=None): pass
     def purge_account_audit_content(email): return {"audits_deleted": 0, "libraries_deleted": 0}
+    def last_audit_error(): return "utils.audits failed to import."
 # --- End opt-in audit persistence ---
 
 # --- UX: INSTANT REPORT CHECK IMPORTS (v3.2) ---
@@ -3911,7 +3912,11 @@ def _render_tab2_slot(slot: int):
                                 "logframe_achievement": st.session_state.get(f"logframe_achievement{s}", ""),
                                 "sector": st.session_state.get("sector", ""),
                             }])
-                            st.success("Saved to your Logframe Library.")
+                            _lib_save_err = last_audit_error()
+                            if _lib_save_err:
+                                st.warning(f"Could not save to your Logframe Library. ({_lib_save_err})")
+                            else:
+                                st.success("Saved to your Logframe Library.")
 
         _lf_api_key = (
             st.secrets.get("ANTHROPIC_API_KEY", "")
@@ -8405,7 +8410,8 @@ def render_screen_2():
                 st.session_state[_audit_saved_key] = True
                 st.success("✓ Saved to your private history.")
             else:
-                st.warning("Could not save this audit right now — your download above still works.")
+                st.warning(f"Could not save this audit right now — your download above still works. "
+                           f"({last_audit_error()})")
 
     # Post-download CTA — primary next step after getting the determination
     _portfolio_cta_label = (
