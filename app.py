@@ -149,6 +149,28 @@ except ImportError:
     def last_audit_error(): return "utils.audits failed to import."
 # --- End opt-in audit persistence ---
 
+
+def _safe_rate_limit_ok(email: str, action: str, max_count: int, window_seconds: int) -> bool:
+    """check_rate_limit() already fails open (returns True) on any DB error --
+    this is a second, belt-and-suspenders layer at the call site so this
+    optional subsystem can never crash a core feature (scoring, IRC,
+    portfolio upload, saving) no matter what goes wrong underneath it."""
+    try:
+        return check_rate_limit(email, action, max_count, window_seconds)
+    except Exception:
+        return True
+
+
+def _safe_log_access(email: str, action: str, resource_type: str | None = None,
+                      resource_id=None, ip_address: str | None = None) -> None:
+    """Same reasoning as _safe_rate_limit_ok -- logging must never be able to
+    break the feature it's observing."""
+    try:
+        log_access(email, action, resource_type=resource_type,
+                   resource_id=resource_id, ip_address=ip_address)
+    except Exception:
+        pass
+
 # --- UX: INSTANT REPORT CHECK IMPORTS (v3.2) ---
 import anthropic as _anthropic
 try:
@@ -3899,7 +3921,7 @@ def _render_tab2_slot(slot: int):
                             else:
                                 st.warning("Enter a name for the new library.")
                                 _target_lib_id = None
-                        if _target_lib_id and not check_rate_limit(
+                        if _target_lib_id and not _safe_rate_limit_ok(
                             _lib_email, "add_library_items", max_count=30, window_seconds=3600
                         ):
                             st.warning("You've saved a lot of indicators in the last hour — please wait a bit before adding more.")
@@ -5343,7 +5365,7 @@ def render_my_audits_page():
         with _pc1:
             if st.button("Yes, permanently delete my history", key="purge_confirm",
                          type="primary", use_container_width=True):
-                log_access(email, "account_purge", resource_type="account")  # logged BEFORE the deletes
+                _safe_log_access(email, "account_purge", resource_type="account")  # logged BEFORE the deletes
                 _counts = purge_account_audit_content(email)
                 clear_user_draft(email)
                 delete_wa_conversations(email)
@@ -6167,12 +6189,12 @@ def render_screen_1():
                     except Exception as _draft_exc:
                         st.error(f"Could not read the draft file: {_draft_exc}")
                     # --- END v3.4 ---
-                elif _irc_run_clicked and not check_rate_limit(
+                elif _irc_run_clicked and not _safe_rate_limit_ok(
                     st.session_state.get("user_email", ""), "irc_extraction", max_count=20, window_seconds=3600
                 ):
                     st.warning("You've run a lot of Instant Report Checks in the last hour — please wait a bit before running more.")
                 elif _irc_run_clicked:
-                    log_access(st.session_state.get("user_email", ""), "irc_extraction")
+                    _safe_log_access(st.session_state.get("user_email", ""), "irc_extraction")
                     _irc_should_rerun = False
                     with st.spinner("Reading your document(s) and pre-filling the form…"):
                         try:
@@ -8404,7 +8426,7 @@ def render_screen_2():
         )
         _audit_saved_key = f"_audit_saved_{_ref_id}"
         if st.session_state.get("save_audit_consent") and not st.session_state.get(_audit_saved_key):
-            if not check_rate_limit(_audit_email, "save_audit", max_count=10, window_seconds=3600):
+            if not _safe_rate_limit_ok(_audit_email, "save_audit", max_count=10, window_seconds=3600):
                 st.warning("You've saved a lot of audits in the last hour — please wait a bit before saving more.")
             elif save_audit(_audit_email, subs, evs, _ref_id):
                 st.session_state[_audit_saved_key] = True
@@ -10534,12 +10556,12 @@ def render_screen_3():
                 "- **Unlimited single-result checks and Audit My Report uploads** too\n\n"
                 f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited*"
             ))
-        elif uploaded is not None and not check_rate_limit(
+        elif uploaded is not None and not _safe_rate_limit_ok(
             _csvpf_email, "portfolio_upload", max_count=15, window_seconds=3600
         ):
             st.warning("You've uploaded a lot of portfolios in the last hour — please wait a bit before uploading more.")
         elif uploaded is not None:
-            log_access(_csvpf_email, "portfolio_upload")
+            _safe_log_access(_csvpf_email, "portfolio_upload")
             try:
                 if uploaded.name.lower().endswith((".xlsx", ".xls")):
                     df = pd.read_excel(uploaded)
