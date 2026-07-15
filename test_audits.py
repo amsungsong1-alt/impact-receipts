@@ -11,7 +11,10 @@ the same SQLAlchemy models work unchanged against either dialect. Run with:
 python test_audits.py
 """
 
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 import utils.audits as audits
 
@@ -177,7 +180,65 @@ def run_benchmark():
     print("PASS: benchmark — sample-size gate, bucket isolation, and recompute-on-save verified.")
 
 
+def run_access_log_and_rate_limit():
+    failures = []
+    original_get_engine = audits._get_engine
+    engine = _fresh_engine()
+    audits._get_engine = lambda: engine
+    try:
+        # save_audit() must append an access_log row as a side effect.
+        audits.save_audit("a@example.com",
+                           [{"donor": "GIZ", "sector": "Education & Skills", "org_type": "National NGO"}],
+                           [{"confidence_score": 4.0, "clarity_score": 4.0, "verdict": "Strong"}],
+                           "IMP-log-1")
+        with Session(engine) as session:
+            logged = (session.query(audits.AccessLog)
+                      .filter(audits.AccessLog.email == "a@example.com",
+                              audits.AccessLog.action == "save_audit").all())
+        if len(logged) != 1:
+            failures.append(f"save_audit() should append exactly 1 access_log row, found {len(logged)}")
+
+        # check_rate_limit: under the threshold is allowed, at/over it is not.
+        for _ in range(3):
+            audits.log_access("limit_test@example.com", "test_action")
+        if not audits.check_rate_limit("limit_test@example.com", "test_action", max_count=5, window_seconds=60):
+            failures.append("check_rate_limit denied a request under its max_count threshold")
+        for _ in range(3):
+            audits.log_access("limit_test@example.com", "test_action")
+        if audits.check_rate_limit("limit_test@example.com", "test_action", max_count=5, window_seconds=60):
+            failures.append("check_rate_limit allowed a request at/over its max_count threshold")
+
+        # A different email's actions must not count toward this email's limit.
+        if not audits.check_rate_limit("other_user@example.com", "test_action", max_count=5, window_seconds=60):
+            failures.append("check_rate_limit incorrectly shared state across different emails")
+
+        # Entries outside the time window must not count toward the limit.
+        with Session(engine) as session:
+            stale_cutoff = datetime.now(timezone.utc) - timedelta(seconds=120)
+            for _ in range(10):
+                session.add(audits.AccessLog(email="window_test@example.com", action="test_action",
+                                              created_at=stale_cutoff))
+            session.commit()
+        if not audits.check_rate_limit("window_test@example.com", "test_action", max_count=5, window_seconds=60):
+            failures.append("check_rate_limit counted access_log rows outside its time window")
+
+        # A DB error must fail OPEN, not closed.
+        audits._get_engine = lambda: None
+        if not audits.check_rate_limit("a@example.com", "test_action", max_count=1, window_seconds=60):
+            failures.append("check_rate_limit did not fail open when the engine is unavailable")
+    finally:
+        audits._get_engine = original_get_engine
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: access log — save_audit logging, rate-limit threshold/window/fail-open verified.")
+
+
 if __name__ == "__main__":
     run_audits()
     run_logframe_library()
     run_benchmark()
+    run_access_log_and_rate_limit()

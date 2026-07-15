@@ -6,8 +6,12 @@ Unlike utils/db.py (which talks to Supabase over its REST API via the anon
 key), this module connects directly to the same underlying Postgres database
 via SQLAlchemy, using a separate SUPABASE_DB_URL secret (the Postgres
 connection string, not the SUPABASE_URL/SUPABASE_ANON_KEY pair). Schema is
-tracked in supabase/migrations/0006-0008 -- the models below map onto that
-already-created schema, they don't generate it.
+tracked in supabase/migrations/0006-0010 -- the models below map onto that
+already-created schema, they don't generate it. 0009 creates a
+least-privilege Postgres role (app_audits_rw) that SUPABASE_DB_URL should
+connect as instead of the default superuser -- see that migration's header
+comment for why this matters: a superuser bypasses every GRANT/REVOKE check,
+so the access_log table's append-only guarantee (0010) has no teeth without it.
 
 All functions degrade gracefully on DB failure (never crash the app),
 matching utils/db.py's convention. Nothing here runs unless a user has
@@ -17,7 +21,7 @@ change.
 """
 from __future__ import annotations
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import Column, BigInteger, Integer, Text, DateTime, Float, JSON, ForeignKey, func
 from sqlalchemy.orm import declarative_base, Session
@@ -84,6 +88,17 @@ class AuditAggregateStats(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class AccessLog(Base):
+    __tablename__ = "access_log"
+    id = Column(_PK, primary_key=True)
+    email = Column(Text, nullable=False)
+    action = Column(Text, nullable=False)
+    resource_type = Column(Text)
+    resource_id = Column(Text)
+    ip_address = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 _engine = None
 
 
@@ -145,6 +160,7 @@ def save_audit(email: str, submissions: list, evaluations: list, ref_id: str) ->
             audit_id = row.id
     except Exception:
         return None
+    log_access(email, "save_audit", resource_type="audit", resource_id=audit_id)
     if donor and sector and org_type:
         try:
             _recompute_bucket(donor, sector, org_type)
@@ -214,6 +230,7 @@ def delete_audit(email: str, audit_id: int) -> None:
         with Session(engine) as session:
             row = session.get(Audit, audit_id)
             if row and row.email == email:
+                log_access(email, "delete_audit", resource_type="audit", resource_id=audit_id)
                 session.delete(row)
                 session.commit()
     except Exception:
@@ -235,9 +252,11 @@ def create_logframe_library(email: str, name: str) -> int | None:
             lib = LogframeLibrary(email=email, name=name)
             session.add(lib)
             session.commit()
-            return lib.id
+            lib_id = lib.id
     except Exception:
         return None
+    log_access(email, "create_logframe_library", resource_type="logframe_library", resource_id=lib_id)
+    return lib_id
 
 
 def list_logframe_libraries(email: str) -> list[dict]:
@@ -286,7 +305,8 @@ def add_library_items(library_id: int, email: str, items: list) -> None:
             lib.updated_at = datetime.now(timezone.utc)
             session.commit()
     except Exception:
-        pass
+        return
+    log_access(email, "add_library_items", resource_type="logframe_library", resource_id=library_id)
 
 
 def get_library_items(library_id: int, email: str) -> list[dict]:
@@ -326,6 +346,7 @@ def delete_logframe_library(library_id: int, email: str) -> None:
         with Session(engine) as session:
             lib = session.get(LogframeLibrary, library_id)
             if lib and lib.email == email:
+                log_access(email, "delete_logframe_library", resource_type="logframe_library", resource_id=library_id)
                 session.delete(lib)  # DB-level ON DELETE CASCADE removes its items
                 session.commit()
     except Exception:
@@ -391,3 +412,53 @@ def get_benchmark(donor: str, sector: str, org_type: str,
             }
     except Exception:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Access log (append-only) + rate limiting
+# ---------------------------------------------------------------------------
+
+def log_access(email: str, action: str, resource_type: str | None = None,
+                resource_id=None, ip_address: str | None = None) -> None:
+    """Best-effort append to the access log. Never raises -- a logging
+    failure must not block the action it's recording. Insert-only by design
+    (see migration 0010's comment) -- this module never updates or deletes a
+    row here, and the DB role it connects as has no grant to do so either."""
+    if not email or not action:
+        return
+    engine = _get_engine()
+    if not engine:
+        return
+    try:
+        with Session(engine) as session:
+            session.add(AccessLog(
+                email=email, action=action, resource_type=resource_type,
+                resource_id=str(resource_id) if resource_id is not None else None,
+                ip_address=ip_address,
+            ))
+            session.commit()
+    except Exception:
+        pass
+
+
+def check_rate_limit(email: str, action: str, max_count: int, window_seconds: int) -> bool:
+    """True if `email` has performed fewer than max_count of `action` in the
+    last window_seconds, per access_log. Fails OPEN (returns True) on any DB
+    error -- a rate-limiter outage must not block legitimate use, matching
+    this module's existing degrade-gracefully convention."""
+    if not email or not action:
+        return True
+    engine = _get_engine()
+    if not engine:
+        return True
+    try:
+        from sqlalchemy import func as _func
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
+        with Session(engine) as session:
+            count = (session.query(_func.count(AccessLog.id))
+                     .filter(AccessLog.email == email, AccessLog.action == action,
+                             AccessLog.created_at >= cutoff)
+                     .scalar())
+            return (count or 0) < max_count
+    except Exception:
+        return True
