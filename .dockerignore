@@ -1,0 +1,16 @@
+.git/
+venv/
+__pycache__/
+*.pyc
+.env
+.streamlit/
+inputs/
+outputs/
+evaluations/
+metrics_events.jsonl
+nginx/
+scripts/
+*.md
+.dockerignore
+Dockerfile
+docker-compose.yml
