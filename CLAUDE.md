@@ -57,9 +57,10 @@ equivalent) before rendering its output.
   `auth.py` (magic-link login tokens + durable session tokens), `metering.py` (centralized
   free-check/paid-plan access checks — the single place every feature gate should read),
   `audits.py` (SQLAlchemy-backed opt-in saved audit history, Logframe Library, anonymized
-  benchmark — a second, direct-Postgres access path into the same Supabase database, alongside
-  `db.py`'s REST-based one), `whatsapp.py` (WhatsApp Cloud API notifications/deep-links),
-  `email_otp.py`, `anonymize.py`.
+  benchmark, append-only access log, rate limiting, and account-data-deletion — a second,
+  direct-Postgres access path into the same Supabase database, alongside `db.py`'s REST-based
+  one), `crypto.py` (Fernet field-level encryption for stored audit content), `whatsapp.py`
+  (WhatsApp Cloud API notifications/deep-links), `email_otp.py`, `anonymize.py`.
 
 ## Billing & auth
 
@@ -92,13 +93,22 @@ invoice-history table read by the billing settings page.
 Off by default, and the stateless no-storage path stays fully functional for anyone who never
 opts in. `utils/audits.py` connects to the same Supabase Postgres database `utils/db.py` uses,
 but directly via SQLAlchemy (a `SUPABASE_DB_URL` connection-string secret) rather than through
-Supabase's REST API — schema lives in `supabase/migrations/0006`–`0008` (the SQLAlchemy models
+Supabase's REST API — schema lives in `supabase/migrations/0006`–`0011` (the SQLAlchemy models
 map onto that schema, they don't generate it), and every new table there has RLS explicitly
 disabled, matching `0005`'s fix and this app's anon-key/app-level-auth security model.
+`SUPABASE_DB_URL` should use `app_audits_rw` (created in `0009`), a least-privilege role scoped
+only to this module's own tables — not the default `postgres` superuser, which bypasses every
+GRANT/REVOKE check and would silently defeat the access log's append-only guarantee below.
 
-A user who checks "Save this audit to my private history" on Screen 2 gets one `audits` row per
-submission-run (not per individual result — `evaluations`/`submissions_snapshot` are always a
-run's worth together), viewable/re-downloadable/deletable from the My Audits page. The Logframe
+A user who checks "Save this audit to my private history (encrypted at rest)" on Screen 2 gets
+one `audits` row per submission-run (not per individual result — `evaluations`/
+`submissions_snapshot` are always a run's worth together), viewable/re-downloadable/deletable
+from the My Audits page. `submissions_json`/`evaluations_json` (and the Logframe Library's five
+free-text fields) are genuinely encrypted at rest via `utils/crypto.py` (Fernet, key in
+`AUDIT_ENCRYPTION_KEY`) — the denormalized `donor`/`sector`/`org_type`/score columns stay
+unencrypted by design (constrained dropdown values, not free text), so listing and
+benchmarking never need decryption. Key rotation isn't implemented; losing
+`AUDIT_ENCRYPTION_KEY` makes existing encrypted content permanently unrecoverable. The Logframe
 Library (`logframe_libraries`/`logframe_library_items`) lets a user save a named, reusable
 indicator list from Screen 1's Logframe tab and load it into a future audit instead of retyping
 it — reuses the same column shape as CSV Portfolio upload and IRC batch extraction.
@@ -112,6 +122,29 @@ content), recomputed synchronously right after each opt-in save; `get_benchmark(
 bucket. Shown both on-screen (`_render_result_card()`) and on the exported PDF
 (`_build_html_report_card()`).
 
+`access_log` (`0010`) is an append-only trail (every `utils/audits.py` write, plus
+`"account_purge"`) — append-only via GRANT scope, not RLS: `app_audits_rw` gets `select`/`insert`
+only, no `update`/`delete`. `check_rate_limit()` reads it to throttle save/upload actions
+(`save_audit`, `add_library_items`, Instant Report Check extraction, CSV Portfolio upload) and
+fails *open* on any DB error, matching this module's degrade-gracefully convention — paired with
+Nginx's own `limit_req` zone (`nginx/conf.d/impactproof.conf`) at the HTTP layer.
+
+The "erase my history" Danger Zone (My Audits page) calls `purge_account_audit_content()`
+(deletes `audits` + `logframe_libraries`, items cascade) plus `utils/db.py`'s
+`clear_user_draft()`/`delete_wa_conversations()` — deliberately scoped to MEL content only:
+`payments` (independent tax/accounting retention), `sessions`/`login_tokens`, and the `users`
+row itself are untouched. `wa_conversations` has no foreign key to `users` at all, so
+`delete_wa_conversations()` is the only thing that ever removes those rows.
+
+Row isolation is enforced entirely in application code (every `utils/audits.py` function checks
+`row.email == <caller-supplied email>` before returning/mutating), not Postgres RLS — see the
+prior paragraph's incident. The actual bug surface for cross-account leakage is therefore always
+upstream, in whatever calls into this module: every `app.py` call site has been audited to
+confirm it only ever passes a freshly-read `st.session_state.get("user_email", "")`, and
+`_load_from_inputs_json()` was fixed to never let uploaded/imported data overwrite an
+already-authenticated session's email (the concrete vulnerability this pattern was written to
+close — see git history).
+
 ## AI call sites and models
 
 All Claude calls read `ANTHROPIC_API_KEY` from `st.secrets` with an `os.environ` fallback, and
@@ -124,21 +157,26 @@ recommended aliases before introducing a new call site.
 
 ## Testing
 
-Five plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
+Six plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
 (API-calling functions are tested by temporarily swapping `council._call_haiku`, or
 `utils.paystack.requests`/`utils.db._get_client`/`utils.auth._get_client`, for a fake;
 `test_audits.py` swaps `utils.audits._get_engine` for an in-memory SQLite engine instead, since
-the same SQLAlchemy models work unchanged against either dialect):
+the same SQLAlchemy models work unchanged against either dialect — note SQLite doesn't enforce
+foreign keys by default unlike Postgres, so that fixture explicitly enables
+`PRAGMA foreign_keys=ON` to exercise cascade-delete behavior correctly; `test_security.py`
+imports `app.py` itself in Streamlit's "bare mode," where `st.session_state` still behaves as a
+plain dict within one process):
 
 ```powershell
 python test_app.py       # evaluator.py + diagnostics.py scoring behaviour
 python test_council.py   # fabrication guard + logframe match
 python test_metrics.py   # metrics event logging/summarization
 python test_billing.py   # auth token lifecycle, metering, Paystack subscriptions/webhook sig
-python test_audits.py    # saved audits, logframe library, benchmark sample-size gate
+python test_audits.py    # saved audits, logframe library, benchmark, access log, encryption, deletion
+python test_security.py  # app.py-level regression tests (currently: the user_email overwrite guard)
 ```
 
-All five must pass before pushing a change that touches scoring, AI post-processing, metrics,
+All six must pass before pushing a change that touches scoring, AI post-processing, metrics,
 billing/auth, or audit persistence. When you intentionally change scoring behavior, re-baseline
 `test_app.py`'s golden values in the same commit — a scoring change that leaves the golden values
 stale silently breaks the safety net for the next change.
@@ -166,6 +204,24 @@ failure/cancellation events have nowhere to land.
 Database schema changes live in `supabase/migrations/` — apply new files with `supabase db push`
 (or paste each file's SQL into the Supabase SQL editor) rather than hand-writing `ALTER TABLE`
 statements against a running project.
+
+### Docker / VPS deployment (alternative to Streamlit Cloud)
+
+A self-hosted path exists alongside Streamlit Cloud's auto-deploy — the two are parallel
+options, not a replacement of one by the other, and both read the same secret *names* from
+different stores (Streamlit Cloud's App settings → Secrets vs. Docker's `.env`/`env_file:`).
+Every secret-read call site in the codebase already has an `os.environ` fallback, so moving to
+Docker needed zero application-code changes. `Dockerfile` + `docker-compose.yml` (`app` + `nginx`
++ an on-demand `certbot` service) + `nginx/` (reverse proxy, WebSocket upgrade headers, the
+`Host` header Streamlit's `enableXsrfProtection=true` requires, gzip, `limit_req` rate limiting)
++ `scripts/deploy_vps.sh` (assumes an existing Ubuntu/Debian VPS — DigitalOcean/Hetzner both
+provision plain Ubuntu boxes, no cloud-API integration needed). The two Supabase Edge Functions
+are hosted by Supabase independently of where the Streamlit app itself runs — this deployment
+path requires zero changes to them. TLS's first-ever certificate issuance is a documented,
+manual two-phase process (Nginx must already be serving the ACME challenge before certbot can
+succeed against it) — not something the deploy script attempts to automate blind. OSS Nginx has
+no active upstream health check (that's an Nginx-Plus feature); recovery relies on Docker's
+`HEALTHCHECK` + `restart: unless-stopped` on both real services.
 
 ## Working conventions
 

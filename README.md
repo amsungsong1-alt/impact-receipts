@@ -47,7 +47,8 @@ Set in `.streamlit/secrets.toml` (local) or Streamlit Cloud **App settings → S
 | `ANTHROPIC_API_KEY` | Yes | Claude API key for Instant Report Check |
 | `SUPABASE_URL` | Yes | Supabase project URL |
 | `SUPABASE_ANON_KEY` | Yes | Supabase anon/public key |
-| `SUPABASE_DB_URL` | No | Direct Postgres connection string (Dashboard → Project Settings → Database → Connection string, **Transaction pooler** mode recommended) for `utils/audits.py`'s SQLAlchemy connection — a separate access path from `SUPABASE_URL`/`SUPABASE_ANON_KEY`'s REST API. Saved audit history, Logframe Library, and the comparison benchmark are unavailable if unset; nothing else is affected. |
+| `SUPABASE_DB_URL` | No | Direct Postgres connection string for `utils/audits.py`'s SQLAlchemy connection — a separate access path from `SUPABASE_URL`/`SUPABASE_ANON_KEY`'s REST API. **Use the `app_audits_rw` role's connection string, not the default `postgres` superuser one** — `app_audits_rw` is created by `supabase/migrations/0009_least_privilege_role.sql` and is scoped only to this module's own tables; a superuser bypasses every GRANT/REVOKE check, which silently defeats the `access_log` table's append-only guarantee. Dashboard → Project Settings → Database → Connection string, **Transaction pooler** mode recommended. Saved audit history, Logframe Library, and the comparison benchmark are unavailable if unset; nothing else is affected. |
+| `AUDIT_ENCRYPTION_KEY` | No | Fernet key encrypting saved audit content and Logframe Library items at rest (`utils/crypto.py`). Generate once: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. **Losing this key makes all encrypted content permanently unrecoverable** — back it up somewhere outside Supabase/Streamlit secrets. Saving an audit/library item fails closed (stores nothing) if unset. |
 | `PAYSTACK_SECRET_KEY` | Yes | Paystack secret key (payments) |
 | `PAYSTACK_PUBLIC_KEY` | Yes | Paystack public key |
 | `PAYSTACK_PLAN_PROFESSIONAL_MONTHLY` | No | Professional monthly Plan code from `scripts/setup_paystack_plans.py`. Subscribe buttons fall back to a one-off charge if unset. |
@@ -64,10 +65,24 @@ Apply the migration files in `supabase/migrations/` in order — either `supabas
 (recommended; requires the [Supabase CLI](https://supabase.com/docs/guides/cli) linked to your
 project), or paste each file's SQL into the Supabase SQL editor by hand, oldest first. This
 creates/extends the `users`, `examples`, `wa_conversations`, `login_tokens`, `sessions`,
-`payments`, `audits`, `logframe_libraries`, `logframe_library_items`, and
-`audit_aggregate_stats` tables plus the `increment_free_checks` function. Do not hand-write new
-`ALTER TABLE` statements against a running project — add a new numbered file to
-`supabase/migrations/` instead, so the schema stays reproducible from a clean project.
+`payments`, `audits`, `logframe_libraries`, `logframe_library_items`, `audit_aggregate_stats`,
+and `access_log` tables, plus the `increment_free_checks` function and the least-privilege
+`app_audits_rw` Postgres role. Do not hand-write new `ALTER TABLE` statements against a running
+project — add a new numbered file to `supabase/migrations/` instead, so the schema stays
+reproducible from a clean project.
+
+`0009_least_privilege_role.sql` creates `app_audits_rw` but does **not** set its password (never
+commit a password to this repo) — after applying it, set one by hand:
+
+```sql
+ALTER ROLE app_audits_rw WITH PASSWORD '<generate a strong random password>';
+```
+
+Then use that role's connection string for `SUPABASE_DB_URL`, not the default `postgres`
+superuser one — see that row in the secrets table above for why this matters. If `CREATE ROLE`
+is rejected on your project (some hosted Supabase plans restrict this to the dashboard), create
+`app_audits_rw` via **Dashboard → Database → Roles** instead and skip straight to the `GRANT`
+statements in that migration file.
 
 ### Webhook setup
 
@@ -92,6 +107,45 @@ its provider:
 Deploy and register `paystack-webhook` *before* pasting real `PAYSTACK_PLAN_*` codes into
 Streamlit secrets — otherwise a subscription's renewal/failure/cancellation events have nowhere
 to land until the webhook exists.
+
+### Docker / VPS deployment
+
+An alternative to Streamlit Cloud's auto-deploy — both share the same Supabase backend and Edge
+Functions unchanged, and every secret above works the same way, just supplied via `.env` instead
+of Streamlit's Secrets UI.
+
+1. **Copy `.env.example` to `.env`** and fill in every value (the script refuses to run with a
+   missing `.env`, but won't validate individual values — blank Paystack Plan codes, for
+   instance, just fall back to one-off charges rather than erroring).
+2. **Point your domain's A record** at the VPS's IP address before continuing — Let's Encrypt
+   needs this to succeed.
+3. **First-ever TLS bootstrap** (two phases, since Nginx needs to already be serving the ACME
+   challenge before certbot can obtain a certificate against it):
+   ```bash
+   # Phase 1: bring Nginx up HTTP-only (comment out the ssl_certificate lines
+   # in nginx/conf.d/impactproof.conf first, or the container will fail to
+   # start with no certificate yet on disk)
+   docker compose up -d nginx
+
+   # Phase 2: obtain the certificate, then uncomment the ssl_certificate
+   # lines and reload
+   docker compose run --rm --entrypoint certbot certbot certonly \
+     --webroot -w /var/www/certbot -d YOUR_DOMAIN_HERE \
+     --email you@example.com --agree-tos --no-eff-email
+   docker compose exec nginx nginx -s reload
+   ```
+4. **Deploy**: `./scripts/deploy_vps.sh` — installs Docker if missing, builds, and starts
+   everything with `restart: unless-stopped`.
+5. **Certificate renewal** — `restart: unless-stopped` does not schedule anything on its own; add
+   a host crontab entry (certbot's own recommended cadence is twice daily):
+   ```bash
+   0 3,15 * * * cd /path/to/impact-receipts && docker compose run --rm --entrypoint certbot certbot renew --webroot -w /var/www/certbot && docker compose exec nginx nginx -s reload
+   ```
+
+Replace `YOUR_DOMAIN_HERE` in `nginx/conf.d/impactproof.conf` (both server blocks) with your real
+domain before step 3. OSS Nginx has no active upstream health check (that's an Nginx-Plus
+feature) — recovery relies on the Dockerfile's `HEALTHCHECK` + `restart: unless-stopped`, so
+Nginx may 502 for the short window while the `app` container restarts.
 
 ## Run Locally
 
