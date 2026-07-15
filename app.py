@@ -12312,7 +12312,8 @@ def main():
         _logging.error("Unhandled top-level exception", exc_info=True)
         st.error(
             "Something went wrong rendering the app. Please refresh the page. "
-            "If the problem persists, contact us: info@impact-receipts.com"
+            "If the problem persists, contact us: info@impact-receipts.com\n\n"
+            f"Details: {type(_top_exc).__name__}: {_top_exc}"
         )
         # Error support WhatsApp CTA — server-side notification (council XXIV)
         _err_email  = st.session_state.get("user_email", "")
