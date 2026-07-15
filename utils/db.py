@@ -219,6 +219,26 @@ def log_wa_event(
         pass
 
 
+def delete_wa_conversations(email: str) -> None:
+    """Deletes wa_conversations rows for email -- part of the "erase my
+    history" data-deletion feature (see utils/audits.py's
+    purge_account_audit_content). wa_conversations has no foreign key to
+    users at all (it's a plain user_email text column, no `references`
+    clause -- see 0000_base_schema.sql), so nothing else -- no cascade --
+    will ever remove these rows; this explicit, separately-scoped delete is
+    the only thing that does.
+    """
+    if not email:
+        return
+    try:
+        c = _get_client()
+        if not c:
+            return
+        c.table("wa_conversations").delete().eq("user_email", email).execute()
+    except Exception:
+        pass
+
+
 def save_example(field_name: str, sector: str, value: str) -> None:
     """Store an anonymised field example."""
     if not field_name or not value:

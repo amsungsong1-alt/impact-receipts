@@ -16,7 +16,7 @@ import os
 from datetime import datetime, timedelta, timezone
 
 from cryptography.fernet import Fernet
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
 # A real (test-only) Fernet key so save_audit()/add_library_items()'s
@@ -30,6 +30,16 @@ import utils.crypto as crypto
 
 def _fresh_engine():
     engine = create_engine("sqlite:///:memory:")
+    # SQLite does NOT enforce foreign keys (including ON DELETE CASCADE) by
+    # default, unlike Postgres, which always enforces them -- without this,
+    # cascade-delete behavior (e.g. logframe_library_items when its parent
+    # logframe_libraries row is deleted) would silently not happen in tests
+    # even though it works correctly against the real Postgres database.
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_fk(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
     audits.Base.metadata.create_all(engine)
     return engine
 
@@ -372,6 +382,68 @@ def run_cross_account_denial():
     print("PASS: cross-account denial — every utils/audits.py function refuses another account's data, for every function and every id.")
 
 
+def run_deletion_scope():
+    """purge_account_audit_content() must zero out the target account's
+    audits/libraries (+ cascaded items) while leaving a different account's
+    data completely untouched -- the deletion-scope half of the "erase my
+    history" feature. (The users.draft_json/wa_conversations half lives in
+    utils/db.py, a different backend/client, and is out of this file's scope
+    -- see utils/db.py's clear_user_draft/delete_wa_conversations.)"""
+    failures = []
+    original_get_engine = audits._get_engine
+    engine = _fresh_engine()
+    audits._get_engine = lambda: engine
+    A, B = "purge_me@example.com", "keep_me@example.com"
+    try:
+        subs = [{"donor": "AfDB", "sector": "Energy & Clean Energy", "org_type": "International NGO (INGO)"}]
+        evs = [{"confidence_score": 3.9, "clarity_score": 3.7, "verdict": "Acceptable"}]
+        audits.save_audit(A, subs, evs, "IMP-purge-a1")
+        audits.save_audit(A, subs, evs, "IMP-purge-a2")
+        lib_a = audits.create_logframe_library(A, "A's library")
+        audits.add_library_items(lib_a, A, [{"indicator_name": "A's indicator"}])
+
+        audits.save_audit(B, subs, evs, "IMP-purge-b1")
+        lib_b = audits.create_logframe_library(B, "B's library")
+        audits.add_library_items(lib_b, B, [{"indicator_name": "B's indicator"}])
+
+        result = audits.purge_account_audit_content(A)
+        if result["audits_deleted"] != 2:
+            failures.append(f"purge_account_audit_content should delete 2 audits for A, "
+                             f"reported {result['audits_deleted']}")
+        if result["libraries_deleted"] != 1:
+            failures.append(f"purge_account_audit_content should delete 1 library for A, "
+                             f"reported {result['libraries_deleted']}")
+
+        if audits.list_audits(A) or audits.list_logframe_libraries(A):
+            failures.append("A's audits/libraries still exist after purge_account_audit_content")
+        with Session(engine) as session:
+            orphaned_items = session.query(audits.LogframeLibraryItem).filter(
+                audits.LogframeLibraryItem.library_id == lib_a).count()
+        if orphaned_items:
+            failures.append(f"A's library items were not cascade-deleted with the library "
+                             f"(found {orphaned_items} orphaned rows)")
+
+        # B's data must be completely untouched by A's purge.
+        if len(audits.list_audits(B)) != 1 or len(audits.list_logframe_libraries(B)) != 1:
+            failures.append("purge_account_audit_content for A affected account B's data")
+        if not audits.get_library_items(lib_b, B):
+            failures.append("purge_account_audit_content for A deleted B's library items")
+
+        # A second purge on an already-empty account must be a safe no-op, not an error.
+        second = audits.purge_account_audit_content(A)
+        if second["audits_deleted"] != 0 or second["libraries_deleted"] != 0:
+            failures.append(f"purging an already-empty account should report zero deletions, got {second}")
+    finally:
+        audits._get_engine = original_get_engine
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: deletion scope — purge_account_audit_content clears the target account only, cascades items, safe to repeat.")
+
+
 if __name__ == "__main__":
     run_audits()
     run_logframe_library()
@@ -379,3 +451,4 @@ if __name__ == "__main__":
     run_access_log_and_rate_limit()
     run_encryption()
     run_cross_account_denial()
+    run_deletion_scope()

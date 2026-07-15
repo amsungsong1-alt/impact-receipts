@@ -77,7 +77,7 @@ class LogframeLibrary(Base):
 class LogframeLibraryItem(Base):
     __tablename__ = "logframe_library_items"
     id = Column(_PK, primary_key=True)
-    library_id = Column(BigInteger, ForeignKey("logframe_libraries.id"), nullable=False)
+    library_id = Column(BigInteger, ForeignKey("logframe_libraries.id", ondelete="CASCADE"), nullable=False)
     indicator_name = Column(Text)
     logframe_indicator = Column(Text)
     logframe_baseline = Column(Text)
@@ -489,3 +489,31 @@ def check_rate_limit(email: str, action: str, max_count: int, window_seconds: in
             return (count or 0) < max_count
     except Exception:
         return True
+
+
+# ---------------------------------------------------------------------------
+# Data deletion ("erase my history" -- Ghana Data Protection Act 843)
+# ---------------------------------------------------------------------------
+
+def purge_account_audit_content(email: str) -> dict:
+    """Deletes every audits/logframe_libraries row (cascades to items via the
+    existing FK) for email. Scope is deliberately MEL content only: does NOT
+    touch users.draft_json, wa_conversations, payments, sessions, or the
+    users row itself -- callers (app.py) must separately call
+    utils.db.clear_user_draft()/delete_wa_conversations() to complete a full
+    "erase my history" action; payments/sessions/the account itself are
+    explicitly out of scope (see the migration/plan notes on why). Returns
+    counts for the on-screen confirmation message."""
+    if not email:
+        return {"audits_deleted": 0, "libraries_deleted": 0}
+    engine = _get_engine()
+    if not engine:
+        return {"audits_deleted": 0, "libraries_deleted": 0}
+    try:
+        with Session(engine) as session:
+            n_audits = session.query(Audit).filter(Audit.email == email).delete()
+            n_libs = session.query(LogframeLibrary).filter(LogframeLibrary.email == email).delete()
+            session.commit()
+            return {"audits_deleted": n_audits, "libraries_deleted": n_libs}
+    except Exception:
+        return {"audits_deleted": 0, "libraries_deleted": 0}

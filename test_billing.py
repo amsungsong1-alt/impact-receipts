@@ -80,6 +80,10 @@ class _FakeQuery:
         self._payload = dict(fields)
         return self
 
+    def delete(self):
+        self._op = "delete"
+        return self
+
     def _matches(self, row):
         for kind, col, val in self._filters:
             if kind == "eq" and row.get(col) != val:
@@ -107,6 +111,11 @@ class _FakeQuery:
             matched = [r for r in rows if self._matches(r)]
             for r in matched:
                 r.update(self._payload)
+            return _FakeResult([dict(r) for r in matched])
+        if self._op == "delete":
+            matched = [r for r in rows if self._matches(r)]
+            for r in matched:
+                rows.remove(r)
             return _FakeResult([dict(r) for r in matched])
         # select
         matched = [r for r in rows if self._matches(r)]
@@ -454,8 +463,47 @@ def run_paystack_subscriptions():
     print("PASS: paystack subscriptions — plan-tied init, disable, and webhook signature verification.")
 
 
+def run_data_deletion():
+    """clear_user_draft()/delete_wa_conversations() -- the utils/db.py half
+    of the "erase my history" feature (the utils/audits.py half,
+    purge_account_audit_content, is tested in test_audits.py). wa_conversations
+    has no foreign key to users at all, so delete_wa_conversations is the
+    only thing that ever removes those rows -- this is the regression test
+    for that."""
+    failures = []
+    original_get_client = db._get_client
+    fake_client = _FakeClient()
+    db._get_client = lambda: fake_client
+    try:
+        fake_client.table("users").insert({"email": "a@example.com", "draft_json": "{\"result_statement\": \"secret\"}"}).execute()
+        fake_client.table("wa_conversations").insert({"user_email": "a@example.com", "body": "a's message"}).execute()
+        fake_client.table("wa_conversations").insert({"user_email": "a@example.com", "body": "a's second message"}).execute()
+        fake_client.table("wa_conversations").insert({"user_email": "b@example.com", "body": "b's message"}).execute()
+
+        db.clear_user_draft("a@example.com")
+        if _row(fake_client, "users", "a@example.com").get("draft_json") is not None:
+            failures.append("clear_user_draft did not clear draft_json")
+
+        db.delete_wa_conversations("a@example.com")
+        remaining = fake_client.tables["wa_conversations"].rows
+        if any(r.get("user_email") == "a@example.com" for r in remaining):
+            failures.append("delete_wa_conversations left rows behind for the target email")
+        if not any(r.get("user_email") == "b@example.com" for r in remaining):
+            failures.append("delete_wa_conversations deleted another account's rows")
+    finally:
+        db._get_client = original_get_client
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: data deletion — clear_user_draft/delete_wa_conversations scoped correctly to the target email.")
+
+
 if __name__ == "__main__":
     run_metering()
     run_magic_link()
     run_sessions()
     run_paystack_subscriptions()
+    run_data_deletion()

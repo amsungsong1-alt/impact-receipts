@@ -48,7 +48,7 @@ try:
         get_user, upsert_user, mark_paid,
         is_still_paid, save_example, get_examples,
         save_user_draft, load_user_draft, clear_user_draft,
-        get_payment_history,
+        get_payment_history, delete_wa_conversations,
     )
     from utils.paystack import (
         initialize_payment, verify_payment, last_payment_error,
@@ -79,6 +79,7 @@ except ImportError:
     def clear_user_draft(email): pass
     def get_examples(f, s, k=5): return []
     def get_payment_history(e, limit=50): return []
+    def delete_wa_conversations(e): pass
     def initialize_payment(e, a, p="per_use"): return ""
     def verify_payment(r): return {"status": "error", "amount": 0, "plan": ""}
     def last_payment_error(): return ""
@@ -120,6 +121,7 @@ try:
         create_logframe_library, list_logframe_libraries,
         add_library_items, get_library_items, delete_logframe_library,
         get_benchmark, MIN_BENCHMARK_SAMPLE, check_rate_limit, log_access,
+        purge_account_audit_content,
     )
     _AUDITS_AVAILABLE = True
 except ImportError:
@@ -143,6 +145,7 @@ except ImportError:
     MIN_BENCHMARK_SAMPLE = 10
     def check_rate_limit(email, action, max_count, window_seconds): return True  # fail open
     def log_access(email, action, resource_type=None, resource_id=None, ip_address=None): pass
+    def purge_account_audit_content(email): return {"audits_deleted": 0, "libraries_deleted": 0}
 # --- End opt-in audit persistence ---
 
 # --- UX: INSTANT REPORT CHECK IMPORTS (v3.2) ---
@@ -4700,7 +4703,10 @@ def _render_email_gate_inline(form_key_suffix: str = "") -> None:
             st.caption(
                 "By continuing, you confirm that ImpactProof (a product of Impact-Receipts) "
                 "may store your email and usage count to manage your account. "
-                "No document content or result text is stored on our servers. "
+                "Document content and result text are not stored unless you explicitly opt in "
+                "to save an audit to your private history (you'll see that option after each "
+                "check) — saved content is encrypted at rest, and you can permanently delete it "
+                "anytime from My Audits. "
                 "Processed by Supabase (Ireland) and Paystack (Nigeria). "
                 "Contact: info@impact-receipts.com"
             )
@@ -5313,6 +5319,43 @@ def render_my_audits_page():
                         st.caption(f"• {_it.get('indicator_name') or _it.get('logframe_indicator', '')} "
                                    f"— baseline {_it.get('logframe_baseline') or '—'}, "
                                    f"target {_it.get('logframe_target') or '—'}")
+
+    # --- Danger zone: permanent data deletion (Ghana Data Protection Act 843) ---
+    st.divider()
+    st.markdown("#### Danger zone")
+    st.caption(
+        "Permanently delete every saved audit, Logframe Library, and pre-submission draft "
+        "associated with your account — for Ghana Data Protection Act 843 consistency. "
+        "This does not delete your account, active sign-ins, or payment/invoice history "
+        "(kept for accounting purposes)."
+    )
+    if st.session_state.get("_confirm_purge_history"):
+        st.warning(
+            "This permanently deletes all your saved audits, Logframe Libraries, and any "
+            "in-progress draft. This cannot be undone."
+        )
+        _pc1, _pc2 = st.columns(2)
+        with _pc1:
+            if st.button("Yes, permanently delete my history", key="purge_confirm",
+                         type="primary", use_container_width=True):
+                log_access(email, "account_purge", resource_type="account")  # logged BEFORE the deletes
+                _counts = purge_account_audit_content(email)
+                clear_user_draft(email)
+                delete_wa_conversations(email)
+                st.session_state.pop("_confirm_purge_history", None)
+                st.success(
+                    f"Deleted {_counts['audits_deleted']} audit(s) and "
+                    f"{_counts['libraries_deleted']} Logframe Library/libraries. Your account, "
+                    f"sign-in, and payment history are unaffected."
+                )
+        with _pc2:
+            if st.button("Cancel", key="purge_cancel", use_container_width=True):
+                st.session_state.pop("_confirm_purge_history", None)
+                st.rerun()
+    else:
+        if st.button("🗑 Permanently erase my history", key="purge_start"):
+            st.session_state["_confirm_purge_history"] = True
+            st.rerun()
 
 
 def _render_ph_landing():
