@@ -73,6 +73,27 @@ async function updateUser(email: string, fields: Record<string, unknown>): Promi
   }).catch(() => {/* non-blocking */});
 }
 
+// insertCrmEvent: mirrors utils/crm.py's log_event() on the Python side --
+// this is the only writer of tier_change events for subscription-driven
+// plan changes (renewals/cancellations), since utils/audits.py's Python
+// mark_paid() call sites only ever see pay-per-use payments. Both writers
+// feed the same crm_events table (see supabase/migrations/0012).
+async function insertCrmEvent(email: string, eventType: string, metadata: Record<string, unknown>): Promise<void> {
+  const url = Deno.env.get("SUPABASE_URL");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !key || !email) return;
+  await fetch(`${url}/rest/v1/crm_events`, {
+    method: "POST",
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({ email, event_type: eventType, metadata }),
+  }).catch(() => {/* non-blocking -- a failed event write shouldn't break webhook processing */});
+}
+
 function addDaysIsoDate(days: number): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + days);
@@ -186,6 +207,7 @@ serve(async (req: Request) => {
         paystack_subscription_code: subscriptionCode || undefined,
         paystack_email_token: emailToken || undefined,
       });
+      await insertCrmEvent(email, "tier_change", { plan_label: label, source: "webhook_charge" });
     }
   } else if (event === "subscription.create") {
     // VERIFY: for this event, `data` is typically the subscription object
@@ -232,6 +254,7 @@ serve(async (req: Request) => {
     const email = (customer.email as string) ?? "";
     if (email) {
       await updateUser(email, { subscription_status: "cancelled" });
+      await insertCrmEvent(email, "tier_change", { plan_label: "cancelled", source: "webhook_disable" });
     }
   }
   // Any other event type: acknowledge and ignore, same as the WhatsApp

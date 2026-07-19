@@ -92,6 +92,7 @@ auto-deploy-on-push:
 ```bash
 supabase functions deploy whatsapp-webhook
 supabase functions deploy paystack-webhook
+supabase functions deploy onboarding-drip
 ```
 
 Each function reads its own secrets via `supabase secrets set KEY=value` — **not** the same
@@ -103,10 +104,34 @@ its provider:
   `https://<PROJECT_REF>.supabase.co/functions/v1/whatsapp-webhook`
 - Paystack: Dashboard → Settings → API Keys & Webhooks →
   `https://<PROJECT_REF>.supabase.co/functions/v1/paystack-webhook`
+- `onboarding-drip` has no external provider to register with — it's invoked on a schedule
+  (see "Scheduling" below), not by an inbound webhook.
 
 Deploy and register `paystack-webhook` *before* pasting real `PAYSTACK_PLAN_*` codes into
 Streamlit secrets — otherwise a subscription's renewal/failure/cancellation events have nowhere
 to land until the webhook exists.
+
+`onboarding-drip` needs its own secrets set (separate from Streamlit's, same caveat as above):
+
+```bash
+supabase secrets set CRON_SECRET=<generate a strong random value>
+supabase secrets set RESEND_API_KEY=<same value as Streamlit's RESEND_API_KEY secret>
+supabase secrets set RESEND_FROM=<same value as Streamlit's RESEND_FROM secret>
+supabase secrets set APP_BASE_URL=<same value as Streamlit's APP_BASE_URL secret>
+```
+
+### Scheduling (pg_cron)
+
+`supabase/migrations/0014_pg_cron_onboarding_drip.sql` schedules `onboarding-drip` to run
+hourly via `pg_cron`/`pg_net`, checking for accounts due their day-3 or day-7 onboarding email.
+This is the only scheduling mechanism in this stack that reaches signups from *both*
+deployments (Streamlit Cloud and the self-hosted VPS), since it lives entirely in Supabase
+rather than a host crontab tied to one deployment (compare the TLS-renewal crontab below,
+which is VPS-only). Before applying `0014`, replace its `<PROJECT_REF>` and `<CRON_SECRET>`
+placeholders by hand in the SQL editor with your real project ref and the same `CRON_SECRET`
+value set above — never commit the real value to the migration file. If `pg_cron`/`pg_net`
+enablement is rejected (some hosted plans restrict this), enable both extensions via
+**Dashboard → Database → Extensions** first, then run just the `cron.schedule(...)` call.
 
 ### Docker / VPS deployment
 

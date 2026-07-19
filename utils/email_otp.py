@@ -202,6 +202,134 @@ def send_results_email(
         return False, str(e)
 
 
+def _unsubscribe_footer(app_url: str, unsubscribe_token: str) -> str:
+    """Shared footer block for marketing (non-transactional) sends only --
+    send_otp_email/send_login_email/send_results_email/send_welcome_email are
+    transactional and must NOT include this. unsubscribe_token comes from
+    users.unsubscribe_token (supabase/migrations/0013); routes to app.py's
+    _render_unsubscribe_landing() via the ?unsubscribe= query param."""
+    if not unsubscribe_token:
+        return ""
+    unsub_url = f"{app_url}/?unsubscribe={unsubscribe_token}"
+    return (
+        f"<p style='color:#9e9e9e;font-size:0.75rem;margin-top:16px;'>"
+        f"<a href='{unsub_url}' style='color:#9e9e9e;'>Unsubscribe from these emails</a></p>"
+    )
+
+
+def send_case_study_email(to_email: str, unsubscribe_token: str = "") -> tuple[bool, str]:
+    """Day-3 onboarding email — a case study on rework costs, sent by the
+    onboarding-drip Edge Function (see supabase/functions/onboarding-drip)
+    to accounts 3+ days past signup that haven't received it yet. This
+    Python function is the canonical/reviewable template source; the actual
+    scheduled send re-implements this same HTML as a TS string literal in
+    that Edge Function (Deno can't import this module) — keep both in sync
+    by hand if the copy changes here."""
+    api_key = _get_secret("RESEND_API_KEY")
+    if not api_key:
+        return False, "Email not configured."
+    from_address = _from_address()
+    _app_url = _get_secret("APP_BASE_URL", "https://impact-integrity-diagnostic.streamlit.app").rstrip("/")
+    try:
+        import requests
+        resp = requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "from": from_address,
+                "to": [to_email],
+                "subject": "What a rejected donor report actually costs",
+                "html": f"""
+<div style='font-family:Inter,sans-serif;max-width:560px;margin:0 auto;color:#212121;'>
+  <h2 style='color:#1B5E20;margin-bottom:4px;'>40+ hours of rework, avoidable</h2>
+  <p style='font-size:0.9rem;'>
+    A real African consultancy had their final donor report rejected 3 times in 2024 —
+    because results weren't tied to logframe indicators. That's 40+ hours of rework,
+    a missed deadline, and a donor relationship under strain.
+  </p>
+  <p style='font-size:0.9rem;'>
+    The fix was small: catching the gap before submission, not after. That's exactly
+    what {_APP_NAME}'s Confidence and Clarity scores are built to do — flag weak
+    evidence and missing logframe links before your donor does.
+  </p>
+  <p style='margin-top:20px;'>
+    <a href='{_app_url}/'
+       style='background:#1B5E20;color:white;padding:10px 20px;border-radius:8px;
+              text-decoration:none;font-weight:700;display:inline-block;'>
+      Run another check →
+    </a>
+  </p>
+  <p style='color:#424242;font-size:0.875rem;margin-top:24px;border-top:1px solid #eee;padding-top:12px;'>
+    {_APP_NAME} &middot; Built in Accra for MEL teams across West Africa
+  </p>
+  {_unsubscribe_footer(_app_url, unsubscribe_token)}
+</div>""",
+            },
+            timeout=10,
+        )
+        if resp.status_code in (200, 201):
+            return True, ""
+        return False, f"Email service returned {resp.status_code}"
+    except Exception as e:
+        return False, str(e)
+
+
+def send_upgrade_offer_email(to_email: str, unsubscribe_token: str = "") -> tuple[bool, str]:
+    """Day-7 onboarding email — an upgrade offer, sent by the onboarding-drip
+    Edge Function to accounts 7+ days past signup that haven't received it
+    yet. Same canonical-template/keep-in-sync-with-the-Edge-Function note as
+    send_case_study_email() above."""
+    api_key = _get_secret("RESEND_API_KEY")
+    if not api_key:
+        return False, "Email not configured."
+    from_address = _from_address()
+    _app_url = _get_secret("APP_BASE_URL", "https://impact-integrity-diagnostic.streamlit.app").rstrip("/")
+    try:
+        import requests
+        resp = requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "from": from_address,
+                "to": [to_email],
+                "subject": "Unlimited checks, re-scoring, and a PDF your supervisor can read",
+                "html": f"""
+<div style='font-family:Inter,sans-serif;max-width:560px;margin:0 auto;color:#212121;'>
+  <h2 style='color:#1B5E20;margin-bottom:4px;'>Ready for unlimited checks?</h2>
+  <p style='font-size:0.9rem;'>
+    You've had a week with {_APP_NAME}. If your free checks are running low, or you're
+    fixing gaps and want to re-score without limits, Professional removes the cap.
+  </p>
+  <p style='font-size:0.9rem;'>
+    <strong>Professional</strong> — GHS 50/month: unlimited checks, re-score after every
+    fix, and a downloadable Readiness Card PDF to share with your supervisor or donor.
+  </p>
+  <p style='font-size:0.85rem;color:#616161;'>
+    The ROI is immediate: GHS 50/month vs. GHS 12,000&ndash;17,000 in rework costs from a
+    donor-queried report.
+  </p>
+  <p style='margin-top:20px;'>
+    <a href='{_app_url}/?billing=1'
+       style='background:#1B5E20;color:white;padding:10px 20px;border-radius:8px;
+              text-decoration:none;font-weight:700;display:inline-block;'>
+      Upgrade to Professional →
+    </a>
+  </p>
+  <p style='color:#424242;font-size:0.875rem;margin-top:24px;border-top:1px solid #eee;padding-top:12px;'>
+    {_APP_NAME} &middot; Built in Accra for MEL teams across West Africa
+  </p>
+  {_unsubscribe_footer(_app_url, unsubscribe_token)}
+</div>""",
+            },
+            timeout=10,
+        )
+        if resp.status_code in (200, 201):
+            return True, ""
+        return False, f"Email service returned {resp.status_code}"
+    except Exception as e:
+        return False, str(e)
+
+
 def send_welcome_email(to_email: str) -> tuple[bool, str]:
     """Day-1 onboarding email — sent once when a new user first completes the email gate."""
     api_key = _get_secret("RESEND_API_KEY")

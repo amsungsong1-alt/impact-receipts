@@ -293,3 +293,41 @@ def get_payment_history(email: str, limit: int = 50) -> list[dict]:
         return res.data or []
     except Exception:
         return []
+
+
+def list_all_users() -> list[dict]:
+    """All users' email/plan/is_paid/free_checks_used/created_at/
+    subscription_status/marketing_opt_out -- used only by utils.crm.
+    build_segments() for the admin CRM dashboard. [] on any failure.
+
+    NOTE: unfiltered/unpaginated -- fine at current account volume, but will
+    need .range()-based pagination once the account count grows past a few
+    thousand rows (Supabase's REST API caps a single response's row count)."""
+    try:
+        c = _get_client()
+        if not c:
+            return []
+        res = c.table("users").select(
+            "email, plan, is_paid, free_checks_used, created_at, "
+            "subscription_status, marketing_opt_out"
+        ).execute()
+        return res.data or []
+    except Exception:
+        return []
+
+
+def set_marketing_opt_out_by_token(token: str) -> bool:
+    """Flips marketing_opt_out=true for whichever account owns this
+    unsubscribe_token (see supabase/migrations/0013). The caller should show
+    the same confirmation message regardless of the return value -- never
+    reveal whether a given token matched a real account."""
+    if not token:
+        return False
+    try:
+        c = _get_client()
+        if not c:
+            return False
+        res = c.table("users").update({"marketing_opt_out": True}).eq("unsubscribe_token", token).execute()
+        return bool(res.data)
+    except Exception:
+        return False

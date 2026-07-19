@@ -279,6 +279,15 @@ def notify_founder(
     except Exception:
         pass
 
+    # CRM event -- per-account WhatsApp-click signal for the admin
+    # segmentation dashboard (utils/crm.py), parallel to the wa_conversations
+    # log above but in the unified crm_events table.
+    try:
+        from utils.crm import log_event
+        log_event(user_email, "whatsapp_click", metadata={"context": context_id, "label": label})
+    except Exception:
+        pass
+
     return ok, result
 
 

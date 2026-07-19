@@ -60,7 +60,10 @@ equivalent) before rendering its output.
   benchmark, append-only access log, rate limiting, and account-data-deletion — a second,
   direct-Postgres access path into the same Supabase database, alongside `db.py`'s REST-based
   one), `crypto.py` (Fernet field-level encryption for stored audit content), `whatsapp.py`
-  (WhatsApp Cloud API notifications/deep-links), `email_otp.py`, `anonymize.py`.
+  (WhatsApp Cloud API notifications/deep-links), `email_otp.py`, `anonymize.py`, `crm.py`
+  (per-account CRM events + Trial/Active-Free/Professional/Agency/Churn-risk segmentation for
+  the admin dashboard — a third, deliberately separate, plaintext-account-identified
+  direct-Postgres store alongside `audits.py`'s and `metrics.py`'s anonymous one).
 
 ## Billing & auth
 
@@ -145,6 +148,41 @@ confirm it only ever passes a freshly-read `st.session_state.get("user_email", "
 already-authenticated session's email (the concrete vulnerability this pattern was written to
 close — see git history).
 
+## CRM analytics & onboarding email drip
+
+`utils/crm.py` logs per-account events (`signup`, `audit_run`, `framework_used`, `tier_change`,
+`upgrade_prompt_shown`/`_clicked`, `whatsapp_click`) to a `crm_events` table — deliberately a
+new table, not an extension of `metrics.py` (anonymous, one-way-hashed session ids, tested to
+never leak an email — see `test_metrics.py`) or `utils/audits.py`'s `AccessLog`/`access_log`
+(a permanent security-audit trail excluded from account purges). `crm_events` is high-volume
+growth data and *is* in scope for the "erase my history" purge (`purge_account_crm_events()`).
+Connects via the same `SUPABASE_DB_URL`/SQLAlchemy pattern as `utils/audits.py`, granted to the
+same `app_audits_rw` role (schema in `supabase/migrations/0012`–`0013`).
+
+`build_segments()` buckets every account into Trial / Active-Free / Professional / Agency /
+Churn-risk (mutually exclusive, Churn-risk computed first across any tier — 30+ days since the
+last `crm_events` row, not `sessions.last_seen_at`, since a session refreshes on any page load
+even without a meaningful action) plus a cross-cutting `agency_ready` flag (2+ distinct donor
+frameworks or 3+ audit runs in a rolling 30 days — computed from `crm_events` directly, not the
+opt-in-only `audits` table, so it doesn't blindly miss the majority of usage that never opts
+into saving audit history). Shown on the hidden `?admin=1` dashboard (`_render_admin_view()`,
+`app.py`) with per-segment CSV export; that gate is now rate-limited and logged
+(`check_rate_limit`/`log_access`, both from `utils/audits.py`) since it went from exposing only
+anonymous counts to plaintext account emails.
+
+The day-0 welcome email (`utils/email_otp.py`'s `send_welcome_email()`) already existed; day-3
+(case study) and day-7 (upgrade offer) are new (`send_case_study_email()`/
+`send_upgrade_offer_email()`, same file). Since Streamlit has no background-job runner and the
+VPS's host crontab only covers that one deployment, the actual scheduled sends happen from a
+third Supabase Edge Function, `supabase/functions/onboarding-drip/`, invoked hourly by
+`pg_cron`/`pg_net` (`supabase/migrations/0014`) — the only mechanism that reaches signups from
+both deployments, since it lives entirely in Supabase. That function re-implements the same
+HTML as TS string literals (Deno can't import the Python module) — keep both copies in sync by
+hand if the marketing copy changes. Unsubscribe is a `users.unsubscribe_token` (migration
+`0013`) linked from every marketing send's footer, routed through `app.py`'s `?unsubscribe=`
+query-param landing (`_render_unsubscribe_landing()`) to `utils/db.py`'s
+`set_marketing_opt_out_by_token()` — never reveals whether a given token matched a real account.
+
 ## AI call sites and models
 
 All Claude calls read `ANTHROPIC_API_KEY` from `st.secrets` with an `os.environ` fallback, and
@@ -157,15 +195,15 @@ recommended aliases before introducing a new call site.
 
 ## Testing
 
-Six plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
+Seven plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
 (API-calling functions are tested by temporarily swapping `council._call_haiku`, or
 `utils.paystack.requests`/`utils.db._get_client`/`utils.auth._get_client`, for a fake;
-`test_audits.py` swaps `utils.audits._get_engine` for an in-memory SQLite engine instead, since
-the same SQLAlchemy models work unchanged against either dialect — note SQLite doesn't enforce
-foreign keys by default unlike Postgres, so that fixture explicitly enables
-`PRAGMA foreign_keys=ON` to exercise cascade-delete behavior correctly; `test_security.py`
-imports `app.py` itself in Streamlit's "bare mode," where `st.session_state` still behaves as a
-plain dict within one process):
+`test_audits.py`/`test_crm.py` swap `utils.audits._get_engine`/`utils.crm._get_engine` for an
+in-memory SQLite engine instead, since the same SQLAlchemy models work unchanged against either
+dialect — note SQLite doesn't enforce foreign keys by default unlike Postgres, so that fixture
+explicitly enables `PRAGMA foreign_keys=ON` to exercise cascade-delete behavior correctly;
+`test_security.py` imports `app.py` itself in Streamlit's "bare mode," where `st.session_state`
+still behaves as a plain dict within one process):
 
 ```powershell
 python test_app.py       # evaluator.py + diagnostics.py scoring behaviour
@@ -173,10 +211,11 @@ python test_council.py   # fabrication guard + logframe match
 python test_metrics.py   # metrics event logging/summarization
 python test_billing.py   # auth token lifecycle, metering, Paystack subscriptions/webhook sig
 python test_audits.py    # saved audits, logframe library, benchmark, access log, encryption, deletion
+python test_crm.py       # crm events, agency-ready detection, account segmentation, purge
 python test_security.py  # app.py-level regression tests (currently: the user_email overwrite guard)
 ```
 
-All six must pass before pushing a change that touches scoring, AI post-processing, metrics,
+All seven must pass before pushing a change that touches scoring, AI post-processing, metrics,
 billing/auth, or audit persistence. When you intentionally change scoring behavior, re-baseline
 `test_app.py`'s golden values in the same commit — a scoring change that leaves the golden values
 stale silently breaks the safety net for the next change.
@@ -184,12 +223,14 @@ stale silently breaks the safety net for the next change.
 ## Deployment
 
 Streamlit Cloud auto-deploys `app.py` on push to `main` — but it cannot host a custom inbound
-HTTP route, so the two features that need one (WhatsApp inbound messages, Paystack webhooks)
-live as separate Supabase Edge Functions, deployed independently via the Supabase CLI:
+HTTP route or a background/scheduled job, so three features live as separate Supabase Edge
+Functions, deployed independently via the Supabase CLI: two inbound webhooks (WhatsApp, Paystack)
+and one `pg_cron`-scheduled function (the onboarding email drip):
 
 ```powershell
 supabase functions deploy whatsapp-webhook
 supabase functions deploy paystack-webhook
+supabase functions deploy onboarding-drip
 ```
 
 Each function has its own secrets, set via `supabase secrets set` — a **separate store** from

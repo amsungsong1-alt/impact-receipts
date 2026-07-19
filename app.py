@@ -2164,6 +2164,23 @@ def _metrics_session_id() -> str:
     return sid
 
 
+def _log_upgrade_prompt_crm(event_type: str, context: str) -> None:
+    """Plaintext, account-identified sibling of the metrics.log_event(...)
+    calls at the same upgrade-prompt sites. Deliberately not routed through
+    _metrics_session_id() -- that id is one-way-hashed by metrics.log_event,
+    an intentional no-PII contract this module must not touch. No-ops for
+    anonymous (logged-out) visitors, since there's no account to attribute
+    the event to."""
+    _email = st.session_state.get("user_email", "")
+    if not _email:
+        return
+    try:
+        from utils.crm import log_event
+        log_event(_email, event_type, metadata={"context": context})
+    except Exception:
+        pass
+
+
 def _render_tagline_footer():
     st.markdown(
         '<div class="trust-tagline">ImpactProof · Upload your report. Get a determination for every result. Submit with confidence. · Built in Accra 🇬🇭 · Deterministic scoring, AI-assisted, fabrication-proof</div>',
@@ -2448,6 +2465,7 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
     high-intent moment triggered this paywall, for upgrade_prompt_shown/_clicked metrics."""
     email = st.session_state.get("user_email", "")
     metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context=prompt_context)
+    _log_upgrade_prompt_crm("upgrade_prompt_shown", prompt_context)
     if custom_message is not None:
         st.markdown(custom_message)
     elif not irc_context:
@@ -2474,6 +2492,7 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                 st.session_state["_pay_once_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
                 metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context=prompt_context)
+                _log_upgrade_prompt_crm("upgrade_prompt_clicked", prompt_context)
                 st.rerun()
             else:
                 _detail = last_payment_error()
@@ -2496,6 +2515,7 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                 st.session_state["_pay_monthly_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
                 metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context=prompt_context)
+                _log_upgrade_prompt_crm("upgrade_prompt_clicked", prompt_context)
                 st.rerun()
             else:
                 _detail = last_payment_error()
@@ -2516,6 +2536,7 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                 st.session_state["_pay_annual_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
                 metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context=prompt_context)
+                _log_upgrade_prompt_crm("upgrade_prompt_clicked", prompt_context)
                 st.rerun()
             else:
                 _detail = last_payment_error()
@@ -2538,6 +2559,7 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                 st.session_state["_pay_agency_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
                 metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context=prompt_context)
+                _log_upgrade_prompt_crm("upgrade_prompt_clicked", prompt_context)
                 st.rerun()
             else:
                 _detail = last_payment_error()
@@ -4638,6 +4660,11 @@ def _complete_email_login(email: str) -> None:
             send_welcome_email(email)
         except Exception:
             pass
+        try:
+            from utils.crm import log_event
+            log_event(email, "signup")
+        except Exception:
+            pass
     _pending_ref = st.session_state.pop("pending_paystack_ref", None)
     if _pending_ref:
         _pr = verify_payment(_pending_ref)
@@ -4646,6 +4673,11 @@ def _complete_email_login(email: str) -> None:
             mark_paid(email, days=_pr_days)
             st.session_state["is_paid"] = True
             metrics.log_event("payment_completed", email)
+            try:
+                from utils.crm import log_event as _crm_log_event
+                _crm_log_event(email, "tier_change", metadata={"plan_label": _pr.get("plan"), "days": _pr_days})
+            except Exception:
+                pass
     for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
         st.session_state.pop(_k, None)
     # Restore draft from Supabase if the user is returning after a refresh
@@ -4793,6 +4825,23 @@ def _render_login_link_landing(raw_token: str) -> None:
             _complete_email_login(_confirmed_email)
         else:
             st.error("This link was already used or has expired. Please request a new one.")
+
+
+def _render_unsubscribe_landing(token: str) -> None:
+    """Landing for a marketing-email unsubscribe link (?unsubscribe=<token>).
+    Shows the same confirmation regardless of whether the token matched a
+    real account -- never reveal whether a given token/email exists."""
+    try:
+        from utils.db import set_marketing_opt_out_by_token
+        set_marketing_opt_out_by_token(token)
+    except Exception:
+        pass
+    st.markdown("### You're unsubscribed")
+    st.write(
+        "You won't receive further marketing emails from ImpactProof. "
+        "You'll still receive essential account/transactional emails "
+        "(login links, payment receipts, results summaries)."
+    )
 
 
 # ============================================================
@@ -5365,6 +5414,11 @@ def render_my_audits_page():
                 _counts = purge_account_audit_content(email)
                 clear_user_draft(email)
                 delete_wa_conversations(email)
+                try:
+                    from utils.crm import purge_account_crm_events
+                    purge_account_crm_events(email)
+                except Exception:
+                    pass
                 st.session_state.pop("_confirm_purge_history", None)
                 st.success(
                     f"Deleted {_counts['audits_deleted']} audit(s) and "
@@ -7053,6 +7107,11 @@ def render_screen_1():
                     _scored_stmts.add(_stmt_key)
                 if _email_now and not _using_retry_credit and not _is_rescore:
                     record_check(_email_now)
+                    try:
+                        from utils.crm import log_audit_run
+                        log_audit_run(_email_now, st.session_state.get("donor_selected", ""))
+                    except Exception:
+                        pass
                 # Clear saved draft — user has submitted, fresh start next time
                 if _email_now:
                     try:
@@ -7441,6 +7500,7 @@ def _render_council_assessment(submission: dict, ev: dict, card_idx: int, api_ke
 
     if not has_access:
         metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context="council_attempt")
+        _log_upgrade_prompt_crm("upgrade_prompt_shown", "council_attempt")
         st.markdown(
             "**5-Member Council Assessment** reviews your result from 5 expert lenses "
             "and produces a plain-English upgrade brief your reporting team can act on."
@@ -7461,6 +7521,7 @@ def _render_council_assessment(submission: dict, ev: dict, card_idx: int, api_ke
                    "GHS 50/month vs. GHS 12,000–17,000 in rework costs from a donor-queried report.")
         if st.button("Upgrade to Professional →", key=f"council_upgrade_{card_idx}", type="primary"):
             metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context="council_attempt")
+            _log_upgrade_prompt_crm("upgrade_prompt_clicked", "council_attempt")
             st.session_state["_show_pricing"] = True
             st.rerun()
         return
@@ -7630,6 +7691,7 @@ def _render_help_chat(submission: dict, ev: dict, donor: str = "", card_idx: int
 
     if not has_access:
         metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context="chat_attempt")
+        _log_upgrade_prompt_crm("upgrade_prompt_shown", "chat_attempt")
         st.info(
             "Score chat is available on the **Professional plan**. "
             "Upgrade to ask questions about your score and get rubric-based guidance — "
@@ -7637,6 +7699,7 @@ def _render_help_chat(submission: dict, ev: dict, donor: str = "", card_idx: int
         )
         if st.button("Upgrade to Professional →", key=f"chat_upgrade_{card_idx}", type="primary"):
             metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context="chat_attempt")
+            _log_upgrade_prompt_crm("upgrade_prompt_clicked", "chat_attempt")
             st.session_state["_show_pricing"] = True
             st.rerun()
         return
@@ -8160,6 +8223,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     if diag_state in ("FUNDAMENTALLY WEAK", "UNDEREVIDENCED", "MISLEADING") and not _rr_paid:
         _rr_context = f"high_risk_{diag_state.lower().replace(' ', '_')}"
         metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context=_rr_context)
+        _log_upgrade_prompt_crm("upgrade_prompt_shown", _rr_context)
         st.markdown(
             "<div style='background:#FFFBF2;border:1px solid #FFE0B2;border-radius:8px;"
             "padding:14px 18px;margin:12px 0;'>"
@@ -8184,6 +8248,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             use_container_width=True,
         ):
             metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context=_rr_context)
+            _log_upgrade_prompt_crm("upgrade_prompt_clicked", _rr_context)
             st.session_state["_show_pricing"] = True
             st.rerun()
 
@@ -10291,6 +10356,11 @@ def _render_score_my_report_tab():
         # Council XXIII — increment shared free-check counter after a successful run
         if _smr_email:
             record_check(_smr_email)
+            try:
+                from utils.crm import log_audit_run
+                log_audit_run(_smr_email, st.session_state.get("donor_selected", ""))
+            except Exception:
+                pass
 
     if not _smr_state:
         return
@@ -10467,6 +10537,7 @@ def _render_score_my_report_tab():
     with st.expander("💬 Ask about your results", expanded=False):
         if not _portfolio_chat_allowed:
             metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context="portfolio_chat_attempt")
+            _log_upgrade_prompt_crm("upgrade_prompt_shown", "portfolio_chat_attempt")
             st.info(
                 "Portfolio Q&A is available on the **Professional plan**. "
                 "Ask the system direct decision questions: 'Which KPI needs the most work?', "
@@ -10476,6 +10547,7 @@ def _render_score_my_report_tab():
             )
             if st.button("Upgrade to Professional →", key="smr_chat_upgrade", type="primary"):
                 metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context="portfolio_chat_attempt")
+                _log_upgrade_prompt_crm("upgrade_prompt_clicked", "portfolio_chat_attempt")
                 st.session_state["_show_pricing"] = True
                 st.rerun()
         else:
@@ -10584,6 +10656,11 @@ def render_screen_3():
                 st.session_state["portfolio_warnings"] = warnings
                 if _csvpf_email:
                     record_check(_csvpf_email)
+                    try:
+                        from utils.crm import log_audit_run
+                        log_audit_run(_csvpf_email, st.session_state.get("donor_selected", ""))
+                    except Exception:
+                        pass
 
         results_df = st.session_state.get("portfolio_results")
         warnings = st.session_state.get("portfolio_warnings") or []
@@ -12158,11 +12235,25 @@ def _render_admin_view():
         st.error("Admin view is not configured — set ADMIN_PASSPHRASE in secrets.")
         return
 
+    # There's no per-visitor identity available before the passphrase
+    # succeeds (this isn't a logged-in-user flow), so rate-limiting/logging
+    # uses a single shared key across all attempts -- not per-attacker, but
+    # still meaningfully throttles brute-forcing given check_rate_limit's
+    # fail-open behavior and ADMIN_PASSPHRASE's presumed entropy. Raised
+    # from "no gate hardening at all" now that this view also exposes
+    # plaintext account/email segment data below, not just anonymous counts.
+    _admin_gate_key = "_admin_gate"
+    if not _safe_rate_limit_ok(_admin_gate_key, "admin_passphrase_attempt", max_count=10, window_seconds=300):
+        st.error("Too many attempts. Try again later.")
+        return
+
     _entered = st.text_input("Passphrase", type="password", key="_admin_passphrase_input")
     if _entered != _admin_secret:
         if _entered:
+            _safe_log_access(_admin_gate_key, "admin_passphrase_attempt")
             st.warning("Incorrect passphrase.")
         return
+    _safe_log_access(_admin_gate_key, "admin_view_access")
 
     summary = metrics.summarize()
     totals = summary["totals"]
@@ -12189,6 +12280,55 @@ def _render_admin_view():
     st.divider()
     st.markdown("#### Dashboard")
     _render_admin_charts(totals, funnel, metrics.daily_counts())
+
+    st.divider()
+    st.markdown("#### Account segments (CRM)")
+    _render_admin_crm_segments()
+
+
+def _render_admin_crm_segments() -> None:
+    """Trial/Active-Free/Professional/Agency/Churn-risk segments plus a
+    cross-cutting Agency-ready flag, from utils.crm.build_segments() --
+    exposes plaintext account emails, CSV-exportable, hence the gate
+    hardening above this in _render_admin_view()."""
+    try:
+        import pandas as pd
+        from utils.crm import build_segments
+        segments = build_segments()
+    except Exception as exc:
+        st.warning(f"Could not load account segments. ({type(exc).__name__})")
+        return
+
+    for seg_name, rows in segments.items():
+        st.markdown(f"**{seg_name}** ({len(rows)} accounts)")
+        if not rows:
+            st.caption("No accounts in this segment.")
+            continue
+        df = pd.DataFrame(rows)
+        st.dataframe(df, use_container_width=True)
+        st.download_button(
+            f"Download {seg_name} (CSV)",
+            data=df.to_csv(index=False).encode("utf-8"),
+            file_name=f"impactproof_{seg_name.lower().replace('-', '_')}_segment.csv",
+            mime="text/csv",
+            key=f"_crm_segment_dl_{seg_name}",
+        )
+
+    # Cross-segment export: agency-ready accounts regardless of which
+    # segment they're bucketed into (a Professional or Active-Free account
+    # can independently qualify).
+    _ready_rows = [r for rows in segments.values() for r in rows if r["agency_ready"]]
+    if _ready_rows:
+        st.markdown(f"**Agency-ready** ({len(_ready_rows)} accounts, any segment)")
+        _ready_df = pd.DataFrame(_ready_rows)
+        st.dataframe(_ready_df, use_container_width=True)
+        st.download_button(
+            "Download Agency-ready (CSV)",
+            data=_ready_df.to_csv(index=False).encode("utf-8"),
+            file_name="impactproof_agency_ready.csv",
+            mime="text/csv",
+            key="_crm_segment_dl_agency_ready",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -12250,6 +12390,11 @@ def main():
                 st.session_state["user_email"] = _pay_email
                 st.session_state["is_paid"] = True
                 metrics.log_event("payment_completed", _pay_email)
+                try:
+                    from utils.crm import log_event as _crm_log_event
+                    _crm_log_event(_pay_email, "tier_change", metadata={"plan_label": _pay_result.get("plan"), "days": _days})
+                except Exception:
+                    pass
                 st.session_state.pop("_pay_once_url", None)
                 st.session_state.pop("_pay_monthly_url", None)
                 st.session_state.pop("_pay_agency_url", None)
@@ -12286,6 +12431,11 @@ def main():
     _login_token = st.query_params.get("login_token", "")
     if _login_token:
         _render_login_link_landing(_login_token)
+        return
+    # Marketing-email unsubscribe landing — shown regardless of screen
+    _unsub_token = st.query_params.get("unsubscribe", "")
+    if _unsub_token:
+        _render_unsubscribe_landing(_unsub_token)
         return
     # Hidden admin view — usage metrics, passphrase-gated
     if st.query_params.get("admin") == "1":
