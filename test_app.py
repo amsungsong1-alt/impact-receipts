@@ -653,5 +653,74 @@ def run():
     print("PASS: boundary tests — threshold alignment, BV bonus gating, qualitative exemption, evidence ladder tiers.")
 
 
+def run_systemic_gaps():
+    """evaluator.DIMENSION_MAP / compute_systemic_gaps() -- the Agency
+    Dashboard's systemic-gaps ranking. Synthetic evaluations engineered so a
+    known dimension (Verification) fails a known fraction of the time."""
+    failures = []
+
+    def _ev(direct=2.0, verify=2.0, recency=1.0, definition=1.25,
+             measurement=1.25, integrity=1.0, scope=0.75, governance=0.75,
+             verify_level=5):
+        return {
+            "confidence_components": {
+                "direct_score": direct, "verify_score": verify,
+                "recency_score": recency, "verify_level": verify_level,
+            },
+            "clarity_components": {
+                "definition_score": definition, "measurement_score": measurement,
+                "integrity_score": integrity, "scope_score": scope,
+                "governance_score": governance,
+            },
+        }
+
+    # Empty input -> no crash, empty result.
+    if evaluator.compute_systemic_gaps([]) != []:
+        failures.append("compute_systemic_gaps([]) should return [] without raising")
+
+    # 10 evaluations: 6 with a failing Verification score (< 60% of 2.0 = 1.2),
+    # 4 passing -- every other dimension always passes (full marks).
+    evals = (
+        [_ev(verify=0.5, verify_level=1) for _ in range(6)] +
+        [_ev(verify=2.0, verify_level=5) for _ in range(4)]
+    )
+    gaps = evaluator.compute_systemic_gaps(evals)
+    gap_by_dim = {g["dimension"]: g for g in gaps}
+
+    verify_gap = gap_by_dim.get("Verification")
+    if not verify_gap:
+        failures.append("compute_systemic_gaps did not return a Verification row")
+    elif abs(verify_gap["fail_pct"] - 60.0) > 0.01:
+        failures.append(f"Verification fail_pct expected 60.0, got {verify_gap['fail_pct']}")
+    elif verify_gap["n_evaluated"] != 10:
+        failures.append(f"Verification n_evaluated expected 10, got {verify_gap['n_evaluated']}")
+    elif abs(verify_gap.get("verify_source_missing_pct", -1) - 60.0) > 0.01:
+        failures.append(
+            f"verify_source_missing_pct (verify_level<=1 rate) expected 60.0, "
+            f"got {verify_gap.get('verify_source_missing_pct')}"
+        )
+
+    # Every other dimension should be at 0% fail (always full marks in this fixture).
+    for dim, (comp_key, score_key, _max_val) in evaluator.DIMENSION_MAP.items():
+        if dim == "Verification":
+            continue
+        row = gap_by_dim.get(dim)
+        if not row or row["fail_pct"] != 0.0:
+            failures.append(f"{dim} should be 0% fail in this fixture, got {row}")
+
+    # Ranking: Verification (60% fail) must sort first (descending fail_pct).
+    if gaps[0]["dimension"] != "Verification":
+        failures.append(f"compute_systemic_gaps should rank Verification first, got {gaps[0]['dimension']}")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: systemic gaps — DIMENSION_MAP/compute_systemic_gaps ranking, fail_pct, and "
+          "verify_source_missing_pct verified.")
+
+
 if __name__ == "__main__":
     run()
+    run_systemic_gaps()

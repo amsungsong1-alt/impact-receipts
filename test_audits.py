@@ -371,6 +371,21 @@ def run_cross_account_denial():
         # "this id exists but isn't yours" vs. "this id doesn't exist."
         if audits.get_audit(B, audit_id) != audits.get_audit(B, 999999):
             failures.append("get_audit leaks whether a foreign id exists vs. doesn't (timing/response oracle)")
+
+        # Client / assign_audit_client ownership sweep.
+        a_client_id = audits.create_client(A, "A's client")
+        b_client_id = audits.create_client(B, "B's client")
+
+        if audits.assign_audit_client(B, audit_id, a_client_id):
+            failures.append("assign_audit_client: account B assigned account A's audit using A's own client")
+        if audits.assign_audit_client(A, audit_id, b_client_id):
+            failures.append("assign_audit_client: account A's audit was assignable to account B's client")
+        if b_client_id in {c["id"] for c in audits.list_clients(A)}:
+            failures.append("list_clients: account A's listing included account B's client")
+
+        audits.delete_client(B, a_client_id)
+        if a_client_id not in {c["id"] for c in audits.list_clients(A)}:
+            failures.append("delete_client: account B deleted account A's client")
     finally:
         audits._get_engine = original_get_engine
 
@@ -380,6 +395,60 @@ def run_cross_account_denial():
             print("  -", f)
         raise SystemExit(1)
     print("PASS: cross-account denial — every utils/audits.py function refuses another account's data, for every function and every id.")
+
+
+def run_clients():
+    """create_client/list_clients round-trip + case-insensitive dedupe,
+    assign_audit_client happy path, and delete_client's ON DELETE SET NULL
+    behavior (audit survives, client_id becomes null)."""
+    failures = []
+    original_get_engine = audits._get_engine
+    engine = _fresh_engine()
+    audits._get_engine = lambda: engine
+    email = "agency@example.com"
+    try:
+        client_id = audits.create_client(email, "USAID Ghana")
+        if not client_id:
+            failures.append("create_client returned falsy id for a valid create")
+
+        # Case-insensitive, whitespace-trimmed dedupe: same client, different casing/spacing.
+        dup_id = audits.create_client(email, "  usaid ghana  ")
+        if dup_id != client_id:
+            failures.append(f"create_client did not dedupe a case/whitespace variant "
+                             f"(got {dup_id}, expected {client_id})")
+
+        clients = audits.list_clients(email)
+        if len(clients) != 1 or clients[0]["name"] != "USAID Ghana":
+            failures.append(f"list_clients unexpected result after dedupe: {clients}")
+
+        subs = [{"donor": "USAID", "sector": "WASH", "org_type": "International NGO (INGO)"}]
+        evs = [{"confidence_score": 4.0, "clarity_score": 3.8, "verdict": "Strong"}]
+        audit_id = audits.save_audit(email, subs, evs, "IMP-client-1")
+
+        if not audits.assign_audit_client(email, audit_id, client_id):
+            failures.append("assign_audit_client returned False for a valid same-owner assignment")
+        with_client = audits.list_audits_with_client(email)
+        row = next((r for r in with_client if r["id"] == audit_id), None)
+        if not row or row["client_id"] != client_id or row["client_name"] != "USAID Ghana":
+            failures.append(f"list_audits_with_client did not reflect the assignment: {row}")
+
+        # ON DELETE SET NULL: deleting the client un-assigns the audit, doesn't delete it.
+        audits.delete_client(email, client_id)
+        if audits.get_audit(email, audit_id) is None:
+            failures.append("delete_client deleted the assigned audit instead of just un-assigning it")
+        with_client_after = audits.list_audits_with_client(email)
+        row_after = next((r for r in with_client_after if r["id"] == audit_id), None)
+        if not row_after or row_after["client_id"] is not None:
+            failures.append(f"delete_client did not null out the audit's client_id: {row_after}")
+    finally:
+        audits._get_engine = original_get_engine
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: clients — create/list/dedupe, assign_audit_client, and ON DELETE SET NULL verified.")
 
 
 def run_deletion_scope():
@@ -401,10 +470,12 @@ def run_deletion_scope():
         audits.save_audit(A, subs, evs, "IMP-purge-a2")
         lib_a = audits.create_logframe_library(A, "A's library")
         audits.add_library_items(lib_a, A, [{"indicator_name": "A's indicator"}])
+        audits.create_client(A, "A's client")
 
         audits.save_audit(B, subs, evs, "IMP-purge-b1")
         lib_b = audits.create_logframe_library(B, "B's library")
         audits.add_library_items(lib_b, B, [{"indicator_name": "B's indicator"}])
+        audits.create_client(B, "B's client")
 
         result = audits.purge_account_audit_content(A)
         if result["audits_deleted"] != 2:
@@ -413,9 +484,12 @@ def run_deletion_scope():
         if result["libraries_deleted"] != 1:
             failures.append(f"purge_account_audit_content should delete 1 library for A, "
                              f"reported {result['libraries_deleted']}")
+        if result.get("clients_deleted") != 1:
+            failures.append(f"purge_account_audit_content should delete 1 client for A, "
+                             f"reported {result.get('clients_deleted')}")
 
-        if audits.list_audits(A) or audits.list_logframe_libraries(A):
-            failures.append("A's audits/libraries still exist after purge_account_audit_content")
+        if audits.list_audits(A) or audits.list_logframe_libraries(A) or audits.list_clients(A):
+            failures.append("A's audits/libraries/clients still exist after purge_account_audit_content")
         with Session(engine) as session:
             orphaned_items = session.query(audits.LogframeLibraryItem).filter(
                 audits.LogframeLibraryItem.library_id == lib_a).count()
@@ -428,10 +502,12 @@ def run_deletion_scope():
             failures.append("purge_account_audit_content for A affected account B's data")
         if not audits.get_library_items(lib_b, B):
             failures.append("purge_account_audit_content for A deleted B's library items")
+        if len(audits.list_clients(B)) != 1:
+            failures.append("purge_account_audit_content for A deleted B's client")
 
         # A second purge on an already-empty account must be a safe no-op, not an error.
         second = audits.purge_account_audit_content(A)
-        if second["audits_deleted"] != 0 or second["libraries_deleted"] != 0:
+        if second["audits_deleted"] != 0 or second["libraries_deleted"] != 0 or second.get("clients_deleted") != 0:
             failures.append(f"purging an already-empty account should report zero deletions, got {second}")
     finally:
         audits._get_engine = original_get_engine
@@ -451,4 +527,5 @@ if __name__ == "__main__":
     run_access_log_and_rate_limit()
     run_encryption()
     run_cross_account_denial()
+    run_clients()
     run_deletion_scope()

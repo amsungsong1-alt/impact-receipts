@@ -75,6 +75,7 @@ class Audit(Base):
     primary_confidence_score = Column(Float)
     primary_clarity_score = Column(Float)
     primary_verdict = Column(Text)
+    client_id = Column(BigInteger, ForeignKey("clients.id", ondelete="SET NULL"), nullable=True)
 
 
 class LogframeLibrary(Base):
@@ -96,6 +97,16 @@ class LogframeLibraryItem(Base):
     logframe_target = Column(Text)
     logframe_achievement = Column(Text)
     sector = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Client(Base):
+    """Agency-tier concept: a named grouping an agency user creates to
+    organize their own saved audits. Mirrors LogframeLibrary's shape exactly."""
+    __tablename__ = "clients"
+    id = Column(_PK, primary_key=True)
+    email = Column(Text, nullable=False)
+    name = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -407,6 +418,150 @@ def delete_logframe_library(library_id: int, email: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Clients (agency tier -- groups an agency user's own saved audits)
+# ---------------------------------------------------------------------------
+
+def create_client(email: str, name: str) -> int | None:
+    """Creates a Client, or returns the id of an existing one with the same
+    name (case-insensitive, whitespace-trimmed) for this email -- avoids
+    accidental duplicate rows like "USAID" vs "usaid " from repeated use."""
+    if not email or not name or not name.strip():
+        return None
+    engine = _get_engine()
+    if not engine:
+        return None
+    _norm = name.strip().lower()
+    try:
+        with Session(engine) as session:
+            existing = (session.query(Client)
+                        .filter(Client.email == email)
+                        .all())
+            for c in existing:
+                if (c.name or "").strip().lower() == _norm:
+                    return c.id
+            client = Client(email=email, name=name.strip())
+            session.add(client)
+            session.commit()
+            return client.id
+    except Exception:
+        return None
+
+
+def list_clients(email: str) -> list[dict]:
+    """[{"id", "name", "created_at"}, ...] alphabetical -- a picklist, not an
+    activity feed, unlike list_audits()'s created_at-desc ordering."""
+    if not email:
+        return []
+    engine = _get_engine()
+    if not engine:
+        return []
+    try:
+        with Session(engine) as session:
+            rows = (session.query(Client)
+                    .filter(Client.email == email)
+                    .order_by(Client.name.asc())
+                    .all())
+            return [{"id": r.id, "name": r.name, "created_at": r.created_at} for r in rows]
+    except Exception:
+        return []
+
+
+def rename_client(email: str, client_id: int, name: str) -> None:
+    if not email or not client_id or not name or not name.strip():
+        return
+    engine = _get_engine()
+    if not engine:
+        return
+    try:
+        with Session(engine) as session:
+            client = session.get(Client, client_id)
+            if client and client.email == email:
+                client.name = name.strip()
+                session.commit()
+    except Exception:
+        pass
+
+
+def delete_client(email: str, client_id: int) -> None:
+    """Ownership-checked delete. DB-level ON DELETE SET NULL un-assigns any
+    audits that referenced this client -- callers don't need to do that
+    separately."""
+    if not email or not client_id:
+        return
+    engine = _get_engine()
+    if not engine:
+        return
+    try:
+        with Session(engine) as session:
+            client = session.get(Client, client_id)
+            if client and client.email == email:
+                log_access(email, "delete_client", resource_type="client", resource_id=client_id)
+                session.delete(client)
+                session.commit()
+    except Exception:
+        pass
+
+
+def assign_audit_client(email: str, audit_id: int, client_id: int | None) -> bool:
+    """Set (or clear, if client_id is None) an existing audit's client_id.
+    Double ownership check: both the audit AND the client (if not None) must
+    belong to `email` -- prevents assigning another account's audit to your
+    client, or your audit to another account's client, even if both ids are
+    individually valid ids that happen to exist."""
+    if not email or not audit_id:
+        return False
+    engine = _get_engine()
+    if not engine:
+        return False
+    try:
+        with Session(engine) as session:
+            audit = session.get(Audit, audit_id)
+            if not audit or audit.email != email:
+                return False
+            if client_id is not None:
+                client = session.get(Client, client_id)
+                if not client or client.email != email:
+                    return False
+            audit.client_id = client_id
+            session.commit()
+            return True
+    except Exception:
+        return False
+
+
+def list_audits_with_client(email: str, limit: int = 200) -> list[dict]:
+    """list_audits()'s shape plus client_id/client_name (LEFT JOIN clients),
+    for the Agency Dashboard's client x donor aggregation and its "assign
+    audits to clients" UI. Kept separate from list_audits() so My Audits'
+    existing contract/return shape is untouched. limit defaults higher than
+    list_audits' 50 since portfolio aggregation needs the fuller history."""
+    if not email:
+        return []
+    engine = _get_engine()
+    if not engine:
+        return []
+    try:
+        with Session(engine) as session:
+            rows = (session.query(Audit, Client.name)
+                    .outerjoin(Client, Audit.client_id == Client.id)
+                    .filter(Audit.email == email)
+                    .order_by(Audit.created_at.desc())
+                    .limit(limit)
+                    .all())
+            return [{
+                "id": r.id, "ref_id": r.ref_id, "created_at": r.created_at,
+                "donor": r.donor, "sector": r.sector, "org_type": r.org_type,
+                "primary_confidence_score": r.primary_confidence_score,
+                "primary_clarity_score": r.primary_clarity_score,
+                "primary_verdict": r.primary_verdict,
+                "active_slots": r.active_slots,
+                "client_id": r.client_id, "client_name": client_name,
+            } for r, client_name in rows]
+    except Exception:
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Anonymized benchmark ("How you compare")
 # ---------------------------------------------------------------------------
 
@@ -522,24 +677,30 @@ def check_rate_limit(email: str, action: str, max_count: int, window_seconds: in
 # ---------------------------------------------------------------------------
 
 def purge_account_audit_content(email: str) -> dict:
-    """Deletes every audits/logframe_libraries row (cascades to items via the
-    existing FK) for email. Scope is deliberately MEL content only: does NOT
-    touch users.draft_json, wa_conversations, payments, sessions, or the
+    """Deletes every audits/logframe_libraries/clients row (cascades to
+    logframe items via the existing FK; audits that referenced a deleted
+    client are already gone by this point, so no separate unassign step is
+    needed) for email. Scope is deliberately MEL/agency content only: does
+    NOT touch users.draft_json, wa_conversations, payments, sessions, or the
     users row itself -- callers (app.py) must separately call
     utils.db.clear_user_draft()/delete_wa_conversations() to complete a full
     "erase my history" action; payments/sessions/the account itself are
-    explicitly out of scope (see the migration/plan notes on why). Returns
+    explicitly out of scope (see the migration/plan notes on why). Client
+    names may reference real donor-facing organizations the user works
+    with, so they're treated as in-scope personal/business data here, unlike
+    access_log which stays a permanent, un-purgeable security trail. Returns
     counts for the on-screen confirmation message."""
     if not email:
-        return {"audits_deleted": 0, "libraries_deleted": 0}
+        return {"audits_deleted": 0, "libraries_deleted": 0, "clients_deleted": 0}
     engine = _get_engine()
     if not engine:
-        return {"audits_deleted": 0, "libraries_deleted": 0}
+        return {"audits_deleted": 0, "libraries_deleted": 0, "clients_deleted": 0}
     try:
         with Session(engine) as session:
             n_audits = session.query(Audit).filter(Audit.email == email).delete()
             n_libs = session.query(LogframeLibrary).filter(LogframeLibrary.email == email).delete()
+            n_clients = session.query(Client).filter(Client.email == email).delete()
             session.commit()
-            return {"audits_deleted": n_audits, "libraries_deleted": n_libs}
+            return {"audits_deleted": n_audits, "libraries_deleted": n_libs, "clients_deleted": n_clients}
     except Exception:
-        return {"audits_deleted": 0, "libraries_deleted": 0}
+        return {"audits_deleted": 0, "libraries_deleted": 0, "clients_deleted": 0}

@@ -45,7 +45,7 @@ from donor_templates import DONOR_DIAGNOSTICS
 # --- Payment / auth / DB utilities ---
 try:
     from utils.db import (
-        get_user, upsert_user, mark_paid,
+        get_user, upsert_user, mark_paid, set_user_plan,
         is_still_paid, save_example, get_examples,
         save_user_draft, load_user_draft, clear_user_draft,
         get_payment_history, delete_wa_conversations,
@@ -72,6 +72,7 @@ except ImportError:
     def get_user(e): return None
     def upsert_user(e): return None
     def mark_paid(e, days=30): pass
+    def set_user_plan(e, p): pass
     def is_still_paid(u): return False
     def save_example(f, s, v): pass
     def save_user_draft(email, json_str): pass
@@ -122,6 +123,8 @@ try:
         add_library_items, get_library_items, delete_logframe_library,
         get_benchmark, MIN_BENCHMARK_SAMPLE, check_rate_limit, log_access,
         purge_account_audit_content, last_audit_error,
+        create_client, list_clients, delete_client, assign_audit_client,
+        list_audits_with_client,
     )
     _AUDITS_AVAILABLE = True
 except ImportError:
@@ -145,8 +148,13 @@ except ImportError:
     MIN_BENCHMARK_SAMPLE = 10
     def check_rate_limit(email, action, max_count, window_seconds): return True  # fail open
     def log_access(email, action, resource_type=None, resource_id=None, ip_address=None): pass
-    def purge_account_audit_content(email): return {"audits_deleted": 0, "libraries_deleted": 0}
+    def purge_account_audit_content(email): return {"audits_deleted": 0, "libraries_deleted": 0, "clients_deleted": 0}
     def last_audit_error(): return "utils.audits failed to import."
+    def create_client(email, name): return None
+    def list_clients(email): return []
+    def delete_client(email, client_id): pass
+    def assign_audit_client(email, audit_id, client_id): return False
+    def list_audits_with_client(email, limit=200): return []
 # --- End opt-in audit persistence ---
 
 
@@ -2086,7 +2094,7 @@ def _init_from_query_params() -> None:
     if "screen" in _p:
         try:
             _s = int(_p["screen"])
-            if 0 <= _s <= 3:
+            if 0 <= _s <= 4:
                 st.session_state["screen"] = _s
         except (ValueError, TypeError):
             pass
@@ -4671,6 +4679,12 @@ def _complete_email_login(email: str) -> None:
         if _pr.get("status") == "success":
             _pr_days = 365 if _pr.get("plan") == "annual" else (30 if _pr.get("plan") in ("monthly", "agency") else 1)
             mark_paid(email, days=_pr_days)
+            if _pr.get("plan") == "agency":
+                set_user_plan(email, "agency")
+            elif _pr.get("plan") in ("monthly", "annual"):
+                set_user_plan(email, "professional")
+            # "per_use" (or anything else) intentionally does not call
+            # set_user_plan -- a one-off payment must not change tier.
             st.session_state["is_paid"] = True
             metrics.log_event("payment_completed", email)
             try:
@@ -5421,8 +5435,9 @@ def render_my_audits_page():
                     pass
                 st.session_state.pop("_confirm_purge_history", None)
                 st.success(
-                    f"Deleted {_counts['audits_deleted']} audit(s) and "
-                    f"{_counts['libraries_deleted']} Logframe Library/libraries. Your account, "
+                    f"Deleted {_counts['audits_deleted']} audit(s), "
+                    f"{_counts['libraries_deleted']} Logframe Library/libraries, and "
+                    f"{_counts.get('clients_deleted', 0)} client(s). Your account, "
                     f"sign-in, and payment history are unaffected."
                 )
         with _pc2:
@@ -8324,7 +8339,7 @@ def render_screen_2():
                 for slot in range(1, active + 1):
                     sub = _build_submission_from_session(slot)
                     ev  = _evaluator.evaluate_submission(sub)
-                    save_all_files(sub, ev)
+                    save_all_files(sub, ev, email=st.session_state.get("user_email", ""))
                     subs.append(sub)
                     evs.append(ev)
             st.session_state["evaluations"]        = evs
@@ -8858,7 +8873,7 @@ def render_screen_2():
 # File persistence
 # ---------------------------------------------------------------------------
 
-def save_all_files(submission: dict, evaluation: dict) -> dict:
+def save_all_files(submission: dict, evaluation: dict, email: str = "") -> dict:
     os.makedirs("inputs", exist_ok=True)
     os.makedirs("evaluations", exist_ok=True)
     os.makedirs("outputs", exist_ok=True)
@@ -8877,6 +8892,10 @@ def save_all_files(submission: dict, evaluation: dict) -> dict:
         json.dump(submission, f, indent=2, ensure_ascii=False, default=str)
 
     save_eval = {k: v for k, v in evaluation.items() if not k.startswith("_")}
+    # Named "saved_by_email", not "email", to avoid any ambiguity with other
+    # email-shaped fields elsewhere in evaluation/submission -- consumed by
+    # _load_trend_history() to scope the Trends section to this account only.
+    save_eval["saved_by_email"] = email or ""
 
     # --- Trends over time: additive fields, no scoring math changed ---
     _conf_comp = evaluation.get("confidence_components", {}) or {}
@@ -8937,7 +8956,7 @@ _TREND_SUB_SCORE_DIMS = [
 ]
 
 
-def _load_trend_history():
+def _load_trend_history(email: str):
     """Scan evaluations/*_evaluation.json and build a tidy history of saved
     submissions: one row per file with indicator_id, indicator_label,
     project_name, date, confidence_score, clarity_score, and the 8 sub-scores.
@@ -8945,9 +8964,21 @@ def _load_trend_history():
     Pre-existing evaluation files (saved before this feature) are backfilled
     from their paired inputs/*_input.json and filename timestamp. Rows with
     no indicator label are skipped — never fabricated.
+
+    Scoped to `email` via each file's "saved_by_email" field (written by
+    save_all_files() at save time — see its call site in render_screen_2()).
+    Files written before that field existed have no "saved_by_email" key, so
+    they never match any real email and become invisible here — there is no
+    reliable signal to retroactively attribute them to an account (the paired
+    input JSON never captured email either), and guessing would risk showing
+    one user's history to another, which is worse than showing none. No
+    email -> no rows, full stop (never fall through to unscoped/legacy data).
     """
     import glob
     import pandas as pd
+
+    if not email:
+        return pd.DataFrame()
 
     rows = []
     for path in sorted(glob.glob(os.path.join("evaluations", "*_evaluation.json"))):
@@ -8955,6 +8986,9 @@ def _load_trend_history():
             with open(path, encoding="utf-8") as f:
                 ev = json.load(f)
         except Exception:
+            continue
+
+        if ev.get("saved_by_email", "") != email:
             continue
 
         base = os.path.basename(path)[: -len("_evaluation.json")]
@@ -10737,7 +10771,311 @@ def render_screen_3():
     st.divider()
     st.markdown(f"### {_TREND_COPY['header']}")
     st.caption(_TREND_COPY["intro"])
-    render_trends_view(_load_trend_history())
+    _trends_email = st.session_state.get("user_email", "")
+    if not _trends_email:
+        st.info("Enter your email to see your trends history.")
+        _render_email_gate_inline("_trends")
+    else:
+        render_trends_view(_load_trend_history(_trends_email))
+
+
+# ---------------------------------------------------------------------------
+# Screen 4 — Agency Dashboard (multi-client portfolio view, Agency tier only)
+# ---------------------------------------------------------------------------
+
+def _agency_client_donor_heatmap_df(audits_rows: list):
+    """Groups list_audits_with_client()'s rows by (client, donor), averaging
+    primary_confidence_score/primary_clarity_score per cell. Cells with zero
+    audits are simply absent rows (not zero-filled) -- a blank heatmap cell
+    means "no data yet," not "score 0."""
+    import pandas as pd
+    if not audits_rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(audits_rows)
+    df["client_label"] = df["client_name"].fillna("Unassigned")
+    df["donor_label"] = df["donor"].fillna("").replace("", "No donor specified")
+    grouped = (df.groupby(["client_label", "donor_label"])
+                 [["primary_confidence_score", "primary_clarity_score"]]
+                 .mean().reset_index())
+    return grouped
+
+
+def _render_agency_heatmap(grouped_df, metric_col: str, title: str) -> None:
+    """Plotly heatmap of client x donor averages, respecting lite_mode (every
+    other chart in the app falls back to a plain table in low-bandwidth
+    mode -- this shouldn't be the one inconsistent chart)."""
+    pivoted = grouped_df.pivot(index="client_label", columns="donor_label", values=metric_col)
+    if st.session_state.get("lite_mode", False):
+        st.caption(f"{title} (table view — charts hidden in low-bandwidth mode)")
+        st.dataframe(pivoted, use_container_width=True)
+        return
+    import plotly.graph_objects as go
+    fig = go.Figure(data=go.Heatmap(
+        z=pivoted.values, x=list(pivoted.columns), y=list(pivoted.index),
+        colorscale="RdYlGn", zmin=0, zmax=5,
+        colorbar=dict(title=title),
+        hovertemplate="Client: %{y}<br>Donor: %{x}<br>" + title + ": %{z:.2f}<extra></extra>",
+    ))
+    fig.update_layout(title=title, xaxis_title=None, yaxis_title=None,
+                       height=max(300, 40 * len(pivoted.index)))
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _agency_evaluations_for_gaps(email: str) -> list:
+    """Pulls every evaluation across this user's saved audits, via
+    get_audit() per audit id (list_audits() doesn't decrypt/return the full
+    evaluations list -- only get_audit() does). N+1 pattern, acceptable
+    here: agency accounts' audit counts are small, and this runs once per
+    dashboard page load, not per interaction."""
+    evaluations = []
+    for a in list_audits(email, limit=200):
+        full = get_audit(email, a["id"])
+        if full and full.get("evaluations"):
+            evaluations.extend(full["evaluations"])
+    return evaluations
+
+
+def _agency_trend_df(audits_rows: list):
+    """One row per saved audit: created_at + the two denormalized score
+    columns -- no decryption needed, unlike the systemic-gaps panel."""
+    import pandas as pd
+    if not audits_rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(audits_rows)[["created_at", "primary_confidence_score", "primary_clarity_score"]]
+    df = df.dropna(subset=["created_at"]).sort_values("created_at")
+    return df
+
+
+def _render_agency_trend_chart(trend_df) -> None:
+    if st.session_state.get("lite_mode", False):
+        pivoted = trend_df.set_index("created_at")[["primary_confidence_score", "primary_clarity_score"]]
+        st.line_chart(pivoted)
+        return
+    import plotly.graph_objects as go
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=trend_df["created_at"], y=trend_df["primary_confidence_score"],
+                              mode="lines+markers", name="Confidence"))
+    fig.add_trace(go.Scatter(x=trend_df["created_at"], y=trend_df["primary_clarity_score"],
+                              mode="lines+markers", name="Clarity"))
+    fig.update_layout(yaxis_range=[0, 5], xaxis_title=None, yaxis_title="Score (0-5)")
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _build_portfolio_readiness_report_html(email: str, audits_rows: list, gaps: list,
+                                            ref_id: str, timestamp: str) -> str:
+    """Portfolio Readiness Report -- visual sibling of _build_html_report_card(),
+    reusing its <style> block and _READINESS_CARD_SCORE_PALETTE. Not stored
+    as an Audit row (it's a report about many audits, not a new submission),
+    so ref_id (PORT-{timestamp}, distinct from single-result cards' IMP-
+    prefix) has no uniqueness constraint -- generated fresh, for on-document
+    citation only."""
+    P = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
+
+    n_audits = len(audits_rows)
+    clients_seen = {r.get("client_name") for r in audits_rows if r.get("client_name")}
+    avg_conf = (sum(r.get("primary_confidence_score") or 0 for r in audits_rows) / n_audits) if n_audits else 0
+    avg_clar = (sum(r.get("primary_clarity_score") or 0 for r in audits_rows) / n_audits) if n_audits else 0
+
+    def _gap_bar_row(dim: str, fail_pct: float, n_evaluated: int) -> str:
+        bar_color = "#B71C1C" if fail_pct >= 50 else ("#F57F17" if fail_pct >= 25 else "#1B5E20")
+        filled = max(0, round(min(fail_pct, 100) / 10))
+        empty = 10 - filled
+        bar_txt = (f"<font color='{bar_color}'>{'&#9632;' * filled}</font>"
+                   f"<font color='#E0E0E0'>{'&#9632;' * empty}</font>")
+        return (
+            f"<tr>"
+            f"<td width='140' style='font-size:11px;color:#424242;padding:3px 0;'>{dim}</td>"
+            f"<td width='110' style='font-size:10px;padding:3px 4px;letter-spacing:1px;'>{bar_txt}</td>"
+            f"<td width='90' style='font-size:11px;font-weight:700;color:{bar_color};padding:3px 0;{P}'>"
+            f"{fail_pct:.0f}% of {n_evaluated}</td>"
+            f"</tr>"
+        )
+
+    gaps_rows = "".join(_gap_bar_row(g["dimension"], g["fail_pct"], g["n_evaluated"]) for g in gaps[:8])
+    verify_row = next((g for g in gaps if g["dimension"] == "Verification"), None)
+    verify_note = (
+        f"<p style='font-size:10px;color:#616161;margin:4px 0 0;'>Missing verification source in "
+        f"{verify_row['verify_source_missing_pct']:.0f}% of results.</p>"
+        if verify_row and verify_row.get("verify_source_missing_pct", 0) > 0 else ""
+    )
+
+    heatmap_df = _agency_client_donor_heatmap_df(audits_rows)
+    client_rows = ""
+    for _, r in heatmap_df.iterrows():
+        c_bg, c_fg = _READINESS_CARD_SCORE_PALETTE.get(
+            "Strong" if r["primary_confidence_score"] >= 4 else
+            "Acceptable" if r["primary_confidence_score"] >= 3 else
+            "Weak" if r["primary_confidence_score"] >= 2 else "High Risk",
+            ("#F5F5F5", "#212121"),
+        )
+        client_rows += (
+            f"<tr>"
+            f"<td style='font-size:10px;padding:4px 6px;border-bottom:1px solid #eee;'>{r['client_label']}</td>"
+            f"<td style='font-size:10px;padding:4px 6px;border-bottom:1px solid #eee;'>{r['donor_label']}</td>"
+            f"<td style='font-size:10px;padding:4px 6px;border-bottom:1px solid #eee;"
+            f"background:{c_bg};color:{c_fg};{P}'>{r['primary_confidence_score']:.1f}</td>"
+            f"<td style='font-size:10px;padding:4px 6px;border-bottom:1px solid #eee;'>{r['primary_clarity_score']:.1f}</td>"
+            f"</tr>"
+        )
+
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<title>Portfolio Readiness Report</title>
+<style>
+body{{font-family:Arial,Helvetica,sans-serif;color:#212121;margin:24px 32px;font-size:12px;line-height:1.5;}}
+h1{{color:#1B5E20;font-size:18px;margin:0 0 2px;border-bottom:2px solid #1B5E20;padding-bottom:6px;}}
+h2{{color:#1B5E20;font-size:13px;font-weight:700;border-bottom:1px solid #8A6500;padding-bottom:3px;margin:16px 0 8px;}}
+</style>
+</head><body>
+
+<h1>Portfolio Readiness Report</h1>
+<p style="color:#616161;font-size:10px;margin:2px 0 4px;">ImpactProof &middot; Ref: {ref_id} &middot; Prepared for: {email}</p>
+
+<h2>Portfolio Summary</h2>
+<table border="0" cellspacing="0" cellpadding="0" width="100%"><tr>
+<td style="font-size:11px;color:#424242;padding:4px 0;">Audits: <strong>{n_audits}</strong></td>
+<td style="font-size:11px;color:#424242;padding:4px 0;">Clients: <strong>{len(clients_seen)}</strong></td>
+<td style="font-size:11px;color:#424242;padding:4px 0;">Avg Confidence: <strong>{avg_conf:.1f}/5.0</strong></td>
+<td style="font-size:11px;color:#424242;padding:4px 0;">Avg Clarity: <strong>{avg_clar:.1f}/5.0</strong></td>
+</tr></table>
+
+<h2>Systemic Gaps</h2>
+<table border="0" cellspacing="0" cellpadding="0" width="100%">
+{gaps_rows}
+</table>
+{verify_note}
+
+<h2>Client &times; Donor Summary</h2>
+<table border="0" cellspacing="0" cellpadding="0" width="100%">
+<tr>
+<td style="font-size:10px;font-weight:700;padding:4px 6px;border-bottom:2px solid #1B5E20;">Client</td>
+<td style="font-size:10px;font-weight:700;padding:4px 6px;border-bottom:2px solid #1B5E20;">Donor</td>
+<td style="font-size:10px;font-weight:700;padding:4px 6px;border-bottom:2px solid #1B5E20;">Avg Confidence</td>
+<td style="font-size:10px;font-weight:700;padding:4px 6px;border-bottom:2px solid #1B5E20;">Avg Clarity</td>
+</tr>
+{client_rows}
+</table>
+
+<p style="color:#424242;font-size:9px;margin-top:20px;border-top:1px solid #eee;padding-top:8px;">
+Deterministic, rule-based scores — same document always produces the same determination.
+No AI judgement is involved in these numbers. Generated: {timestamp}.
+</p>
+</body></html>"""
+
+
+def render_screen_4_agency_dashboard():
+    if st.button("← Back to Home", key="agency_dash_back"):
+        _go_to_screen(0)
+
+    st.markdown("## 🏢 Portfolio Dashboard")
+
+    email = st.session_state.get("user_email", "")
+    if not email:
+        st.info("Enter your email to view your Agency Dashboard.")
+        _render_email_gate_inline("_agency_dash")
+        return
+
+    access = check_access(email)
+    if access["plan"] != "agency":
+        st.warning("The Portfolio Dashboard is available on the **Agency plan**.")
+        _render_paywall(prompt_context="agency_dashboard_attempt", custom_message=(
+            "### Upgrade to Agency for the Portfolio Dashboard\n\n"
+            "- **Client × donor heatmap** — average Confidence/Clarity across every client and donor framework\n"
+            "- **Systemic gaps panel** — your most recurring evidence weaknesses, ranked\n"
+            "- **Portfolio trend lines** — readiness over time, across your whole book of work\n"
+            "- **One-click Portfolio Readiness Report (PDF)** — for internal reporting or a funder\n\n"
+            f"*GHS {PRICE_AGENCY_GHS/100:.0f}/month*"
+        ))
+        return
+
+    st.markdown("### Clients")
+    clients = list_clients(email)
+    with st.expander("➕ Add a client", expanded=not clients):
+        _new_client_name = st.text_input("Client name", key="agency_new_client_name")
+        if st.button("Add client", key="agency_add_client_btn") and _new_client_name.strip():
+            create_client(email, _new_client_name.strip())
+            st.rerun()
+
+    audits_rows = list_audits_with_client(email, limit=200)
+    if not audits_rows:
+        st.info(
+            "No saved audits yet. Opt in to \"Save this audit to my private history\" on "
+            "Screen 2 to start building your portfolio."
+        )
+        return
+
+    with st.expander("🗂 Assign audits to clients", expanded=False):
+        _client_options = {"— Unassigned —": None}
+        for c in clients:
+            _client_options[c["name"]] = c["id"]
+        _labels = list(_client_options.keys())
+        for row in audits_rows:
+            _cur_label = row["client_name"] or "— Unassigned —"
+            _idx = _labels.index(_cur_label) if _cur_label in _labels else 0
+            _sel = st.selectbox(
+                f"{row['ref_id']} — {row['donor'] or 'No donor specified'} — {row['created_at']}",
+                _labels, index=_idx, key=f"agency_assign_{row['id']}",
+            )
+            if _sel != _cur_label:
+                assign_audit_client(email, row["id"], _client_options[_sel])
+                st.rerun()
+
+    audits_rows = list_audits_with_client(email, limit=200)  # refresh after any assignment
+
+    st.divider()
+    st.markdown("### Client × Donor Heatmap")
+    _heatmap_df = _agency_client_donor_heatmap_df(audits_rows)
+    if _heatmap_df.empty:
+        st.caption("Not enough data yet.")
+    else:
+        _render_agency_heatmap(_heatmap_df, "primary_confidence_score", "Avg Confidence")
+        _render_agency_heatmap(_heatmap_df, "primary_clarity_score", "Avg Clarity")
+
+    st.divider()
+    st.markdown("### Systemic Gaps")
+    _gap_evaluations = _agency_evaluations_for_gaps(email)
+    _gaps = _evaluator.compute_systemic_gaps(_gap_evaluations) if _gap_evaluations else []
+    if not _gaps:
+        st.caption("Not enough data yet.")
+    else:
+        for g in _gaps[:5]:
+            if g["dimension"] == "Verification" and g.get("verify_source_missing_pct", 0) > 0:
+                st.markdown(
+                    f"- **{g['dimension']}** — missing verification source in "
+                    f"{g['verify_source_missing_pct']:.0f}% of results "
+                    f"({g['fail_pct']:.0f}% below target)"
+                )
+            else:
+                st.markdown(f"- **{g['dimension']}** — below target in {g['fail_pct']:.0f}% of results")
+
+    st.divider()
+    st.markdown("### Portfolio Readiness Over Time")
+    _trend_df = _agency_trend_df(audits_rows)
+    if _trend_df.empty:
+        st.caption("Not enough data yet.")
+    else:
+        _render_agency_trend_chart(_trend_df)
+
+    st.divider()
+    st.markdown("### Export")
+    _port_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    _port_ref_id = f"PORT-{_port_timestamp}"
+    _port_html = _build_portfolio_readiness_report_html(email, audits_rows, _gaps, _port_ref_id, _port_timestamp)
+    _port_pdf = _html_to_pdf_bytes(_port_html)
+    if _port_pdf:
+        st.download_button(
+            f"📄 Download Portfolio Readiness Report  [{_port_ref_id}]",
+            data=_port_pdf, file_name=f"portfolio_readiness_report_{_port_timestamp}.pdf",
+            mime="application/pdf", type="primary", key="agency_dash_pdf_btn",
+        )
+        _safe_log_access(email, "portfolio_report_export")
+    else:
+        st.download_button(
+            f"⬇️ Download Portfolio Readiness Report (HTML)  [{_port_ref_id}]",
+            data=_port_html.encode("utf-8"), file_name=f"portfolio_readiness_report_{_port_timestamp}.html",
+            mime="text/html", key="agency_dash_html_btn",
+        )
+        _safe_log_access(email, "portfolio_report_export")
 
 
 def _build_council_page_html(council_assessment: dict, conf_score: float,
@@ -10891,6 +11229,30 @@ Council output is AI-generated. Verify all content before submitting to a donor.
 </p>"""
 
 
+# Hoisted from _build_html_report_card()'s function body (below) to module
+# level so the Portfolio Readiness Report (_build_portfolio_readiness_report_html)
+# can reuse them literally for visual parity, rather than a third copy-pasted
+# variant of the same palette.
+_READINESS_CARD_SCORE_PALETTE = {
+    "Strong":     ("#C8E6C9", "#1B5E20"),
+    "Acceptable": ("#FFF9C4", "#F57F17"),
+    "Weak":       ("#FFE0B2", "#E65100"),
+    "High Risk":  ("#FFCDD2", "#B71C1C"),
+}
+
+_READINESS_CARD_VERDICT_MAP = {
+    "Strong KPI":          ("#C8E6C9","#1B5E20"),
+    "Misleading KPI":      ("#FFE0B2","#E65100"),
+    "Well-defined but":    ("#FFF9C4","#F57F17"),
+    "High risk":           ("#FFCDD2","#B71C1C"),
+    "STRONG":              ("#C8E6C9","#1B5E20"),
+    "MISLEADING":          ("#FFE0B2","#E65100"),
+    "NEEDS REFINEMENT":    ("#FFF9C4","#F57F17"),
+    "FUNDAMENTALLY WEAK":  ("#FFCDD2","#B71C1C"),
+    "UNDEREVIDENCED":      ("#FFE0B2","#E65100"),
+}
+
+
 def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str,
                              field_sources: dict | None = None,
                              council_assessment: dict | None = None) -> str:
@@ -10937,29 +11299,12 @@ def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str,
     ev_date  = str(ev.get("recency", "") or "")
 
     # Score colours (used for boxes, bars, text)
-    _score_palette = {
-        "Strong":     ("#C8E6C9", "#1B5E20"),
-        "Acceptable": ("#FFF9C4", "#F57F17"),
-        "Weak":       ("#FFE0B2", "#E65100"),
-        "High Risk":  ("#FFCDD2", "#B71C1C"),
-    }
-    cbg, cfg = _score_palette.get(conf_label, ("#F5F5F5","#212121"))
-    lbg, lfg = _score_palette.get(clar_label, ("#F5F5F5","#212121"))
+    cbg, cfg = _READINESS_CARD_SCORE_PALETTE.get(conf_label, ("#F5F5F5","#212121"))
+    lbg, lfg = _READINESS_CARD_SCORE_PALETTE.get(clar_label, ("#F5F5F5","#212121"))
 
     # Verdict colour
-    _verdict_map = {
-        "Strong KPI":          ("#C8E6C9","#1B5E20"),
-        "Misleading KPI":      ("#FFE0B2","#E65100"),
-        "Well-defined but":    ("#FFF9C4","#F57F17"),
-        "High risk":           ("#FFCDD2","#B71C1C"),
-        "STRONG":              ("#C8E6C9","#1B5E20"),
-        "MISLEADING":          ("#FFE0B2","#E65100"),
-        "NEEDS REFINEMENT":    ("#FFF9C4","#F57F17"),
-        "FUNDAMENTALLY WEAK":  ("#FFCDD2","#B71C1C"),
-        "UNDEREVIDENCED":      ("#FFE0B2","#E65100"),
-    }
     vbg, vfg = ("#F5F5F5","#424242")
-    for key, (bg, fg) in _verdict_map.items():
+    for key, (bg, fg) in _READINESS_CARD_VERDICT_MAP.items():
         if key.lower() in (verdict or diag_state).lower():
             vbg, vfg = bg, fg; break
 
@@ -12364,6 +12709,8 @@ def main():
             st.session_state["_show_my_audits"] = True
             st.query_params["my_audits"] = "1"
             st.rerun()
+        if st.button("🏢 Agency Dashboard", key="sidebar_agency_dashboard_btn", use_container_width=True):
+            _go_to_screen(4)
 
     # --- Paystack payment callback handler ---
     # Paystack always appends "?trxref=...&reference=..." to the callback_url
@@ -12382,11 +12729,12 @@ def main():
             _pay_email = (_pay_result.get("email") or st.session_state.get("user_email") or "").strip().lower()
             if _pay_email:
                 _days = 365 if _pay_result.get("plan") == "annual" else (30 if _pay_result.get("plan") in ("monthly", "agency") else 1)
-                # Track agency-tier users
-                if _pay_result.get("plan") == "agency":
-                    st.session_state["_is_agency"] = True
                 upsert_user(_pay_email)
                 mark_paid(_pay_email, days=_days)
+                if _pay_result.get("plan") == "agency":
+                    set_user_plan(_pay_email, "agency")
+                elif _pay_result.get("plan") in ("monthly", "annual"):
+                    set_user_plan(_pay_email, "professional")
                 st.session_state["user_email"] = _pay_email
                 st.session_state["is_paid"] = True
                 metrics.log_event("payment_completed", _pay_email)
@@ -12455,7 +12803,8 @@ def main():
         return
     try:
         screen = st.session_state["screen"]
-        {0: render_screen_0, 1: render_screen_1, 2: render_screen_2, 3: render_screen_3}.get(
+        {0: render_screen_0, 1: render_screen_1, 2: render_screen_2, 3: render_screen_3,
+         4: render_screen_4_agency_dashboard}.get(
             screen, render_screen_0
         )()
     except Exception as _top_exc:

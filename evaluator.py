@@ -1683,6 +1683,90 @@ def compute_confidence_label(scores: dict) -> tuple:
 
 
 # ---------------------------------------------------------------------------
+# The 8 rule-based sub-criteria — canonical map (dimension name -> which
+# evaluate_submission() components dict + score key holds it, and its max
+# value). Duplicated today in three places this constant should eventually
+# replace: excel_report.py's dim_keys/dim_maxes/dim_comp_map, app.py's
+# _PORTFOLIO_SUBSCORE_DIMENSIONS, and app.py's _TREND_SUB_SCORE_DIMS -- not
+# refactored here to keep this change's blast radius limited to the new
+# Agency Dashboard; new code should import this rather than adding a 4th copy.
+# ---------------------------------------------------------------------------
+DIMENSION_MAP: dict = {
+    "Directness":   ("confidence_components", "direct_score",      2.0),
+    "Verification": ("confidence_components", "verify_score",      2.0),
+    "Recency":      ("confidence_components", "recency_score",     1.0),
+    "Definition":   ("clarity_components",    "definition_score",  1.25),
+    "Measurement":  ("clarity_components",    "measurement_score", 1.25),
+    "Integrity":    ("clarity_components",    "integrity_score",   1.0),
+    "Scope":        ("clarity_components",    "scope_score",       0.75),
+    "Governance":   ("clarity_components",    "governance_score",  0.75),
+}
+
+
+def compute_systemic_gaps(evaluations: list, threshold_pct: float = 0.6) -> list:
+    """Rank the 8 dimensions by how often they "fail" across a set of saved
+    evaluations. A dimension fails for one evaluation if its score is below
+    threshold_pct (default 60%) of that dimension's max -- e.g. Verification
+    (max 2.0) fails below 1.2.
+
+    60% is a deliberately fresh choice, not copied from an existing
+    convention: get_what_to_fix() uses a 3/5-level cutoff (level-space, not
+    score-space) for its Directness/Recency gates; excel_report.py's
+    HIGHEST-LEVERAGE ACTIONS sheet uses 50%/75% score-space cutoffs for its
+    two-tier "Fix this first"/"Needs improvement" labels. None of these is a
+    %-of-results-failing convention. 60% is stricter than excel_report.py's
+    50% "Fix this first" cutoff, since a *systemic* gap should read as
+    "still needs work," not just "the single worst-scoring dimension on
+    average."
+
+    Note: evaluate_submission()'s fixes[] list only tags
+    dimension: "confidence"|"clarity" (the axis), never one of these 8 named
+    criteria, and its message text is templated/varies per submission -- so
+    this ranking is computed purely from confidence_components/
+    clarity_components, never by grouping fixes[] messages by string equality.
+
+    Returns, sorted by fail_pct descending:
+    [{"dimension": str, "fail_pct": float (0-100), "n_evaluated": int}, ...]
+    Plus one extra key on the "Verification" row, "verify_source_missing_pct"
+    -- the plain-English `verify_level <= 1` rate ("missing verification
+    source"), a more citable number than "% below 60% of Verification's max"
+    for this one dimension (see get_verification_rationale()'s level 1/0
+    text: "self-reported, no review documented" / "no review of any kind
+    detected").
+    """
+    if not evaluations:
+        return []
+    results = []
+    for dim_name, (comp_key, score_key, max_val) in DIMENSION_MAP.items():
+        threshold = threshold_pct * max_val
+        n = 0
+        n_fail = 0
+        for ev in evaluations:
+            comp = (ev or {}).get(comp_key) or {}
+            if score_key not in comp:
+                continue
+            n += 1
+            if (comp.get(score_key) or 0) < threshold:
+                n_fail += 1
+        fail_pct = (n_fail / n * 100) if n else 0.0
+        row = {"dimension": dim_name, "fail_pct": fail_pct, "n_evaluated": n}
+        if dim_name == "Verification":
+            n_verify = 0
+            n_missing = 0
+            for ev in evaluations:
+                comp = (ev or {}).get("confidence_components") or {}
+                if "verify_level" not in comp:
+                    continue
+                n_verify += 1
+                if (comp.get("verify_level") or 0) <= 1:
+                    n_missing += 1
+            row["verify_source_missing_pct"] = (n_missing / n_verify * 100) if n_verify else 0.0
+        results.append(row)
+    results.sort(key=lambda r: r["fail_pct"], reverse=True)
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Smoke test — python evaluator.py to verify Section 8 example
 # ---------------------------------------------------------------------------
 

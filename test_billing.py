@@ -243,6 +243,45 @@ def run_metering():
 
 
 # ---------------------------------------------------------------------------
+# utils.db.set_user_plan — the gating-reliability fix for the Agency Dashboard
+# ---------------------------------------------------------------------------
+
+def run_set_user_plan():
+    failures = []
+    original_get_client = db._get_client
+    fake_client = _FakeClient()
+    db._get_client = lambda: fake_client
+    try:
+        db.upsert_user("agency@example.com")
+
+        db.set_user_plan("agency@example.com", "agency")
+        if db.get_user("agency@example.com").get("plan") != "agency":
+            failures.append("set_user_plan did not persist a valid plan value")
+
+        # Invalid plan values ("per_use", a typo, etc.) must no-op, not
+        # silently overwrite with garbage -- a caller mistake should be
+        # visible (plan stays at its last valid value), not swallowed.
+        db.set_user_plan("agency@example.com", "per_use")
+        if db.get_user("agency@example.com").get("plan") != "agency":
+            failures.append("set_user_plan should no-op for an invalid plan value, not overwrite")
+
+        # No email -> no-op, no crash.
+        try:
+            db.set_user_plan("", "agency")
+        except Exception as exc:
+            failures.append(f"set_user_plan raised with no email: {exc}")
+    finally:
+        db._get_client = original_get_client
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: set_user_plan — valid plan values persist, invalid values no-op, missing email is safe.")
+
+
+# ---------------------------------------------------------------------------
 # utils.auth — magic-link token lifecycle
 # ---------------------------------------------------------------------------
 
@@ -503,6 +542,7 @@ def run_data_deletion():
 
 if __name__ == "__main__":
     run_metering()
+    run_set_user_plan()
     run_magic_link()
     run_sessions()
     run_paystack_subscriptions()

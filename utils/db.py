@@ -110,6 +110,27 @@ def mark_paid(email: str, days: int = 30) -> None:
         pass
 
 
+def set_user_plan(email: str, plan: str) -> None:
+    """Upsert users.plan. Values: 'free' | 'professional' | 'agency' --
+    anything else is a no-op. Mirrors labelToTier() in
+    supabase/functions/paystack-webhook/index.ts, so the two Python in-app
+    payment-success paths (app.py's _complete_email_login and the
+    redirect-verify handler in main()) persist plan exactly like the webhook
+    does. Callers must not pass "per_use" or any other Paystack plan label
+    here -- a one-off payment must never change the account's subscription
+    tier; derive the tier from the label yourself and simply don't call this
+    function for "per_use", rather than relying on this function to ignore it."""
+    if not email or plan not in ("free", "professional", "agency"):
+        return
+    try:
+        c = _get_client()
+        if not c:
+            return
+        c.table("users").upsert({"email": email, "plan": plan}).execute()
+    except Exception:
+        pass
+
+
 def is_still_paid(user: dict | None) -> bool:
     """Return True if user is paid AND paid_until is in the future (or None)."""
     if not user or not user.get("is_paid"):
