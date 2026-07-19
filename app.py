@@ -238,6 +238,18 @@ def _get_app_url() -> str:
     return "https://impact-integrity-diagnostic.streamlit.app"
 
 APP_URL = _get_app_url()
+
+def _secret(key: str, default: str = "") -> str:
+    """Read a secret from Streamlit secrets, falling back to the environment.
+    st.secrets raises StreamlitSecretNotFoundError on ANY access when no
+    secrets.toml exists at all (e.g. a Docker/VPS deployment using only
+    .env) -- catching broadly here is required, not just a missing-key
+    lookup, or the os.environ fallback below is never reached."""
+    try:
+        _val = st.secrets.get(key, "")
+    except Exception:
+        _val = ""
+    return _val or os.environ.get(key, default)
 # --- End payment constants ---
 
 # --- Disposable / temporary email domains (blocked at the email gate) ---
@@ -2424,11 +2436,7 @@ def _plan_code(secret_name: str) -> str:
     callers fall back to a plain one-off transaction in that case, so a
     Subscribe button never breaks just because a plan code hasn't been
     pasted into secrets."""
-    return (
-        st.secrets.get(secret_name, "")
-        if hasattr(st, "secrets") else
-        os.environ.get(secret_name, "")
-    )
+    return _secret(secret_name)
 
 
 def _render_paywall(irc_context: bool = False, custom_message: str | None = None,
@@ -3186,11 +3194,7 @@ def _render_slot_fields(slot: int):
         "40+ hours of rework. We don't want that to happen to you."
     )
 
-    _lf_api_key = (
-        st.secrets.get("ANTHROPIC_API_KEY", "")
-        if hasattr(st, "secrets") else
-        os.environ.get("ANTHROPIC_API_KEY", "")
-    )
+    _lf_api_key = _secret("ANTHROPIC_API_KEY")
     if _lf_api_key:
         with st.expander("🎯 AI Logframe Match — paste your indicators, get a suggested match", expanded=False):
             st.caption(
@@ -3940,11 +3944,7 @@ def _render_tab2_slot(slot: int):
                             else:
                                 st.success("Saved to your Logframe Library.")
 
-        _lf_api_key = (
-            st.secrets.get("ANTHROPIC_API_KEY", "")
-            if hasattr(st, "secrets") else
-            os.environ.get("ANTHROPIC_API_KEY", "")
-        )
+        _lf_api_key = _secret("ANTHROPIC_API_KEY")
         if _lf_api_key:
             with st.expander("🎯 AI Logframe Match — paste your indicators, get a suggested match", expanded=False):
                 st.caption(
@@ -4134,11 +4134,7 @@ def _render_tab3_slot(slot: int):
         if st.button("🏛 Re-evaluate type", key=f"reval_ev_type{s}",
                      help="Run a 5-member council debate to verify this is the closest-fit evidence type",
                      use_container_width=True):
-            _rev_api_key = (
-                st.secrets.get("ANTHROPIC_API_KEY", "")
-                if hasattr(st, "secrets") else
-                os.environ.get("ANTHROPIC_API_KEY", "")
-            )
+            _rev_api_key = _secret("ANTHROPIC_API_KEY")
             if not _rev_api_key:
                 st.warning("Evidence type debate is not available — API key not configured.")
             elif not ev_desc or len(ev_desc.strip()) < 10:
@@ -7677,11 +7673,7 @@ def _render_help_chat(submission: dict, ev: dict, donor: str = "", card_idx: int
     system_prompt = build_chat_system_prompt(ev, submission, donor)
 
     # Call Claude Haiku (fast, cheap for Q&A)
-    _api_key = (
-        st.secrets.get("ANTHROPIC_API_KEY", "")
-        if hasattr(st, "secrets") else
-        __import__("os").environ.get("ANTHROPIC_API_KEY", "")
-    )
+    _api_key = _secret("ANTHROPIC_API_KEY")
     if not _api_key:
         reply = "Score chat is not available right now — API key not configured."
     else:
@@ -7946,11 +7938,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         _render_help_chat(submission, ev, donor=donor, card_idx=card_idx)
 
     # Council Assessment — upgrade recommendations (council XXII)
-    _ca_api_key = (
-        st.secrets.get("ANTHROPIC_API_KEY", "")
-        if hasattr(st, "secrets") else
-        __import__("os").environ.get("ANTHROPIC_API_KEY", "")
-    )
+    _ca_api_key = _secret("ANTHROPIC_API_KEY")
     with st.expander("🏛 Council Assessment — Upgrade Recommendations", expanded=(diag_state != "STRONG")):
         _render_council_assessment(submission, ev, card_idx, _ca_api_key)
 
@@ -10132,11 +10120,7 @@ def _render_portfolio_chat(input_df, evaluations: list, statuses: list) -> None:
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    _api_key = (
-        st.secrets.get("ANTHROPIC_API_KEY", "")
-        if hasattr(st, "secrets") else
-        __import__("os").environ.get("ANTHROPIC_API_KEY", "")
-    )
+    _api_key = _secret("ANTHROPIC_API_KEY")
     if not _api_key:
         reply = "Portfolio chat is not available — API key not configured."
     else:
@@ -10179,11 +10163,7 @@ def _render_score_my_report_tab():
         "— Deterministic assessment: same document always produces the same determination."
     )
 
-    _api_key = (
-        st.secrets.get("ANTHROPIC_API_KEY", "")
-        if hasattr(st, "secrets") else
-        __import__("os").environ.get("ANTHROPIC_API_KEY", "")
-    )
+    _api_key = _secret("ANTHROPIC_API_KEY")
     if not _api_key:
         st.error("Audit My Report requires an Anthropic API key. Configure ANTHROPIC_API_KEY in secrets.")
         return
@@ -12173,11 +12153,7 @@ def _render_admin_view():
     st.markdown("### Admin — usage metrics")
     st.caption("Anonymous usage counts only — no result text or documents are ever logged.")
 
-    _admin_secret = (
-        st.secrets.get("ADMIN_PASSPHRASE", "")
-        if hasattr(st, "secrets") else
-        os.environ.get("ADMIN_PASSPHRASE", "")
-    )
+    _admin_secret = _secret("ADMIN_PASSPHRASE")
     if not _admin_secret:
         st.error("Admin view is not configured — set ADMIN_PASSPHRASE in secrets.")
         return
