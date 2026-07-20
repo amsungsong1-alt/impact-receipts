@@ -214,6 +214,32 @@ benchmark feature's `MIN_BENCHMARK_SAMPLE`. This table is intentionally **not** 
 `purge_account_audit_content()`/`purge_account_crm_events()` — there's no plaintext email to
 purge, and the hash alone was never reversible to an account in the first place.
 
+## Personalization layer
+
+A lightweight profile (`account_sector`, `primary_donors`, `country`, `profile_completed_at`,
+`profile_skipped` — `supabase/migrations/0017`) captured once per account via a
+`_render_profile_capture_banner()` prompt (same UX pattern as the outcome-feedback banner —
+DB-truth-checked each render, not a session flag, so it survives a fresh tab; Save or Skip
+both permanently clear it). Nothing in the app requires it — every personalized element below
+falls back to today's exact generic behavior when the profile is absent.
+
+`account_sector` (`ACCOUNT_SECTOR_OPTIONS`: Health/Agriculture/Education/WASH/Governance/Other,
+no free text) is a deliberately different, coarser taxonomy than the existing per-submission
+`SECTOR_OPTIONS` (14 entries, has free-text "Other", feeds the anonymized benchmark's
+bucketing) — the two serve different purposes and are kept separate on purpose. Feeds three
+things: (a) `_DEMO_SCENARIOS` — the "try with a sample" picker now has 5 scenarios (one per
+sector except Other), preselected from the profile via `_ACCOUNT_SECTOR_TO_DEMO_SCENARIO`, and
+`primary_donors`/`_DONOR_TO_FRAMEWORK` similarly preselect `donor_selected`/`donor_framework`;
+(b) `evaluator.get_what_to_fix()`'s optional `account_sector` parameter (default `""`, fully
+backward compatible) swaps the illustrative evidence-type examples in the Directness/
+Measurement fix messages via `_SECTOR_EVIDENCE_EXAMPLES` — not a full per-sector rewrite of
+all 8 fix triggers; (c) `evaluator.summarize_monthly_trend()` — a pure function (reuses
+`compute_systemic_gaps()`, no Streamlit/file I/O, directly testable) that identifies the most
+frequent failing dimension in the most recent calendar month of a user's saved evaluation
+history (`app.py`'s already-correctly-email-scoped `_load_trend_history()`), shown as "Your
+evidence quality trends" on Screen 3. "Monthly" describes the grouping, not a push schedule —
+it's computed live on every visit, not emailed.
+
 ## AI call sites and models
 
 All Claude calls read `ANTHROPIC_API_KEY` from `st.secrets` with an `os.environ` fallback, and

@@ -1158,10 +1158,33 @@ def _derive_clarity_params(submission: dict) -> dict:
 # What To Fix engine (public, Section 7)
 # ---------------------------------------------------------------------------
 
-def get_what_to_fix(confidence_components: dict, clarity_components: dict) -> list:
+# Personalization: illustrative evidence-example phrase per account_sector (see
+# app.py's ACCOUNT_SECTOR_OPTIONS), swapped into the Directness/Measurement fix
+# messages below when a caller passes a recognized account_sector. "Other" holds
+# the exact same phrase get_what_to_fix() always used before this parameter
+# existed, so an unset/unrecognized account_sector (the default "") produces
+# byte-identical output to before -- this is not new methodological content,
+# just a different illustrative noun phrase for the same underlying advice.
+_SECTOR_EVIDENCE_EXAMPLES: dict = {
+    "Health": "clinic registers, vaccination records, or DHIS2 exports",
+    "Agriculture": "harvest logs, farmer register exports, or crop-cut assessment records",
+    "Education": "school attendance registers, EMIS exports, or exam result sheets",
+    "WASH": "borehole functionality logs, water quality test results, or a KoboToolbox export",
+    "Governance": "meeting minutes, public hearing attendance records, or budget execution reports",
+    "Other": "signed attendance sheets, payroll records, or a KoboToolbox export",
+}
+
+
+def get_what_to_fix(confidence_components: dict, clarity_components: dict, account_sector: str = "") -> list:
     """
     Return a list of dicts with keys: dimension, message, score_impact.
     Triggers use action verbs and show score impact. No forbidden words.
+
+    account_sector (optional, default "" -- backward compatible with every existing caller):
+    one of app.py's ACCOUNT_SECTOR_OPTIONS, from the caller's saved personalization profile.
+    Only changes the illustrative evidence-type examples named in the Directness/Measurement
+    messages below (see _SECTOR_EVIDENCE_EXAMPLES) -- never changes which triggers fire or
+    their score_impact math.
     """
     fixes = []
 
@@ -1194,9 +1217,9 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict) -> li
                 "links this evidence to the reported result."
             )
         else:
+            _dir_example = _SECTOR_EVIDENCE_EXAMPLES.get(account_sector, _SECTOR_EVIDENCE_EXAMPLES["Other"])
             _dir_msg = (
-                "Add a primary record — signed attendance sheets, payroll records, or a "
-                "KoboToolbox export — so your evidence directly ties to the claim."
+                f"Add a primary record — {_dir_example} — so your evidence directly ties to the claim."
             )
         fixes.append({
             "dimension": "confidence",
@@ -1311,6 +1334,13 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict) -> li
                 "Describe your collection method and sampling approach in the evidence description "
                 "— specify the instrument used and how participants were selected."
             )
+            if account_sector in _SECTOR_EVIDENCE_EXAMPLES and account_sector != "Other":
+                # Not .lower()'d -- "WASH" is an acronym ("For wash results" reads oddly),
+                # and "Health"/"Agriculture"/etc. read fine capitalized too.
+                _meas_message += (
+                    f" For {account_sector} results, this often means "
+                    f"{_SECTOR_EVIDENCE_EXAMPLES[account_sector]}."
+                )
         fixes.append({
             "dimension": "clarity",
             "message": _meas_message,
@@ -1605,7 +1635,8 @@ def evaluate_submission(submission: dict) -> dict:
     }
     verdict = _verdicts[(conf_high, clar_high)]
 
-    fixes = get_what_to_fix(confidence_components, clarity_components)
+    fixes = get_what_to_fix(confidence_components, clarity_components,
+                             account_sector=submission.get("account_sector", ""))
 
     label_rationale = (
         f"Confidence: {confidence_score}/5.0 ({confidence_label}) — {confidence_meaning} "
@@ -1764,6 +1795,96 @@ def compute_systemic_gaps(evaluations: list, threshold_pct: float = 0.6) -> list
         results.append(row)
     results.sort(key=lambda r: r["fail_pct"], reverse=True)
     return results
+
+
+# Short, plain-language restatement of get_what_to_fix()'s existing guidance for each
+# dimension -- not new methodological content, just a one-line tip for
+# summarize_monthly_trend() below (which reports a dimension, not a specific submission's
+# fixes, so it needs its own short-form phrasing rather than reusing a fixes[] message).
+_DIMENSION_TIP: dict = {
+    "Directness":   "Add a primary record (not just self-reported data) that directly ties your evidence to the claimed result.",
+    "Verification": "Name an internal reviewer or an external partner to verify your data.",
+    "Recency":      "Keep your evidence dated within 6 months of the reporting period end.",
+    "Definition":   "State the missing unit, timeframe, or target group so your result statement can only be read one way.",
+    "Measurement":  "Describe your collection method and sampling approach in the evidence description.",
+    "Integrity":    "Close data gaps with original source records, or disclose limitations transparently.",
+    "Scope":        "State exactly which sites and groups are included and excluded.",
+    "Governance":   "Name an owner for this result and the decision it's meant to inform.",
+}
+
+
+def summarize_monthly_trend(history_rows: list) -> dict | None:
+    """Personalization feature (c): "Your evidence quality trends" -- for the most recent
+    calendar month with at least one row, which of the 8 DIMENSION_MAP dimensions failed
+    most often, plus a short tip. Pure function, no Streamlit/file I/O -- takes the same
+    row shape app.py's _load_trend_history() produces (one dict per saved evaluation, with
+    a "date" key ("YYYY-MM-DD" or "") and one raw-score key per DIMENSION_MAP name --
+    "Directness", "Verification", etc.), so it's testable directly with a hand-built list.
+
+    Reuses compute_systemic_gaps() (already implements exactly "rank dimensions by fail
+    rate") by reconstructing minimal evaluation-shaped dicts from each row's raw scores,
+    rather than re-deriving the threshold logic a second time.
+
+    Returns None if there's no history at all, or no row has a usable "YYYY-MM-DD" date --
+    callers should render nothing rather than an empty-state placeholder. Otherwise:
+    {"month": "YYYY-MM", "n_results": int,
+     "top_gap": {"dimension", "fail_pct", "tip"} | None (None means every dimension passed)}.
+    """
+    if not history_rows:
+        return None
+
+    dated_rows = [r for r in history_rows if len(str(r.get("date", ""))) >= 7]
+    if not dated_rows:
+        return None
+
+    def _safe_score(row: dict, key: str):
+        # `val != val` is a NaN check that needs no math/pandas import -- NaN is the only
+        # float where this is True. Callers may pass pandas .to_dict("records") output,
+        # where a missing value is float('nan') (truthy, so a plain "or 0" wouldn't catch it).
+        val = row.get(key)
+        if val is None:
+            return 0
+        try:
+            if val != val:
+                return 0
+        except Exception:
+            pass
+        return val
+
+    latest_month = max(str(r["date"])[:7] for r in dated_rows)
+    month_rows = [r for r in dated_rows if str(r["date"])[:7] == latest_month]
+
+    reconstructed = []
+    for row in month_rows:
+        reconstructed.append({
+            "confidence_components": {
+                "direct_score": _safe_score(row, "Directness"),
+                "verify_score": _safe_score(row, "Verification"),
+                "recency_score": _safe_score(row, "Recency"),
+            },
+            "clarity_components": {
+                "definition_score": _safe_score(row, "Definition"),
+                "measurement_score": _safe_score(row, "Measurement"),
+                "integrity_score": _safe_score(row, "Integrity"),
+                "scope_score": _safe_score(row, "Scope"),
+                "governance_score": _safe_score(row, "Governance"),
+            },
+        })
+
+    gaps = compute_systemic_gaps(reconstructed)
+    if not gaps or gaps[0]["fail_pct"] <= 0:
+        return {"month": latest_month, "n_results": len(month_rows), "top_gap": None}
+
+    top = gaps[0]
+    return {
+        "month": latest_month,
+        "n_results": len(month_rows),
+        "top_gap": {
+            "dimension": top["dimension"],
+            "fail_pct": top["fail_pct"],
+            "tip": _DIMENSION_TIP.get(top["dimension"], ""),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

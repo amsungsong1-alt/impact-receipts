@@ -1137,6 +1137,25 @@ SECTOR_OPTIONS = [
     "Other",
 ]
 
+# Account-level personalization profile's sector taxonomy -- deliberately a
+# DIFFERENT, coarser 6-value list than SECTOR_OPTIONS above (no free-text
+# "Other"), captured once per account rather than per submission. The two
+# lists serve different purposes: SECTOR_OPTIONS feeds the anonymized
+# benchmark's fine-grained (donor, sector, org_type) bucketing; this one
+# drives coarse personalization (sample-scenario/donor-framework
+# preselection, sector-tailored fix-list language). Kept in sync by hand
+# with utils.db.ACCOUNT_SECTOR_OPTIONS (duplicated there to avoid a
+# utils -> app import cycle).
+ACCOUNT_SECTOR_OPTIONS = ["Health", "Agriculture", "Education", "WASH", "Governance", "Other"]
+
+# The real donor identity field's fixed option list (also used by the personalization
+# profile's primary-donors multiselect and its preselection logic below) -- extracted to a
+# named constant so both call sites can never drift out of sync with each other.
+_DONOR_SELECTED_OPTIONS = [
+    "(No donor specified)", "World Bank", "USAID", "Global Fund", "Mastercard Foundation",
+    "FCDO", "EU / EuropeAid", "AfDB", "GIZ", "SIDA", "RVO", "KOICA", "SDC", "Other",
+]
+
 # Sector-specific beneficiary voice HOW-TO guidance (Council XXVII)
 # Rendered in Screen 2 when BV score < 0.5 and a sector is selected.
 _BV_SECTOR_GUIDANCE: dict[str, str] = {
@@ -2003,6 +2022,37 @@ def _init_session_state():
     for key, default in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = default
+
+    # Personalization: preselect donor_selected/donor_framework from the logged-in user's
+    # saved profile, once per (session, email) pair -- guarded by email rather than a plain
+    # one-time flag, so a login partway through a session (not just a restored one, which
+    # main() now resolves before calling this) still triggers exactly one re-check. A user
+    # who changes donor_selected/donor_framework mid-session is never overridden (this block
+    # only re-runs if the identified email itself changes). An account with no profile, or
+    # an anonymous visitor, gets today's unchanged defaults ("(No donor specified)" /
+    # "Generic", already set by the defaults loop above).
+    _profile_email_init = st.session_state.get("user_email", "")
+    if st.session_state.get("_personalization_applied_for") != _profile_email_init:
+        st.session_state["_personalization_applied_for"] = _profile_email_init
+        st.session_state["_account_sector_profile"] = ""
+        if _profile_email_init:
+            try:
+                _profile_init = get_user(_profile_email_init) or {}
+            except Exception:
+                _profile_init = {}
+            # Cached once per session for _build_submission_from_session()'s
+            # "account_sector" field -- read from the profile, not a per-submission
+            # form field the user fills each time.
+            st.session_state["_account_sector_profile"] = _profile_init.get("account_sector", "") or ""
+            _primary_donors_init = _profile_init.get("primary_donors") or []
+            if _primary_donors_init:
+                _first_donor_init = _primary_donors_init[0]
+                # Only preselect donor_selected if it's a valid option for that fixed
+                # selectbox -- a profile's "Other: <custom name>" entry isn't one of
+                # donor_selected's options and would crash the widget if set directly.
+                if _first_donor_init in _DONOR_SELECTED_OPTIONS:
+                    st.session_state["donor_selected"] = _first_donor_init
+                st.session_state["donor_framework"] = _DONOR_TO_FRAMEWORK.get(_first_donor_init, "Generic")
 
 
 _BASE_FORM_KEYS = [
@@ -3165,6 +3215,10 @@ def _build_submission_from_session(slot: int = 1) -> dict:
         "reviewer_notes":    st.session_state.get(f"reviewer_notes{s}", ""),
         "donor":                     donor,
         "sector":                    sector,
+        # From the account's saved personalization profile (cached once per session in
+        # _init_session_state()), NOT a per-submission form field -- feeds
+        # evaluator.get_what_to_fix()'s sector-tailored evidence-example phrasing.
+        "account_sector":            st.session_state.get("_account_sector_profile", ""),
         "project_name":              st.session_state.get("project_name", ""),
         "submission_type":           submission_type,
         "org_type":                  st.session_state.get("org_type", "International NGO (INGO)"),
@@ -4654,6 +4708,130 @@ _DEMO_SELECT_FIELDS_AGRIC = {
     "donor_framework":  "GIZ",
 }
 
+# Third demo scenario — Education & Skills / FCDO (personalization: account_sector "Education")
+_DEMO_SUBMISSION_EDUCATION = {
+    "result_statement":    (
+        "2,300 girls in junior high school across Northern Region improved literacy "
+        "proficiency, with 68% reading at grade level in the 2024 end-of-year assessment, "
+        "up from 41% at the 2022 baseline."
+    ),
+    "target_group":        "Girls in JHS 1-3, government schools, Northern Region",
+    "timeframe":           "2022 baseline to 2024 end-of-year assessment",
+    "geographic_scope":    "Northern Region, Ghana (28 government junior high schools)",
+    "evidence_description":(
+        "Standardized literacy assessment (EGRA-aligned) administered by Ghana Education "
+        "Service district officers across all 28 schools, cross-checked against school "
+        "attendance and promotion registers by the programme MEL officer."
+    ),
+    "logframe_indicator":  "% of girls reading at grade level (EGRA-aligned assessment)",
+    "logframe_target":     "60% reading at grade level by end of 2024",
+    "logframe_achievement":"68% reading at grade level (2,300 girls across 28 schools)",
+    "verifier":            "Ghana Education Service district officer (independent of programme delivery)",
+}
+_DEMO_SELECT_FIELDS_EDUCATION = {
+    "evidence_type":    "Raw datasets or survey exports",
+    "internal_review":  "Reviewed by MEL Officer",
+    "external_review":  "External partner review",
+    "beneficiary_voice":"Anecdotal beneficiary quotes only (uncollected, not systematic)",
+    "sector":           "Education & Skills",
+    "donor_selected":   "FCDO",
+    "donor_framework":  "FCDO-Bond",
+}
+
+# Fourth demo scenario — WASH / World Bank (personalization: account_sector "WASH")
+_DEMO_SUBMISSION_WASH = {
+    "result_statement":    (
+        "3,400 rural households across 4 districts gained access to safely managed drinking "
+        "water following construction of 12 boreholes, with 94% functionality confirmed at "
+        "the 12-month follow-up between January and December 2024."
+    ),
+    "target_group":        "Rural households without prior access to safe drinking water",
+    "timeframe":           "January – December 2024",
+    "geographic_scope":    "Tamale, Yendi, Savelugu, and Karaga districts (Northern Region, Ghana)",
+    "evidence_description":(
+        "Borehole functionality reports from all 12 sites plus water quality test results "
+        "from the district laboratory, verified by the District Water and Sanitation Officer "
+        "at the 12-month follow-up visit."
+    ),
+    "logframe_indicator":  "Number of households with access to safely managed drinking water",
+    "logframe_target":     "3,000 households by Q4 2024",
+    "logframe_achievement":"3,400 households — 113% of target, 94% borehole functionality at 12 months",
+    "verifier":            "District Water and Sanitation Officer (independent of programme delivery)",
+}
+_DEMO_SELECT_FIELDS_WASH = {
+    "evidence_type":    "Systematic observation or administrative data",
+    "internal_review":  "Reviewed by MEL Officer",
+    "external_review":  "External partner review",
+    "beneficiary_voice":"Anecdotal beneficiary quotes only (uncollected, not systematic)",
+    "sector":           "WASH",
+    "donor_selected":   "World Bank",
+    "donor_framework":  "World Bank",
+}
+
+# Fifth demo scenario — Governance & Accountability / EU (personalization: account_sector "Governance")
+_DEMO_SUBMISSION_GOVERNANCE = {
+    "result_statement":    (
+        "18 district assemblies in the Volta Region adopted participatory budgeting "
+        "practices, with citizen-proposed projects accounting for 22% of the 2024 capital "
+        "budget, up from 6% in 2022."
+    ),
+    "target_group":        "District assembly officials and registered citizen groups",
+    "timeframe":           "2022 baseline to 2024 fiscal year",
+    "geographic_scope":    "Volta Region, Ghana (18 district assemblies)",
+    "evidence_description":(
+        "District assembly budget documents and public hearing attendance records for all "
+        "18 assemblies, cross-checked against Ministry of Local Government and Rural "
+        "Development capital-expenditure filings."
+    ),
+    "logframe_indicator":  "% of district capital budget allocated to citizen-proposed projects",
+    "logframe_target":     "15% of capital budget by end of 2024 fiscal year",
+    "logframe_achievement":"22% of capital budget (18 district assemblies)",
+    "verifier":            "Ministry of Local Government and Rural Development officer (independent of programme delivery)",
+}
+_DEMO_SELECT_FIELDS_GOVERNANCE = {
+    "evidence_type":    "Raw datasets or survey exports",
+    "internal_review":  "Reviewed by MEL Officer",
+    "external_review":  "External partner review",
+    "beneficiary_voice":"Anecdotal beneficiary quotes only (uncollected, not systematic)",
+    "sector":           "Governance & Accountability",
+    "donor_selected":   "EU / EuropeAid",
+    "donor_framework":  "EU",
+}
+
+# Scenario-picker lookup: radio label -> (submission dict, select-fields dict). A dict lookup
+# rather than the prior 2-way "Agric" in _demo_scenario string match, needed once there are
+# more than 2 options regardless of personalization.
+_DEMO_SCENARIOS: dict = {
+    "Health & Nutrition / USAID":       (_DEMO_SUBMISSION, _DEMO_SELECT_FIELDS),
+    "Agriculture & Livelihoods / GIZ":  (_DEMO_SUBMISSION_AGRIC, _DEMO_SELECT_FIELDS_AGRIC),
+    "Education & Skills / FCDO":        (_DEMO_SUBMISSION_EDUCATION, _DEMO_SELECT_FIELDS_EDUCATION),
+    "WASH / World Bank":                (_DEMO_SUBMISSION_WASH, _DEMO_SELECT_FIELDS_WASH),
+    "Governance & Accountability / EU": (_DEMO_SUBMISSION_GOVERNANCE, _DEMO_SELECT_FIELDS_GOVERNANCE),
+}
+
+# account_sector (ACCOUNT_SECTOR_OPTIONS) -> the most relevant _DEMO_SCENARIOS key. "Other"
+# and any unrecognized value fall back to the original default (Health/USAID) -- same
+# fallback an account with no profile at all gets today.
+_ACCOUNT_SECTOR_TO_DEMO_SCENARIO: dict = {
+    "Health":      "Health & Nutrition / USAID",
+    "Agriculture": "Agriculture & Livelihoods / GIZ",
+    "Education":   "Education & Skills / FCDO",
+    "WASH":        "WASH / World Bank",
+    "Governance":  "Governance & Accountability / EU",
+}
+
+# primary donor name (as stored in users.primary_donors) -> the closest real DONOR_PROFILES
+# key. Anything not listed here (Global Fund, Mastercard Foundation, AfDB, SIDA, RVO, KOICA,
+# SDC, Other, ...) falls back to "Generic" -- deliberately not the Agriculture demo
+# scenario's own stale donor_framework="GIZ" value, which isn't a real DONOR_PROFILES key
+# and silently falls back to Generic today anyway.
+_DONOR_TO_FRAMEWORK: dict = {
+    "USAID": "USAID",
+    "FCDO": "FCDO-Bond",
+    "World Bank": "World Bank",
+    "EU / EuropeAid": "EU",
+}
+
 
 def _complete_email_login(email: str) -> None:
     st.session_state["user_email"] = email
@@ -5712,9 +5890,19 @@ def render_screen_0():
     st.caption(
         "Your scoring data stays in your browser — never stored on our servers."
     )
+    # Pre-seed the scenario picker from the logged-in user's saved profile (once per
+    # session, and only if the user hasn't already touched this widget) -- an account
+    # with no profile, or an anonymous visitor, gets today's original default unchanged.
+    if "_demo_scenario_choice" not in st.session_state:
+        # Reuses the same per-(session, email) profile lookup _init_session_state()
+        # already cached -- no extra DB round trip here.
+        _profile_sector_s0 = st.session_state.get("_account_sector_profile", "")
+        st.session_state["_demo_scenario_choice"] = _ACCOUNT_SECTOR_TO_DEMO_SCENARIO.get(
+            _profile_sector_s0, "Health & Nutrition / USAID"
+        )
     _demo_scenario = st.radio(
         "Sample scenario:",
-        options=["Health & Nutrition / USAID", "Agriculture & Livelihoods / GIZ"],
+        options=list(_DEMO_SCENARIOS.keys()),
         key="_demo_scenario_choice",
         horizontal=True,
     )
@@ -5729,9 +5917,7 @@ def render_screen_0():
                      help="Loads a realistic example — runs in seconds",
                      use_container_width=True):
             _reset_all_slots()
-            _use_agric = "Agric" in _demo_scenario
-            _demo_sub = _DEMO_SUBMISSION_AGRIC if _use_agric else _DEMO_SUBMISSION
-            _demo_sel = _DEMO_SELECT_FIELDS_AGRIC if _use_agric else _DEMO_SELECT_FIELDS
+            _demo_sub, _demo_sel = _DEMO_SCENARIOS.get(_demo_scenario, (_DEMO_SUBMISSION, _DEMO_SELECT_FIELDS))
             for _k, _v in _demo_sub.items():
                 st.session_state[_k] = _v
             for _k, _v in _demo_sel.items():
@@ -6054,7 +6240,7 @@ def render_screen_1():
             st.selectbox(
                 "Primary donor for this submission",
                 key="donor_selected",
-                options=["(No donor specified)", "World Bank", "USAID", "Global Fund", "Mastercard Foundation", "FCDO", "EU / EuropeAid", "AfDB", "GIZ", "SIDA", "RVO", "KOICA", "SDC", "Other"],
+                options=_DONOR_SELECTED_OPTIONS,
                 index=0,
                 help="Select your primary donor to receive tailored reporting tips and donor-specific diagnostic guidance.",
                 on_change=lambda: st.session_state.pop("_donor_auto_inferred", None),
@@ -9203,6 +9389,40 @@ def _load_trend_history(email: str):
     return pd.DataFrame(rows)
 
 
+def _compute_monthly_trend_summary(email: str) -> dict | None:
+    """Thin file-I/O wrapper around evaluator.summarize_monthly_trend() (the actual pure
+    aggregation logic, testable without Streamlit or file I/O -- see that function's
+    docstring). Loads this account's trend history (_load_trend_history(), already
+    correctly email-scoped) and converts it to the plain list-of-dicts shape that pure
+    function expects."""
+    history = _load_trend_history(email)
+    if history is None or history.empty:
+        return None
+    return _evaluator.summarize_monthly_trend(history.to_dict("records"))
+
+
+def _render_monthly_trend_summary(email: str) -> None:
+    _summary = _compute_monthly_trend_summary(email)
+    if not _summary:
+        return
+    st.markdown("#### 📈 Your evidence quality trends")
+    _month_label = _summary["month"]
+    _n = _summary["n_results"]
+    if not _summary["top_gap"]:
+        st.success(
+            f"In {_month_label}, across {_n} result{'s' if _n != 1 else ''}, no dimension "
+            f"showed a recurring gap — nice work."
+        )
+        return
+    _gap = _summary["top_gap"]
+    st.info(
+        f"In {_month_label}, across {_n} result{'s' if _n != 1 else ''}, "
+        f"**{_gap['dimension']}** was your most frequent gap "
+        f"({_gap['fail_pct']:.0f}% of results below target)."
+    )
+    st.caption(f"💡 {_gap['tip']}")
+
+
 def _trend_indicator_options(history_df):
     """Return {indicator_id: display_label} for the selectors, in first-seen order."""
     options = {}
@@ -10946,6 +11166,7 @@ def render_screen_3():
         st.info("Enter your email to see your trends history.")
         _render_email_gate_inline("_trends")
     else:
+        _render_monthly_trend_summary(_trends_email)
         render_trends_view(_load_trend_history(_trends_email))
 
 
@@ -12928,6 +13149,53 @@ def _render_outcome_followup_banner(email: str) -> None:
                 st.rerun()
 
 
+# Same list as donor_selected's own options (_DONOR_SELECTED_OPTIONS), minus the
+# "(No donor specified)" placeholder -- a multiselect has no equivalent "unset" entry.
+_PROFILE_DONOR_OPTIONS = [d for d in _DONOR_SELECTED_OPTIONS if d != "(No donor specified)"]
+
+
+def _render_profile_capture_banner(email: str) -> None:
+    """Shown once per account (checked against the DB, not a session flag, so it survives a
+    fresh tab), asking for the lightweight personalization profile: sector, primary donors,
+    country. Skippable -- answering or skipping both permanently clear it. Nothing elsewhere
+    in the app requires this to be completed; every personalized element falls back to
+    today's generic behavior when it's absent."""
+    _u = get_user(email)
+    if not _u or _u.get("profile_completed_at") or _u.get("profile_skipped"):
+        return
+    with st.container(border=True):
+        st.markdown("**Tell us about your organization** (optional, takes 10 seconds)")
+        st.caption(
+            "We'll use this to show you more relevant samples, fix suggestions, and "
+            "donor framework views — never required, and you can change it later."
+        )
+        _pc_sector = st.selectbox("Sector", ACCOUNT_SECTOR_OPTIONS, key="_profile_sector_input")
+        _pc_donors = st.multiselect("Primary donor(s)", _PROFILE_DONOR_OPTIONS, key="_profile_donors_input")
+        _pc_donor_other = ""
+        if "Other" in _pc_donors:
+            _pc_donor_other = st.text_input("Specify donor name", key="_profile_donor_other_input")
+        _pc_country = st.text_input("Country", key="_profile_country_input")
+        _pcc1, _pcc2 = st.columns([1, 4])
+        with _pcc1:
+            if st.button("Save", key="_profile_save_btn", type="primary"):
+                _donors_to_store = [d if d != "Other" else (_pc_donor_other or "Other") for d in _pc_donors]
+                try:
+                    from utils.db import set_user_profile
+                    set_user_profile(email, _pc_sector, _donors_to_store, _pc_country)
+                except Exception:
+                    pass
+                st.success("Saved — thanks!")
+                st.rerun()
+        with _pcc2:
+            if st.button("Skip", key="_profile_skip_btn"):
+                try:
+                    from utils.db import skip_profile_capture
+                    skip_profile_capture(email)
+                except Exception:
+                    pass
+                st.rerun()
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -12942,8 +13210,13 @@ def main():
 
     st.markdown(CSS, unsafe_allow_html=True)
     inject_matchday_css()
-    _init_session_state()
+    # _restore_session_from_query_param() runs first -- it only reads/writes
+    # user_email/is_paid directly (no dependency on _init_session_state()'s
+    # defaults having run), and _init_session_state()'s personalization block
+    # needs user_email already resolved for a returning session-token visitor's
+    # very first render, not one rerun later.
     _restore_session_from_query_param()
+    _init_session_state()
 
     with st.sidebar:
         st.toggle(
@@ -13055,6 +13328,7 @@ def main():
         return
     _outcome_email = st.session_state.get("user_email", "")
     if _outcome_email:
+        _render_profile_capture_banner(_outcome_email)
         _render_outcome_followup_banner(_outcome_email)
     try:
         screen = st.session_state["screen"]

@@ -282,6 +282,67 @@ def run_set_user_plan():
 
 
 # ---------------------------------------------------------------------------
+# utils.db.set_user_profile / skip_profile_capture — personalization profile
+# ---------------------------------------------------------------------------
+
+def run_set_user_profile():
+    failures = []
+    original_get_client = db._get_client
+    fake_client = _FakeClient()
+    db._get_client = lambda: fake_client
+    try:
+        db.upsert_user("mel@example.com")
+
+        db.set_user_profile("mel@example.com", "WASH", ["World Bank", "USAID"], "Ghana")
+        _row = db.get_user("mel@example.com")
+        if _row.get("account_sector") != "WASH":
+            failures.append(f"set_user_profile did not persist account_sector, got {_row.get('account_sector')!r}")
+        if _row.get("primary_donors") != ["World Bank", "USAID"]:
+            failures.append(f"set_user_profile did not persist primary_donors, got {_row.get('primary_donors')!r}")
+        if _row.get("country") != "Ghana":
+            failures.append(f"set_user_profile did not persist country, got {_row.get('country')!r}")
+        if not _row.get("profile_completed_at"):
+            failures.append("set_user_profile did not stamp profile_completed_at")
+
+        # An invalid account_sector (not one of ACCOUNT_SECTOR_OPTIONS) must no-op
+        # entirely -- nothing overwritten, not even the valid fields in the same call.
+        db.set_user_profile("mel@example.com", "NotARealSector", ["FCDO"], "Kenya")
+        _row2 = db.get_user("mel@example.com")
+        if _row2.get("account_sector") != "WASH" or _row2.get("country") != "Ghana":
+            failures.append("set_user_profile with an invalid account_sector should no-op entirely, not partially overwrite")
+
+        # No email -> no-op, no crash.
+        try:
+            db.set_user_profile("", "WASH", ["World Bank"], "Ghana")
+        except Exception as exc:
+            failures.append(f"set_user_profile raised with no email: {exc}")
+
+        # skip_profile_capture sets profile_skipped without touching the other fields.
+        db.upsert_user("skipper@example.com")
+        db.skip_profile_capture("skipper@example.com")
+        _skip_row = db.get_user("skipper@example.com")
+        if not _skip_row.get("profile_skipped"):
+            failures.append("skip_profile_capture did not set profile_skipped")
+        if _skip_row.get("account_sector"):
+            failures.append("skip_profile_capture should not populate account_sector")
+
+        try:
+            db.skip_profile_capture("")
+        except Exception as exc:
+            failures.append(f"skip_profile_capture raised with no email: {exc}")
+    finally:
+        db._get_client = original_get_client
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: set_user_profile/skip_profile_capture — valid profile persists, invalid "
+          "account_sector no-ops entirely, skip sets profile_skipped only.")
+
+
+# ---------------------------------------------------------------------------
 # utils.auth — magic-link token lifecycle
 # ---------------------------------------------------------------------------
 
@@ -543,6 +604,7 @@ def run_data_deletion():
 if __name__ == "__main__":
     run_metering()
     run_set_user_plan()
+    run_set_user_profile()
     run_magic_link()
     run_sessions()
     run_paystack_subscriptions()

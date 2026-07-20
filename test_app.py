@@ -798,7 +798,119 @@ def run_framework_crosswalk():
           "citation coverage, and graceful degradation verified.")
 
 
+def run_sector_tailoring():
+    """Personalization (b): evaluator.get_what_to_fix()'s account_sector parameter."""
+    failures = []
+
+    # Confidence components low enough to trigger the harder Directness threshold (<1.2)
+    # and the Measurement threshold (<1.0) -- the two messages sector tailoring touches.
+    conf = {"direct_score": 0.5, "verify_score": 2.0, "recency_score": 1.0,
+            "verify_level": 5, "ev_type": ""}
+    clar = {"definition_score": 1.25, "measurement_score": 0.5, "integrity_score": 1.0,
+            "scope_score": 0.75, "governance_score": 0.75, "is_qualitative": False}
+
+    default_fixes = evaluator.get_what_to_fix(conf, clar)
+    unknown_fixes = evaluator.get_what_to_fix(conf, clar, account_sector="NotARealSector")
+    wash_fixes = evaluator.get_what_to_fix(conf, clar, account_sector="WASH")
+
+    def _msg(fixes, prefix):
+        return next(f["message"] for f in fixes if f["message"].startswith(prefix))
+
+    default_directness = _msg(default_fixes, "Add a primary record")
+    if "signed attendance sheets, payroll records, or a KoboToolbox export" not in default_directness:
+        failures.append(f"default (account_sector='') Directness message changed: {default_directness!r}")
+
+    if _msg(unknown_fixes, "Add a primary record") != default_directness:
+        failures.append("an unrecognized account_sector should fall back to the exact default Directness message")
+
+    wash_directness = _msg(wash_fixes, "Add a primary record")
+    if "borehole functionality logs" not in wash_directness:
+        failures.append(f"account_sector='WASH' did not substitute the WASH evidence example: {wash_directness!r}")
+    if "signed attendance sheets" in wash_directness:
+        failures.append("account_sector='WASH' Directness message still contains the generic example")
+
+    default_measurement = next(f["message"] for f in default_fixes if "collection method" in f["message"])
+    if "For " in default_measurement:
+        failures.append(f"default (account_sector='') Measurement message should have no sector addendum: {default_measurement!r}")
+
+    wash_measurement = next(f["message"] for f in wash_fixes if "collection method" in f["message"])
+    if "For WASH results" not in wash_measurement or "borehole functionality logs" not in wash_measurement:
+        failures.append(f"account_sector='WASH' Measurement message missing its sector addendum: {wash_measurement!r}")
+
+    # Golden-value regression guard: the "strong" CASES submission (no account_sector key
+    # at all) must still evaluate identically to run()'s existing GOLDEN assertions --
+    # confirms the new optional parameter didn't change default scoring.
+    _regression_result = evaluator.evaluate_submission(CASES["strong"])
+    if _regression_result["confidence_score"] != GOLDEN["strong"]["confidence_score"]:
+        failures.append("adding account_sector support changed the 'strong' golden case's confidence_score")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: sector tailoring — WASH substitution verified, default/unknown-sector "
+          "output stays byte-identical to pre-personalization behavior.")
+
+
+def run_monthly_trend_summary():
+    """Personalization (c): evaluator.summarize_monthly_trend()."""
+    failures = []
+
+    if evaluator.summarize_monthly_trend([]) is not None:
+        failures.append("summarize_monthly_trend([]) should return None")
+    if evaluator.summarize_monthly_trend([{"date": ""}]) is not None:
+        failures.append("a row with no usable date should not produce a summary")
+
+    _full_marks = {"Directness": 2.0, "Verification": 2.0, "Recency": 1.0,
+                    "Definition": 1.25, "Measurement": 1.25, "Integrity": 1.0,
+                    "Scope": 0.75, "Governance": 0.75}
+
+    rows = [
+        {"date": "2026-06-05", **{**_full_marks, "Verification": 0.4}},
+        {"date": "2026-06-12", **{**_full_marks, "Verification": 0.5}},
+        {"date": "2026-05-01", **_full_marks},  # older month, full marks -- must not be picked
+    ]
+    result = evaluator.summarize_monthly_trend(rows)
+    if not result or result["month"] != "2026-06":
+        failures.append(f"summarize_monthly_trend should pick the most recent month (2026-06), got {result}")
+    elif result["n_results"] != 2:
+        failures.append(f"summarize_monthly_trend should only count June's 2 rows, got {result['n_results']}")
+    elif not result["top_gap"] or result["top_gap"]["dimension"] != "Verification":
+        failures.append(f"summarize_monthly_trend should identify Verification as the top gap, got {result}")
+    elif result["top_gap"]["fail_pct"] != 100.0:
+        failures.append(f"top_gap fail_pct expected 100.0 (2/2 failing), got {result['top_gap']['fail_pct']}")
+    elif not result["top_gap"].get("tip"):
+        failures.append("top_gap should include a non-empty tip")
+
+    # A month where every dimension passes -> top_gap is None, not a crash/empty dict.
+    all_strong = evaluator.summarize_monthly_trend([{"date": "2026-08-01", **_full_marks}])
+    if not all_strong or all_strong["top_gap"] is not None:
+        failures.append(f"an all-passing month should report top_gap=None, got {all_strong}")
+
+    # NaN-safe: simulates pandas .to_dict('records') output for a missing value.
+    try:
+        nan_result = evaluator.summarize_monthly_trend(
+            [{"date": "2026-09-01", **{**_full_marks, "Directness": float("nan")}}]
+        )
+    except Exception as exc:
+        failures.append(f"summarize_monthly_trend raised on a NaN score value: {exc}")
+    else:
+        if not nan_result or not nan_result["top_gap"] or nan_result["top_gap"]["dimension"] != "Directness":
+            failures.append(f"a NaN score should be treated as 0 (failing), got {nan_result}")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: monthly trend summary — most-recent-month selection, top-gap ranking, "
+          "all-passing month, and NaN safety verified.")
+
+
 if __name__ == "__main__":
     run()
     run_systemic_gaps()
     run_framework_crosswalk()
+    run_sector_tailoring()
+    run_monthly_trend_summary()

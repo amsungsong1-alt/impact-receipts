@@ -10,7 +10,7 @@ ALTER TABLE statements against a running project.
 """
 from __future__ import annotations
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 _client = None
 
@@ -127,6 +127,51 @@ def set_user_plan(email: str, plan: str) -> None:
         if not c:
             return
         c.table("users").upsert({"email": email, "plan": plan}).execute()
+    except Exception:
+        pass
+
+
+# Duplicated (not imported from app.py) to avoid a utils -> app import cycle --
+# app.py's ACCOUNT_SECTOR_OPTIONS is the UI-facing copy of this same list; keep
+# both in sync by hand if it ever changes.
+ACCOUNT_SECTOR_OPTIONS = ("Health", "Agriculture", "Education", "WASH", "Governance", "Other")
+
+
+def set_user_profile(email: str, account_sector: str, primary_donors: list, country: str) -> None:
+    """Upsert the personalization profile captured once per account (see
+    supabase/migrations/0017). account_sector must be one of
+    ACCOUNT_SECTOR_OPTIONS -- an invalid value is a no-op (nothing is stored)
+    rather than persisting garbage that later personalization code would have
+    to defend against. primary_donors/country are stored as-is (already
+    constrained to a fixed list / free text respectively at the UI layer)."""
+    if not email or account_sector not in ACCOUNT_SECTOR_OPTIONS:
+        return
+    try:
+        c = _get_client()
+        if not c:
+            return
+        c.table("users").upsert({
+            "email": email,
+            "account_sector": account_sector,
+            "primary_donors": list(primary_donors or []),
+            "country": (country or "").strip(),
+            "profile_completed_at": datetime.now(timezone.utc).isoformat(),
+        }).execute()
+    except Exception:
+        pass
+
+
+def skip_profile_capture(email: str) -> None:
+    """Permanently dismisses the profile-capture prompt without storing any
+    profile fields -- personalization stays at today's generic defaults for
+    this account, matching the "gracefully fall back" requirement."""
+    if not email:
+        return
+    try:
+        c = _get_client()
+        if not c:
+            return
+        c.table("users").upsert({"email": email, "profile_skipped": True}).execute()
     except Exception:
         pass
 
