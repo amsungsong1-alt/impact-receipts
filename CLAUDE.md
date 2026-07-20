@@ -183,6 +183,37 @@ hand if the marketing copy changes. Unsubscribe is a `users.unsubscribe_token` (
 query-param landing (`_render_unsubscribe_landing()`) to `utils/db.py`'s
 `set_marketing_opt_out_by_token()` — never reveals whether a given token matched a real account.
 
+## Outcome feedback loop
+
+`utils/outcomes.py` is a *third*, distinct privacy model alongside `utils/audits.py`
+(plaintext-email, row-ownership-checked) and `utils/crm.py` (plaintext-email, growth
+analytics): `outcome_feedback` (`supabase/migrations/0016`) only ever stores a one-way hash
+of the account email (`metrics.session_hash()`, reused directly rather than duplicated —
+never the email itself), so a row can never be joined back to a real account by anyone,
+including us. There is no row-ownership check against a real email here, only a hash
+comparison at write time.
+
+After a user downloads a Readiness Card (`app.py`, the `pdf_card_btn`/`html_card_btn`
+buttons) or an Audit My Report Excel workbook (`smr_excel_dl`), `schedule_followup()` inserts
+a `pending` row keyed to that download's reference ID, capturing `confidence_score`/
+`clarity_score`/`score_band` **at export time** rather than joining back to the opt-in-only
+`audits` table later — this needs to work for every download, not just the minority who
+opt into saving audit history. A multi-result Excel export uses its *weakest*-scoring
+result as the representative band, matching the "highest-leverage gap" framing the CSV
+Portfolio heatmap already uses elsewhere. On a later visit, `_render_outcome_followup_banner()`
+(called once near the top of `main()`, before the screen dispatch) shows the oldest pending
+item as a dismissible banner asking whether the donor accepted it; answering or skipping both
+permanently clear that item so it never reappears.
+
+The hidden `?admin=1` dashboard's "Donor acceptance rate by score band" section
+(`_render_admin_outcome_stats()`) computes the rate as `Accepted / (Accepted + Revisions
+requested + Rejected)` — "Not yet submitted" responses are excluded from that denominator
+entirely, since no donor decision has happened yet — and withholds a band's rate below
+`MIN_BAND_SAMPLE` (10) decided responses, the same near-empty-sample safeguard as the
+benchmark feature's `MIN_BENCHMARK_SAMPLE`. This table is intentionally **not** covered by
+`purge_account_audit_content()`/`purge_account_crm_events()` — there's no plaintext email to
+purge, and the hash alone was never reversible to an account in the first place.
+
 ## AI call sites and models
 
 All Claude calls read `ANTHROPIC_API_KEY` from `st.secrets` with an `os.environ` fallback, and
@@ -195,13 +226,14 @@ recommended aliases before introducing a new call site.
 
 ## Testing
 
-Seven plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
+Eight plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
 (API-calling functions are tested by temporarily swapping `council._call_haiku`, or
 `utils.paystack.requests`/`utils.db._get_client`/`utils.auth._get_client`, for a fake;
-`test_audits.py`/`test_crm.py` swap `utils.audits._get_engine`/`utils.crm._get_engine` for an
-in-memory SQLite engine instead, since the same SQLAlchemy models work unchanged against either
-dialect — note SQLite doesn't enforce foreign keys by default unlike Postgres, so that fixture
-explicitly enables `PRAGMA foreign_keys=ON` to exercise cascade-delete behavior correctly;
+`test_audits.py`/`test_crm.py`/`test_outcomes.py` swap `utils.audits._get_engine`/
+`utils.crm._get_engine`/`utils.outcomes._get_engine` for an in-memory SQLite engine instead,
+since the same SQLAlchemy models work unchanged against either dialect — note SQLite doesn't
+enforce foreign keys by default unlike Postgres, so that fixture explicitly enables
+`PRAGMA foreign_keys=ON` to exercise cascade-delete behavior correctly;
 `test_security.py` imports `app.py` itself in Streamlit's "bare mode," where `st.session_state`
 still behaves as a plain dict within one process):
 
@@ -212,10 +244,11 @@ python test_metrics.py   # metrics event logging/summarization
 python test_billing.py   # auth token lifecycle, metering, Paystack subscriptions/webhook sig
 python test_audits.py    # saved audits, logframe library, benchmark, access log, encryption, deletion
 python test_crm.py       # crm events, agency-ready detection, account segmentation, purge
+python test_outcomes.py  # outcome feedback scheduling, hash-based ownership, acceptance-rate stats
 python test_security.py  # app.py-level regression tests (currently: the user_email overwrite guard)
 ```
 
-All seven must pass before pushing a change that touches scoring, AI post-processing, metrics,
+All eight must pass before pushing a change that touches scoring, AI post-processing, metrics,
 billing/auth, or audit persistence. When you intentionally change scoring behavior, re-baseline
 `test_app.py`'s golden values in the same commit — a scoring change that leaves the golden values
 stale silently breaks the safety net for the next change.

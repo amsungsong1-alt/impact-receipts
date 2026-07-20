@@ -8604,7 +8604,7 @@ def render_screen_2():
 
     if _report_allowed:
         if _card_pdf:
-            st.download_button(
+            _card_downloaded = st.download_button(
                 f"📄 Download Pre-Submission Readiness Card  [{_ref_id}]",
                 data=_card_pdf,
                 file_name=f"readiness_card_{timestamp}.pdf",
@@ -8616,7 +8616,7 @@ def render_screen_2():
             )
             st.caption(f"Ref: {_ref_id} · Decision record anchored to USAID ADS 201 · Bond 2024 · FCDO 2025 · Same inputs → same determination, always.")
         elif _card_html:
-            st.download_button(
+            _card_downloaded = st.download_button(
                 f"⬇️ Download Pre-Submission Readiness Card (HTML)  [{_ref_id}]",
                 data=_card_html.encode("utf-8"),
                 file_name=f"readiness_card_{timestamp}.html",
@@ -8625,6 +8625,19 @@ def render_screen_2():
                 type="primary",
                 key="html_card_btn",
             )
+        else:
+            _card_downloaded = False
+        if _card_downloaded:
+            try:
+                from utils.outcomes import schedule_followup
+                schedule_followup(
+                    _ref_id, st.session_state.get("user_email", ""), "readiness_card",
+                    confidence_score=evs[0].get("confidence_score"),
+                    clarity_score=evs[0].get("clarity_score"),
+                    score_band=evs[0].get("confidence_label", ""),
+                )
+            except Exception:
+                pass
     else:
         st.info("📄 **Your score is above.** Upgrade to download the Readiness Card.")
         _render_paywall(prompt_context="limit_hit")
@@ -10660,7 +10673,8 @@ def _render_score_my_report_tab():
                 rows_list, evaluations, statuses,
                 org_name=org_name, document_name=doc_name,
             )
-            st.download_button(
+            _excel_ref_id = f"XLS-{_ts}"
+            _excel_downloaded = st.download_button(
                 f"📊 Download Portfolio Readiness Workbook — {n} result{'s' if n != 1 else ''} · {_ts}",
                 data=excel_bytes,
                 file_name=f"portfolio_readiness_{_ts}.xlsx",
@@ -10671,6 +10685,22 @@ def _render_score_my_report_tab():
                 help="Anchored to USAID ADS 201 + Bond 2024. Sheet 1: scored results. Sheet 2: portfolio gap summary. Share with MEL lead or donor as a pre-submission evidence quality check.",
             )
             st.caption("Share with your MEL lead or donor as a pre-submission evidence quality check — each score cites the standard it was measured against.")
+            if _excel_downloaded and evaluations:
+                try:
+                    from utils.outcomes import schedule_followup
+                    # Representative row = the weakest-scoring one in this batch --
+                    # matches the "highest-leverage gap" framing already used
+                    # elsewhere (CSV Portfolio's weakest_dim), since a multi-result
+                    # export's donor outcome hinges on its weakest link.
+                    _weakest_ev = min(evaluations, key=lambda e: e.get("confidence_score", 0))
+                    schedule_followup(
+                        _excel_ref_id, st.session_state.get("user_email", ""), "audit_excel",
+                        confidence_score=_weakest_ev.get("confidence_score"),
+                        clarity_score=_weakest_ev.get("clarity_score"),
+                        score_band=_weakest_ev.get("confidence_label", ""),
+                    )
+                except Exception:
+                    pass
         except Exception as exc:
             st.error(f"Could not generate Excel: {exc}")
 
@@ -12770,6 +12800,10 @@ def _render_admin_view():
     st.markdown("#### Account segments (CRM)")
     _render_admin_crm_segments()
 
+    st.divider()
+    st.markdown("#### Donor acceptance rate by score band")
+    _render_admin_outcome_stats()
+
 
 def _render_admin_crm_segments() -> None:
     """Trial/Active-Free/Professional/Agency/Churn-risk segments plus a
@@ -12814,6 +12848,84 @@ def _render_admin_crm_segments() -> None:
             mime="text/csv",
             key="_crm_segment_dl_agency_ready",
         )
+
+
+def _render_admin_outcome_stats() -> None:
+    """Acceptance rate by score band, from utils.outcomes.compute_acceptance_stats() --
+    anonymized (hash-keyed) data, no plaintext emails involved, unlike the CRM segments
+    section above. A band's rate is withheld below MIN_BAND_SAMPLE decided responses, same
+    safeguard as the audits benchmark's MIN_BENCHMARK_SAMPLE -- don't cite a rate computed
+    from a near-empty sample."""
+    try:
+        import pandas as pd
+        from utils.outcomes import compute_acceptance_stats, MIN_BAND_SAMPLE
+        stats = compute_acceptance_stats()
+    except Exception as exc:
+        st.warning(f"Could not load outcome stats. ({type(exc).__name__})")
+        return
+
+    if not stats:
+        st.caption("No donor outcome responses recorded yet.")
+        return
+
+    st.caption(
+        f"Acceptance rate = Accepted / (Accepted + Revisions requested + Rejected) -- "
+        f"withheld below {MIN_BAND_SAMPLE} decided responses for a band."
+    )
+    df = pd.DataFrame(stats)
+    df["acceptance_rate"] = df["acceptance_rate"].apply(
+        lambda r: f"{r}%" if r is not None else f"(fewer than {MIN_BAND_SAMPLE} decided)"
+    )
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.download_button(
+        "Download acceptance stats (CSV)",
+        data=pd.DataFrame(stats).to_csv(index=False).encode("utf-8"),
+        file_name="impactproof_acceptance_by_band.csv",
+        mime="text/csv",
+        key="_outcome_stats_dl",
+    )
+
+
+def _render_outcome_followup_banner(email: str) -> None:
+    """Shown once per visit, at most one pending item at a time (the oldest), asking whether
+    a previously-downloaded Readiness Card/Excel workbook was accepted by the donor.
+    Skippable -- answering or skipping both permanently clear this specific item so it never
+    reappears, matching the "schedule a follow-up... on their next visit" ask without being
+    a recurring nag if the user ignores it."""
+    try:
+        from utils.outcomes import get_pending_followup, record_response, skip_followup, RESPONSE_OPTIONS
+        _fb = get_pending_followup(email)
+    except Exception:
+        _fb = None
+    if not _fb:
+        return
+    _export_label = "Readiness Card" if _fb["export_type"] == "readiness_card" else "Audit Excel workbook"
+    with st.container(border=True):
+        st.markdown(f"**Quick follow-up — {_export_label} [{_fb['ref_id']}]**")
+        st.caption(
+            "Was this report accepted by the donor? Your answer is anonymous and helps us "
+            "show real outcomes, not just scores."
+        )
+        _choice = st.radio(
+            "Outcome", list(RESPONSE_OPTIONS), key=f"_outcome_choice_{_fb['id']}",
+            horizontal=True, label_visibility="collapsed",
+        )
+        _oc1, _oc2 = st.columns([1, 4])
+        with _oc1:
+            if st.button("Submit", key=f"_outcome_submit_{_fb['id']}", type="primary"):
+                try:
+                    record_response(_fb["id"], email, _choice)
+                except Exception:
+                    pass
+                st.success("Thanks — recorded.")
+                st.rerun()
+        with _oc2:
+            if st.button("Skip", key=f"_outcome_skip_{_fb['id']}"):
+                try:
+                    skip_followup(_fb["id"], email)
+                except Exception:
+                    pass
+                st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -12941,6 +13053,9 @@ def main():
     if st.session_state.get("_show_my_audits"):
         render_my_audits_page()
         return
+    _outcome_email = st.session_state.get("user_email", "")
+    if _outcome_email:
+        _render_outcome_followup_banner(_outcome_email)
     try:
         screen = st.session_state["screen"]
         {0: render_screen_0, 1: render_screen_1, 2: render_screen_2, 3: render_screen_3,
