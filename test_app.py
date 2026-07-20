@@ -11,6 +11,7 @@ public functions using the same representative inputs.
 
 import evaluator
 import diagnostics
+import framework_crosswalk
 
 
 CASES = {
@@ -721,6 +722,83 @@ def run_systemic_gaps():
           "verify_source_missing_pct verified.")
 
 
+def run_framework_crosswalk():
+    """framework_crosswalk.evaluate_frameworks() -- pass/fail determination per named
+    standard, using the universal per-criterion thresholds (not framework-specific bars)."""
+    failures = []
+
+    def _ev(direct=2.0, verify=2.0, recency=1.0, definition=1.25,
+             measurement=1.25, integrity=1.0, scope=0.75, governance=0.75):
+        return {
+            "confidence_components": {
+                "direct_score": direct, "verify_score": verify, "recency_score": recency,
+            },
+            "clarity_components": {
+                "definition_score": definition, "measurement_score": measurement,
+                "integrity_score": integrity, "scope_score": scope,
+                "governance_score": governance,
+            },
+        }
+
+    # 1. A submission at full marks on every dimension -> every framework should be
+    #    submission-ready, no failing rows anywhere.
+    full_marks = _ev()
+    results = framework_crosswalk.evaluate_frameworks(full_marks)
+    if set(results.keys()) != set(framework_crosswalk.FRAMEWORKS.keys()):
+        failures.append(f"evaluate_frameworks should return one entry per FRAMEWORKS key, got {list(results.keys())}")
+    for fw_key, fw in results.items():
+        if not fw["overall_ready"]:
+            failures.append(f"{fw_key} should be overall_ready at full marks, got {fw}")
+        for row in fw["rows"]:
+            if not row["pass"]:
+                failures.append(f"{fw_key}/{row['criterion']} should pass at full marks, got {row}")
+            if "remediation" in row:
+                failures.append(f"{fw_key}/{row['criterion']} should not carry remediation text when passing")
+
+    # 2. Fail Verification specifically (below the 1.2/2.0 universal threshold). Every
+    #    framework that cites Verification (per FRAMEWORKS) must report it failing, with a
+    #    citation and remediation text; a framework that doesn't cite Verification must not
+    #    mention it at all (not pass, not fail -- absent, meaning "not directly assessed").
+    weak_verify = _ev(verify=0.5)
+    results2 = framework_crosswalk.evaluate_frameworks(weak_verify)
+    for fw_key, fw in results2.items():
+        cites_verification = "Verification" in framework_crosswalk.FRAMEWORKS[fw_key]["criteria"]
+        row = next((r for r in fw["rows"] if r["criterion"] == "Verification"), None)
+        if cites_verification:
+            if not row:
+                failures.append(f"{fw_key} cites Verification in FRAMEWORKS but evaluate_frameworks omitted it")
+            elif row["pass"]:
+                failures.append(f"{fw_key}/Verification should fail at verify_score=0.5, got {row}")
+            elif not row.get("remediation"):
+                failures.append(f"{fw_key}/Verification failing row is missing remediation text")
+            elif fw["overall_ready"]:
+                failures.append(f"{fw_key} should not be overall_ready with a failing cited criterion")
+        elif row is not None:
+            failures.append(f"{fw_key} does not cite Verification in FRAMEWORKS but evaluate_frameworks returned a row for it")
+
+    # 3. Degrade gracefully: falsy input -> {}, never raises. A dict missing the expected
+    #    component keys entirely -> valid (empty-rows) result, not a crash.
+    if framework_crosswalk.evaluate_frameworks({}) != {}:
+        failures.append("evaluate_frameworks({}) should return {}")
+    if framework_crosswalk.evaluate_frameworks(None) != {}:
+        failures.append("evaluate_frameworks(None) should return {} without raising")
+    try:
+        empty_result = framework_crosswalk.evaluate_frameworks({"confidence_components": {}, "clarity_components": {}})
+        if any(fw["rows"] for fw in empty_result.values()):
+            failures.append("evaluate_frameworks with empty component dicts should produce zero rows everywhere")
+    except Exception as exc:
+        failures.append(f"evaluate_frameworks raised on a dict with empty component sub-dicts: {exc}")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: framework crosswalk — pass/fail via universal thresholds, per-framework "
+          "citation coverage, and graceful degradation verified.")
+
+
 if __name__ == "__main__":
     run()
     run_systemic_gaps()
+    run_framework_crosswalk()

@@ -25,6 +25,7 @@ from datetime import datetime, date
 
 import streamlit as st
 import evaluator as _evaluator
+import framework_crosswalk as _framework_crosswalk
 import metrics
 from diagnostics import (
     _DIAGNOSTIC_BADGE, _READINESS_BAND, _READINESS_STYLE, _LIMITS_DISCLAIMER,
@@ -8327,6 +8328,128 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     st.divider()
 
 
+def _render_framework_crosswalk_section(submission: dict, evaluation: dict) -> None:
+    """Tabs (one per framework) + PDF export for the Framework Crosswalk. Gate check already
+    happened at the call site -- this only runs for Professional/Agency accounts."""
+    _fwx_results = _framework_crosswalk.evaluate_frameworks(evaluation)
+    if not _fwx_results:
+        st.caption("Not enough data to build a crosswalk yet.")
+        return
+
+    _fwx_tabs = st.tabs([fw["label"] for fw in _fwx_results.values()])
+    for _fwx_tab, (_fwx_key, _fwx_fw) in zip(_fwx_tabs, _fwx_results.items()):
+        with _fwx_tab:
+            _render_framework_crosswalk_tab(_fwx_fw)
+
+    _fwx_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    _fwx_ref_id = f"FWX-{_fwx_timestamp}"
+    _fwx_html = _build_framework_crosswalk_pdf_html(submission, evaluation, _fwx_results, _fwx_ref_id, _fwx_timestamp)
+    _fwx_pdf = _html_to_pdf_bytes(_fwx_html)
+    if _fwx_pdf:
+        st.download_button(
+            f"📄 Download Framework Crosswalk Report  [{_fwx_ref_id}]",
+            data=_fwx_pdf,
+            file_name=f"framework_crosswalk_{_fwx_timestamp}.pdf",
+            mime="application/pdf",
+            key="fwx_pdf_btn",
+            help="Every requirement cites its named standard, with exact edits for anything not yet passing. Reference ID: " + _fwx_ref_id,
+        )
+    else:
+        st.download_button(
+            f"⬇️ Download Framework Crosswalk Report (HTML)  [{_fwx_ref_id}]",
+            data=_fwx_html.encode("utf-8"),
+            file_name=f"framework_crosswalk_{_fwx_timestamp}.html",
+            mime="text/html",
+            key="fwx_html_btn",
+        )
+
+
+def _render_framework_crosswalk_tab(fw_result: dict) -> None:
+    """One framework's pass/fail table, across all 8 DIMENSION_MAP criteria -- criteria the
+    framework doesn't cite render as 'not directly assessed', never force-mapped."""
+    _status = "✅ Submission-ready" if fw_result["overall_ready"] else "⚠ Not yet submission-ready"
+    st.markdown(f"**{_status} under {fw_result['label']}**")
+    _rows_by_dim = {r["criterion"]: r for r in fw_result["rows"]}
+    for dim_name in _evaluator.DIMENSION_MAP.keys():
+        row = _rows_by_dim.get(dim_name)
+        if row is None:
+            st.caption(f"◻ {dim_name} — not directly assessed by this framework")
+            continue
+        if row["pass"]:
+            st.markdown(f"✅ **{dim_name}** — {row['citation']} · {row['current_value']:.2f}/{row['max_value']}")
+        else:
+            st.markdown(f"❌ **{dim_name}** — {row['citation']} · {row['current_value']:.2f}/{row['max_value']}")
+            st.caption(row["remediation"])
+
+
+def _build_framework_crosswalk_pdf_html(submission: dict, evaluation: dict, fwx_results: dict,
+                                         ref_id: str, timestamp: str) -> str:
+    """Framework Crosswalk PDF -- visual sibling of _build_html_report_card()/
+    _build_portfolio_readiness_report_html(), reusing the same <style> block and
+    _READINESS_CARD_SCORE_PALETTE for a fourth time (zero duplication)."""
+    P = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
+    result_snippet = (submission.get("result_statement", "") or "")[:200]
+
+    def _fwx_row(dim_name: str, row: dict | None) -> str:
+        if row is None:
+            return (
+                f"<tr><td style='font-size:10px;padding:4px 6px;border-bottom:1px solid #eee;'>{dim_name}</td>"
+                f"<td colspan='3' style='font-size:10px;color:#9e9e9e;padding:4px 6px;"
+                f"border-bottom:1px solid #eee;font-style:italic;'>Not directly assessed by this framework</td></tr>"
+            )
+        bg, fg = _READINESS_CARD_SCORE_PALETTE.get(
+            "Strong" if row["pass"] else "High Risk", ("#F5F5F5", "#212121")
+        )
+        status = "Pass" if row["pass"] else "Fail"
+        remediation = row.get("remediation", "") if not row["pass"] else ""
+        return (
+            f"<tr><td style='font-size:10px;padding:4px 6px;border-bottom:1px solid #eee;'>{dim_name}</td>"
+            f"<td style='font-size:10px;padding:4px 6px;border-bottom:1px solid #eee;background:{bg};color:{fg};{P}'>{status}</td>"
+            f"<td style='font-size:10px;padding:4px 6px;border-bottom:1px solid #eee;'>{row['citation']}</td>"
+            f"<td style='font-size:9px;color:#616161;padding:4px 6px;border-bottom:1px solid #eee;'>{remediation}</td></tr>"
+        )
+
+    framework_sections = ""
+    for fw in fwx_results.values():
+        rows_by_dim = {r["criterion"]: r for r in fw["rows"]}
+        rows_html = "".join(_fwx_row(dim, rows_by_dim.get(dim)) for dim in _evaluator.DIMENSION_MAP.keys())
+        ready_line = "Submission-ready" if fw["overall_ready"] else "Not yet submission-ready"
+        framework_sections += f"""
+<h2>{fw['label']} — {ready_line}</h2>
+<table border="0" cellspacing="0" cellpadding="0" width="100%">
+<tr>
+<td style="font-size:10px;font-weight:700;padding:4px 6px;border-bottom:2px solid #1B5E20;">Criterion</td>
+<td style="font-size:10px;font-weight:700;padding:4px 6px;border-bottom:2px solid #1B5E20;">Status</td>
+<td style="font-size:10px;font-weight:700;padding:4px 6px;border-bottom:2px solid #1B5E20;">Citation</td>
+<td style="font-size:10px;font-weight:700;padding:4px 6px;border-bottom:2px solid #1B5E20;">If failing: exact edit needed</td>
+</tr>
+{rows_html}
+</table>
+"""
+
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<title>Framework Crosswalk Report</title>
+<style>
+body{{font-family:Arial,Helvetica,sans-serif;color:#212121;margin:24px 32px;font-size:12px;line-height:1.5;}}
+h1{{color:#1B5E20;font-size:18px;margin:0 0 2px;border-bottom:2px solid #1B5E20;padding-bottom:6px;}}
+h2{{color:#1B5E20;font-size:13px;font-weight:700;border-bottom:1px solid #8A6500;padding-bottom:3px;margin:16px 0 8px;}}
+</style>
+</head><body>
+
+<h1>Framework Crosswalk Report</h1>
+<p style="color:#616161;font-size:10px;margin:2px 0 4px;">ImpactProof &middot; Ref: {ref_id}</p>
+<p style="color:#424242;font-size:10px;margin:0 0 12px;font-style:italic;">{result_snippet}</p>
+
+{framework_sections}
+
+<p style="color:#424242;font-size:9px;margin-top:20px;border-top:1px solid #eee;padding-top:8px;">
+Deterministic, rule-based scores — same document always produces the same determination.
+No AI judgement is involved in these pass/fail determinations. Generated: {timestamp}.
+</p>
+</body></html>"""
+
+
 def render_screen_2():
     render_pitch_strip("report")
     # Run evaluations once, cache results
@@ -8736,6 +8859,23 @@ def render_screen_2():
             build_donor_crosswalk_html(st.session_state.get("donor_framework", "Generic")),
             unsafe_allow_html=True,
         )
+
+    with st.expander("🔀 Framework Crosswalk — pass/fail by standard", expanded=False):
+        _fwx_email = st.session_state.get("user_email", "")
+        _fwx_access = check_access(_fwx_email)
+        if _fwx_access["plan"] not in ("professional", "agency"):
+            st.warning("The Framework Crosswalk is available on **Professional** and **Agency** plans.")
+            _render_paywall(prompt_context="framework_crosswalk_attempt", custom_message=(
+                "### Upgrade to unlock the Framework Crosswalk\n\n"
+                "- See exactly which criteria **pass or fail** under USAID ADS 201/DQA, "
+                "FCDO, Bond Evidence Principles 2024, OECD-DAC, and World Bank standards\n"
+                "- Every requirement cites the **named standard**\n"
+                "- Get the **exact edits** needed to reach submission-ready under each framework\n"
+                "- One-click **downloadable PDF** for your MEL lead or donor\n\n"
+                f"*GHS {PRICE_MONTHLY_GHS/100:.0f}/month*"
+            ))
+        else:
+            _render_framework_crosswalk_section(subs[0], evs[0])
 
     st.divider()
 
