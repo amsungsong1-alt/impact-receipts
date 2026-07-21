@@ -161,6 +161,24 @@ def set_user_profile(email: str, account_sector: str, primary_donors: list, coun
         pass
 
 
+def set_user_currency(email: str, currency: str) -> None:
+    """Upsert users.preferred_currency (see supabase/migrations/0018) so a
+    signed-in user's currency choice survives a device switch, not just a
+    browser session/query-param. currency must be one of
+    utils.exchange_rates.SUPPORTED_CURRENCIES -- an invalid value is a
+    no-op."""
+    from utils.exchange_rates import SUPPORTED_CURRENCIES
+    if not email or currency not in SUPPORTED_CURRENCIES:
+        return
+    try:
+        c = _get_client()
+        if not c:
+            return
+        c.table("users").upsert({"email": email, "preferred_currency": currency}).execute()
+    except Exception:
+        pass
+
+
 def skip_profile_capture(email: str) -> None:
     """Permanently dismisses the profile-capture prompt without storing any
     profile fields -- personalization stays at today's generic defaults for

@@ -42,6 +42,9 @@ from prompts import (
     METHODOLOGY_STACK,
 )
 from donor_templates import DONOR_DIAGNOSTICS
+from roi_config import roi_copy, short_rework_cost_line, day_rate_line, cost_range_str
+from utils import exchange_rates
+from utils import geoip
 
 # --- Payment / auth / DB utilities ---
 try:
@@ -49,11 +52,15 @@ try:
         get_user, upsert_user, mark_paid, set_user_plan,
         is_still_paid, save_example, get_examples,
         save_user_draft, load_user_draft, clear_user_draft,
-        get_payment_history, delete_wa_conversations,
+        get_payment_history, delete_wa_conversations, set_user_currency,
     )
     from utils.paystack import (
         initialize_payment, verify_payment, last_payment_error,
         initialize_subscription_payment, disable_subscription,
+    )
+    from utils.stripe_payments import (
+        create_checkout_session as stripe_create_checkout_session,
+        last_payment_error as stripe_last_payment_error,
     )
     from utils.anonymize import anonymize as _anonymize_value
     from utils.auth import (
@@ -82,11 +89,14 @@ except ImportError:
     def get_examples(f, s, k=5): return []
     def get_payment_history(e, limit=50): return []
     def delete_wa_conversations(e): pass
+    def set_user_currency(e, c): pass
     def initialize_payment(e, a, p="per_use"): return ""
     def verify_payment(r): return {"status": "error", "amount": 0, "plan": ""}
     def last_payment_error(): return ""
     def initialize_subscription_payment(e, a, plan_code, plan_label): return ""
     def disable_subscription(subscription_code, email_token): return False, "Billing is not configured."
+    def stripe_create_checkout_session(email, amount_minor_units, currency, plan, mode="payment"): return ""
+    def stripe_last_payment_error(): return ""
     def _anonymize_value(v): return None
     def send_login_email(e, base_url): return False, "Login is not configured.", ""
     def verify_magic_link_token(t): return None
@@ -2140,7 +2150,7 @@ def _init_from_query_params() -> None:
         return
     st.session_state["_nav_initialized"] = True
     _p = st.query_params
-    if any(k in _p for k in ("paystack_ref", "reference", "trxref", "login_token")):
+    if any(k in _p for k in ("paystack_ref", "reference", "trxref", "login_token", "stripe_session_id")):
         return
     if "screen" in _p:
         try:
@@ -2156,6 +2166,8 @@ def _init_from_query_params() -> None:
                 st.session_state["current_tab"] = _t
         except (ValueError, TypeError):
             pass
+    if "currency" in _p and _p["currency"] in exchange_rates.SUPPORTED_CURRENCIES:
+        st.session_state["currency"] = _p["currency"]
     if _p.get("demo") == "1":
         for _k, _v in _DEMO_SUBMISSION.items():
             st.session_state[_k] = _v
@@ -2190,6 +2202,36 @@ def _restore_session_from_query_param() -> None:
         _u = get_user(_email)
         if _u and is_still_paid(_u):
             st.session_state["is_paid"] = True
+
+
+def _set_currency(code: str) -> None:
+    """Single write path for a currency choice -- mirrors it into
+    st.query_params (same pattern as _go_to_screen's screen mirroring) and,
+    for a signed-in user, persists it so it survives a device switch."""
+    if code not in exchange_rates.SUPPORTED_CURRENCIES:
+        return
+    st.session_state["currency"] = code
+    st.query_params["currency"] = code
+    _email = st.session_state.get("user_email", "")
+    if _email:
+        set_user_currency(_email, code)
+
+
+def _ensure_currency_default() -> None:
+    """Seeds st.session_state["currency"] once per session: a query-param
+    value (already applied by _init_from_query_params) or a signed-in
+    user's stored preference wins; otherwise fall back to an IP-geolocated
+    default. Manual selection (_set_currency) always overrides this."""
+    if "currency" in st.session_state:
+        return
+    _email = st.session_state.get("user_email", "")
+    if _email:
+        _u = get_user(_email)
+        _pref = (_u or {}).get("preferred_currency", "")
+        if _pref in exchange_rates.SUPPORTED_CURRENCIES:
+            st.session_state["currency"] = _pref
+            return
+    st.session_state["currency"] = geoip.default_currency_from_ip()
 
 
 def _go_to_screen(screen: int, reset: bool = False):
@@ -2515,6 +2557,34 @@ def _plan_code(secret_name: str) -> str:
     return _secret(secret_name)
 
 
+def _checkout_route_for_currency(currency: str) -> str:
+    """Decides which processor actually handles a checkout for the given
+    display currency. GHS charges natively via Paystack. NGN/KES/ZAR still
+    charge the GHS amount via Paystack (the merchant account is Ghana-only
+    and cannot settle those currencies) -- callers must show a disclaimer
+    that the charge will appear in GHS. USD/GBP/EUR route to Stripe, which
+    charges the real converted amount."""
+    if currency in ("NGN", "KES", "ZAR"):
+        return "paystack_ghs_fallback"
+    if currency in ("USD", "GBP", "EUR"):
+        return "stripe"
+    return "paystack_native"
+
+
+def _render_currency_selector(key: str) -> str:
+    """Shared currency picker for the pricing page and paywall -- both call
+    sites read/write the same st.session_state["currency"] key via
+    _set_currency() so a choice made on one carries over to the other."""
+    _current = st.session_state.get("currency", "GHS")
+    _options = exchange_rates.SUPPORTED_CURRENCIES
+    _idx = _options.index(_current) if _current in _options else 0
+    _choice = st.selectbox("Currency", _options, index=_idx, key=key)
+    if _choice != _current:
+        _set_currency(_choice)
+        st.rerun()
+    return _choice
+
+
 def _render_paywall(irc_context: bool = False, custom_message: str | None = None,
                      prompt_context: str = "limit_hit"):
     """Show upgrade/payment options. irc_context=True suppresses the free-checks header.
@@ -2525,6 +2595,18 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
     email = st.session_state.get("user_email", "")
     metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context=prompt_context)
     _log_upgrade_prompt_crm("upgrade_prompt_shown", prompt_context)
+
+    _currency = _render_currency_selector("paywall_currency")
+    _route = _checkout_route_for_currency(_currency)
+    _disp_once = exchange_rates.format_amount(
+        exchange_rates.convert_pesewas(PRICE_PER_CHECK_GHS, _currency), _currency)
+    _disp_monthly = exchange_rates.format_amount(
+        exchange_rates.convert_pesewas(PRICE_MONTHLY_GHS, _currency), _currency)
+    _disp_annual = exchange_rates.format_amount(
+        exchange_rates.convert_pesewas(PRICE_ANNUAL_GHS, _currency), _currency)
+    _disp_agency = exchange_rates.format_amount(
+        exchange_rates.convert_pesewas(PRICE_AGENCY_GHS, _currency), _currency)
+
     if custom_message is not None:
         st.markdown(custom_message)
     elif not irc_context:
@@ -2534,19 +2616,32 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
             "- **Re-score after every fix** — see exactly how much each change moves your score\n"
             "- **⚡ Instant Report Check** — upload your draft report and auto-fill all fields in seconds\n"
             "- **Downloadable PDF report** — shareable with your supervisor or donor\n\n"
-            f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited*\n\n"
-            "💡 *The ROI is immediate: GHS 50/month vs. GHS 12,000–17,000 in rework costs "
-            "from a donor-queried report.*"
+            f"*{_disp_once} per check · or {_disp_monthly}/month for unlimited*\n\n"
+            f"💡 *{roi_copy(_currency, PRICE_MONTHLY_GHS)}*"
         )
+
+    if _route == "paystack_ghs_fallback":
+        st.info(
+            f"You'll be charged **GHS {PRICE_MONTHLY_GHS/100:.0f}** (per-check: "
+            f"GHS {PRICE_PER_CHECK_GHS/100:.0f}) via Paystack — approximately the "
+            f"{_currency} amounts shown above at today's rate. Your card/MoMo "
+            "statement will show GHS."
+        )
+
     _c1, _c2, _c3 = st.columns(3)
     with _c1:
-        st.markdown(f"**Pay-per-use:** GHS {PRICE_PER_CHECK_GHS/100:.0f}")
+        st.markdown(f"**Pay-per-use:** {_disp_once}")
         if st.session_state.get("_pay_once_url"):
             st.link_button("Complete Payment →", st.session_state["_pay_once_url"],
                            use_container_width=True, type="primary")
         elif st.button("Pay for 1 Check", key="pay_once", use_container_width=True):
             with st.spinner("Preparing payment link…"):
-                _url = initialize_payment(email, PRICE_PER_CHECK_GHS, "per_use")
+                if _route == "stripe":
+                    _url = stripe_create_checkout_session(
+                        email, exchange_rates.convert_pesewas(PRICE_PER_CHECK_GHS, _currency),
+                        _currency, "per_use", mode="payment")
+                else:
+                    _url = initialize_payment(email, PRICE_PER_CHECK_GHS, "per_use")
             if _url:
                 st.session_state["_pay_once_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
@@ -2554,22 +2649,27 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                 _log_upgrade_prompt_crm("upgrade_prompt_clicked", prompt_context)
                 st.rerun()
             else:
-                _detail = last_payment_error()
+                _detail = stripe_last_payment_error() if _route == "stripe" else last_payment_error()
                 st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
     with _c2:
-        st.markdown(f"**Professional:** GHS {PRICE_MONTHLY_GHS/100:.0f}/month")
+        st.markdown(f"**Professional:** {_disp_monthly}/month")
         st.caption("Unlimited · Readiness Card PDF")
         if st.session_state.get("_pay_monthly_url"):
             st.link_button("Complete Payment →", st.session_state["_pay_monthly_url"],
                            use_container_width=True, type="primary")
         elif st.button("Subscribe Professional", key="pay_monthly", use_container_width=True, type="primary"):
             with st.spinner("Preparing payment link…"):
-                _plan_monthly = _plan_code("PAYSTACK_PLAN_PROFESSIONAL_MONTHLY")
-                _url = (
-                    initialize_subscription_payment(email, PRICE_MONTHLY_GHS, _plan_monthly, "monthly")
-                    if _plan_monthly else
-                    initialize_payment(email, PRICE_MONTHLY_GHS, "monthly")
-                )
+                if _route == "stripe":
+                    _url = stripe_create_checkout_session(
+                        email, exchange_rates.convert_pesewas(PRICE_MONTHLY_GHS, _currency),
+                        _currency, "monthly", mode="subscription")
+                else:
+                    _plan_monthly = _plan_code("PAYSTACK_PLAN_PROFESSIONAL_MONTHLY")
+                    _url = (
+                        initialize_subscription_payment(email, PRICE_MONTHLY_GHS, _plan_monthly, "monthly")
+                        if _plan_monthly else
+                        initialize_payment(email, PRICE_MONTHLY_GHS, "monthly")
+                    )
             if _url:
                 st.session_state["_pay_monthly_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
@@ -2577,20 +2677,25 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                 _log_upgrade_prompt_crm("upgrade_prompt_clicked", prompt_context)
                 st.rerun()
             else:
-                _detail = last_payment_error()
+                _detail = stripe_last_payment_error() if _route == "stripe" else last_payment_error()
                 st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
         if st.session_state.get("_pay_annual_url"):
             st.link_button(f"Complete annual payment →", st.session_state["_pay_annual_url"],
                            use_container_width=True)
-        elif st.button(f"Or pay GHS {PRICE_ANNUAL_GHS/100:.0f}/year (2 months free)",
+        elif st.button(f"Or pay {_disp_annual}/year (2 months free)",
                        key="pay_annual", use_container_width=True):
             with st.spinner("Preparing payment link…"):
-                _plan_annual = _plan_code("PAYSTACK_PLAN_PROFESSIONAL_ANNUAL")
-                _url = (
-                    initialize_subscription_payment(email, PRICE_ANNUAL_GHS, _plan_annual, "annual")
-                    if _plan_annual else
-                    initialize_payment(email, PRICE_ANNUAL_GHS, "annual")
-                )
+                if _route == "stripe":
+                    _url = stripe_create_checkout_session(
+                        email, exchange_rates.convert_pesewas(PRICE_ANNUAL_GHS, _currency),
+                        _currency, "annual", mode="subscription")
+                else:
+                    _plan_annual = _plan_code("PAYSTACK_PLAN_PROFESSIONAL_ANNUAL")
+                    _url = (
+                        initialize_subscription_payment(email, PRICE_ANNUAL_GHS, _plan_annual, "annual")
+                        if _plan_annual else
+                        initialize_payment(email, PRICE_ANNUAL_GHS, "annual")
+                    )
             if _url:
                 st.session_state["_pay_annual_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
@@ -2598,22 +2703,27 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                 _log_upgrade_prompt_crm("upgrade_prompt_clicked", prompt_context)
                 st.rerun()
             else:
-                _detail = last_payment_error()
+                _detail = stripe_last_payment_error() if _route == "stripe" else last_payment_error()
                 st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
     with _c3:
-        st.markdown(f"**Agency:** GHS {PRICE_AGENCY_GHS/100:.0f}/month")
+        st.markdown(f"**Agency:** {_disp_agency}/month")
         st.caption("Portfolio analysis · 5 seats")
         if st.session_state.get("_pay_agency_url"):
             st.link_button("Complete Payment →", st.session_state["_pay_agency_url"],
                            use_container_width=True)
         elif st.button("Subscribe Agency", key="pay_agency", use_container_width=True):
             with st.spinner("Preparing payment link…"):
-                _plan_agency = _plan_code("PAYSTACK_PLAN_AGENCY_MONTHLY")
-                _url = (
-                    initialize_subscription_payment(email, PRICE_AGENCY_GHS, _plan_agency, "agency")
-                    if _plan_agency else
-                    initialize_payment(email, PRICE_AGENCY_GHS, "agency")
-                )
+                if _route == "stripe":
+                    _url = stripe_create_checkout_session(
+                        email, exchange_rates.convert_pesewas(PRICE_AGENCY_GHS, _currency),
+                        _currency, "agency", mode="subscription")
+                else:
+                    _plan_agency = _plan_code("PAYSTACK_PLAN_AGENCY_MONTHLY")
+                    _url = (
+                        initialize_subscription_payment(email, PRICE_AGENCY_GHS, _plan_agency, "agency")
+                        if _plan_agency else
+                        initialize_payment(email, PRICE_AGENCY_GHS, "agency")
+                    )
             if _url:
                 st.session_state["_pay_agency_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
@@ -2621,13 +2731,19 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                 _log_upgrade_prompt_crm("upgrade_prompt_clicked", prompt_context)
                 st.rerun()
             else:
-                _detail = last_payment_error()
+                _detail = stripe_last_payment_error() if _route == "stripe" else last_payment_error()
                 st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
 
-    st.caption(
-        "Paid securely via Paystack — MTN MoMo, Telecel, Visa/Mastercard. "
-        "If you are charged but not unlocked, contact us within 24 hours."
-    )
+    if _route == "stripe":
+        st.caption(
+            "Paid securely via Stripe — card. "
+            "If you are charged but not unlocked, contact us within 24 hours."
+        )
+    else:
+        st.caption(
+            "Paid securely via Paystack — MTN MoMo, Telecel, Visa/Mastercard. "
+            "If you are charged but not unlocked, contact us within 24 hours."
+        )
     # Payment support WhatsApp CTA — server-side notification (council XXIV)
     _ps_email  = st.session_state.get("user_email", "")
     _ps_wa_key = "wa_payment_support_clicked"
@@ -4871,6 +4987,25 @@ def _complete_email_login(email: str) -> None:
                 _crm_log_event(email, "tier_change", metadata={"plan_label": _pr.get("plan"), "days": _pr_days})
             except Exception:
                 pass
+    _pending_stripe_id = st.session_state.pop("pending_stripe_session_id", None)
+    if _pending_stripe_id:
+        from utils.stripe_payments import get_checkout_session
+        _spr = get_checkout_session(_pending_stripe_id)
+        if _spr.get("status") == "success":
+            _spr_plan = _spr.get("plan", "per_use")
+            _spr_days = 365 if _spr_plan == "annual" else (30 if _spr_plan in ("monthly", "agency") else 1)
+            mark_paid(email, days=_spr_days)
+            if _spr_plan == "agency":
+                set_user_plan(email, "agency")
+            elif _spr_plan in ("monthly", "annual"):
+                set_user_plan(email, "professional")
+            st.session_state["is_paid"] = True
+            metrics.log_event("payment_completed", email)
+            try:
+                from utils.crm import log_event as _crm_log_event
+                _crm_log_event(email, "tier_change", metadata={"plan_label": _spr_plan, "days": _spr_days})
+            except Exception:
+                pass
     for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
         st.session_state.pop(_k, None)
     # Restore draft from Supabase if the user is returning after a refresh
@@ -5263,20 +5398,26 @@ def render_pricing_page():
     st.markdown("## Pricing")
     st.caption("Determine your evidence readiness. Prove your impact. First 3 checks always free.")
 
-    # ROI micro-copy (Council XXVII — West Africa-specific framing)
+    _currency = _render_currency_selector("pricing_page_currency")
+    _route = _checkout_route_for_currency(_currency)
+
+    # ROI micro-copy (Council XXVII — West Africa-specific framing; localized per currency)
     st.markdown(
         "<div style='background:#F1F8E9;border-left:4px solid #1B5E20;padding:10px 16px;"
         "border-radius:6px;font-size:0.9rem;margin-bottom:20px;'>"
-        "💡 <strong>The ROI is immediate: GHS 50/month vs. GHS 12,000–17,000 in rework costs.</strong> "
-        "DevEx MEL Salary Survey (2024): average Ghana consultant day rate ≈ GHS 1,200–1,800/day. "
-        "One rejected USAID, Mastercard Foundation, or FCDO report = 40+ hours of rework. "
-        "ImpactProof catches the gaps donors flag — before your report goes out. "
-        "Score every KPI in 60 seconds. Download a citable Readiness Card with a reference ID."
+        f"💡 {roi_copy(_currency, PRICE_MONTHLY_GHS)}"
         "</div>",
         unsafe_allow_html=True,
     )
 
     # Tier cards
+    _pro_monthly_disp = exchange_rates.format_amount(
+        exchange_rates.convert_pesewas(PRICE_MONTHLY_GHS, _currency), _currency)
+    _pro_annual_disp = exchange_rates.format_amount(
+        exchange_rates.convert_pesewas(PRICE_ANNUAL_GHS, _currency), _currency)
+    _agency_monthly_disp = exchange_rates.format_amount(
+        exchange_rates.convert_pesewas(PRICE_AGENCY_GHS, _currency), _currency)
+
     _t1, _t2, _t3 = st.columns(3)
 
     with _t1:
@@ -5308,8 +5449,8 @@ def render_pricing_page():
             "display:inline-block;padding:2px 8px;border-radius:20px;margin:0 0 8px;'>Most popular</p>"
             "<p style='font-size:0.75rem;color:#616161;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;'>For MEL practitioners reporting regularly</p>"
             "<h3 style='color:#1B5E20;margin:0 0 4px;'>Professional</h3>"
-            "<p style='font-size:2rem;font-weight:700;color:#1B5E20;margin:0;'>GHS 50<span style='font-size:1rem;font-weight:400;'>/mo</span></p>"
-            "<p style='font-size:0.8rem;color:#616161;margin:4px 0 16px;'>~£3.50 · or GHS 500/year (2 months free)</p>"
+            f"<p style='font-size:2rem;font-weight:700;color:#1B5E20;margin:0;'>{_pro_monthly_disp}<span style='font-size:1rem;font-weight:400;'>/mo</span></p>"
+            f"<p style='font-size:0.8rem;color:#616161;margin:4px 0 16px;'>or {_pro_annual_disp}/year (2 months free)</p>"
             "<p style='font-size:0.85rem;color:#424242;margin-bottom:12px;font-style:italic;'>Determine evidence readiness before every submission</p>"
             "<hr style='border:none;border-top:1px solid #C8E6C9;margin:12px 0;'/>"
             "<ul style='padding-left:16px;font-size:0.85rem;color:#424242;margin:0;line-height:1.8;'>"
@@ -5333,8 +5474,8 @@ def render_pricing_page():
             f"<div style='border:2px solid #8A6500;border-radius:10px;padding:20px;height:100%;{_pca}'>"
             "<p style='font-size:0.75rem;color:#616161;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;'>For MEL consultancies &amp; multi-donor programme teams</p>"
             "<h3 style='color:#8A6500;margin:0 0 4px;'>Agency</h3>"
-            "<p style='font-size:2rem;font-weight:700;color:#8A6500;margin:0;'>GHS 200<span style='font-size:1rem;font-weight:400;'>/mo</span></p>"
-            "<p style='font-size:0.8rem;color:#616161;margin:4px 0 16px;'>~£13 · multiple clients, multiple donors</p>"
+            f"<p style='font-size:2rem;font-weight:700;color:#8A6500;margin:0;'>{_agency_monthly_disp}<span style='font-size:1rem;font-weight:400;'>/mo</span></p>"
+            "<p style='font-size:0.8rem;color:#616161;margin:4px 0 16px;'>multiple clients, multiple donors</p>"
             "<p style='font-size:0.85rem;color:#424242;margin-bottom:12px;font-style:italic;'>Score every client's evidence — USAID, MCF, GIZ Ghana, FCDO — one place</p>"
             "<hr style='border:none;border-top:1px solid #E8D5A3;margin:12px 0;'/>"
             "<ul style='padding-left:16px;font-size:0.85rem;color:#424242;margin:0;line-height:1.8;'>"
@@ -5367,8 +5508,15 @@ def render_pricing_page():
     _pq_wa_key = "wa_pricing_q_clicked"
     _pq_col1, _pq_col2 = st.columns([2, 1])
     with _pq_col1:
-        st.caption("All prices in GHS (Ghana Cedis). Paid via Paystack (card, MoMo, bank). "
-                   "Cancel anytime.")
+        if _route == "stripe":
+            st.caption(f"Prices shown in {_currency}, converted daily from GHS. Paid via Stripe (card). "
+                       "Cancel anytime.")
+        elif _route == "paystack_ghs_fallback":
+            st.caption(f"Prices shown in {_currency} (converted daily from GHS) for reference — "
+                       "you'll be charged the GHS amount via Paystack (card, MoMo, bank). Cancel anytime.")
+        else:
+            st.caption("All prices in GHS (Ghana Cedis). Paid via Paystack (card, MoMo, bank). "
+                       "Cancel anytime.")
     with _pq_col2:
         if st.button("Questions? WhatsApp →", key="wa_pricing_q_btn", use_container_width=True):
             from utils.whatsapp import notify_founder
@@ -6385,8 +6533,9 @@ def render_screen_1():
                         "- **Upload your report** — AI reads it and pre-fills all form fields instantly\n"
                         "- **Fills every field your document contains** — skips only what isn't there, flags it clearly\n"
                         "- **Honest extraction** — only fills what's in your document, never invents\n\n"
-                        f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited checks + IRC*\n\n"
-                        "💡 *GHS 50/month vs. GHS 12,000–17,000 in rework costs from a donor-queried report.*"
+                        f"*{exchange_rates.format_amount(exchange_rates.convert_pesewas(PRICE_PER_CHECK_GHS, st.session_state.get('currency', 'GHS')), st.session_state.get('currency', 'GHS'))} per check · "
+                        f"or {exchange_rates.format_amount(exchange_rates.convert_pesewas(PRICE_MONTHLY_GHS, st.session_state.get('currency', 'GHS')), st.session_state.get('currency', 'GHS'))}/month for unlimited checks + IRC*\n\n"
+                        f"💡 *{roi_copy(st.session_state.get('currency', 'GHS'), PRICE_MONTHLY_GHS)}*"
                     )
                     _render_paywall(irc_context=True, prompt_context="irc_attempt")
                 else:
@@ -7719,8 +7868,11 @@ def _render_council_assessment(submission: dict, ev: dict, card_idx: int, api_ke
         with col_d:
             st.metric("Clarity (projected)", f"{proj_clar}/5.0",
                       delta=f"+{round(proj_clar - clar_score, 2)}")
-        st.caption("Upgrade to Professional to run the full council assessment — "
-                   "GHS 50/month vs. GHS 12,000–17,000 in rework costs from a donor-queried report.")
+        _cc_currency = st.session_state.get("currency", "GHS")
+        _cc_monthly = exchange_rates.format_amount(
+            exchange_rates.convert_pesewas(PRICE_MONTHLY_GHS, _cc_currency), _cc_currency)
+        st.caption(f"Upgrade to Professional to run the full council assessment — "
+                   f"{_cc_monthly}/month vs. {short_rework_cost_line(_cc_currency)}.")
         if st.button("Upgrade to Professional →", key=f"council_upgrade_{card_idx}", type="primary"):
             metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context="council_attempt")
             _log_upgrade_prompt_crm("upgrade_prompt_clicked", "council_attempt")
@@ -7894,10 +8046,13 @@ def _render_help_chat(submission: dict, ev: dict, donor: str = "", card_idx: int
     if not has_access:
         metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context="chat_attempt")
         _log_upgrade_prompt_crm("upgrade_prompt_shown", "chat_attempt")
+        _sc_currency = st.session_state.get("currency", "GHS")
+        _sc_monthly = exchange_rates.format_amount(
+            exchange_rates.convert_pesewas(PRICE_MONTHLY_GHS, _sc_currency), _sc_currency)
         st.info(
             "Score chat is available on the **Professional plan**. "
             "Upgrade to ask questions about your score and get rubric-based guidance — "
-            "GHS 50/month vs. GHS 12,000–17,000 in rework costs from a donor-queried report."
+            f"{_sc_monthly}/month vs. {short_rework_cost_line(_sc_currency)}."
         )
         if st.button("Upgrade to Professional →", key=f"chat_upgrade_{card_idx}", type="primary"):
             metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context="chat_attempt")
@@ -8426,6 +8581,9 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         _rr_context = f"high_risk_{diag_state.lower().replace(' ', '_')}"
         metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context=_rr_context)
         _log_upgrade_prompt_crm("upgrade_prompt_shown", _rr_context)
+        _rr_currency = st.session_state.get("currency", "GHS")
+        _rr_monthly = exchange_rates.format_amount(
+            exchange_rates.convert_pesewas(PRICE_MONTHLY_GHS, _rr_currency), _rr_currency)
         st.markdown(
             "<div style='background:#FFFBF2;border:1px solid #FFE0B2;border-radius:8px;"
             "padding:14px 18px;margin:12px 0;'>"
@@ -8434,12 +8592,12 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             "<p style='font-size:0.85rem;color:#374151;margin:0 0 8px;'>"
             "USAID Learning Lab (2024): 3 of 5 DQA failures are predictable from evidence "
             "quality gaps like these — catching them now is far cheaper than reworking a "
-            "rejected report later. At Ghana MEL consultant rates (GHS 1,200–1,800/day), "
-            "40+ hours of rework runs <strong>GHS 12,000–17,000</strong> — this fix list is free."
+            f"rejected report later. {day_rate_line(_rr_currency)}, "
+            f"40+ hours of rework runs <strong>{cost_range_str(_rr_currency)}</strong> — this fix list is free."
             "</p>"
             "<p style='font-size:0.85rem;color:#374151;margin:0;'>"
-            "<strong>ImpactProof Professional catches this before your donor does "
-            "— GHS 50/month, unlimited checks.</strong>"
+            f"<strong>ImpactProof Professional catches this before your donor does "
+            f"— {_rr_monthly}/month, unlimited checks.</strong>"
             "</p></div>",
             unsafe_allow_html=True,
         )
@@ -9071,7 +9229,7 @@ def render_screen_2():
                 "- Every requirement cites the **named standard**\n"
                 "- Get the **exact edits** needed to reach submission-ready under each framework\n"
                 "- One-click **downloadable PDF** for your MEL lead or donor\n\n"
-                f"*GHS {PRICE_MONTHLY_GHS/100:.0f}/month*"
+                f"*{exchange_rates.format_amount(exchange_rates.convert_pesewas(PRICE_MONTHLY_GHS, st.session_state.get('currency', 'GHS')), st.session_state.get('currency', 'GHS'))}/month*"
             ))
         else:
             _render_framework_crosswalk_section(subs[0], evs[0])
@@ -10687,7 +10845,8 @@ def _render_score_my_report_tab():
             "- **Unlimited document uploads** — extract and determine every result automatically\n"
             "- **Colour-coded Excel decision audit** — one row per result, traceable to named donor standards\n"
             "- **Unlimited single-result checks and re-scores** too\n\n"
-            f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited*"
+            f"*{exchange_rates.format_amount(exchange_rates.convert_pesewas(PRICE_PER_CHECK_GHS, st.session_state.get('currency', 'GHS')), st.session_state.get('currency', 'GHS'))} per check · "
+            f"or {exchange_rates.format_amount(exchange_rates.convert_pesewas(PRICE_MONTHLY_GHS, st.session_state.get('currency', 'GHS')), st.session_state.get('currency', 'GHS'))}/month for unlimited*"
         ))
         return
 
@@ -10962,12 +11121,15 @@ def _render_score_my_report_tab():
         if not _portfolio_chat_allowed:
             metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context="portfolio_chat_attempt")
             _log_upgrade_prompt_crm("upgrade_prompt_shown", "portfolio_chat_attempt")
+            _pc_currency = st.session_state.get("currency", "GHS")
+            _pc_monthly = exchange_rates.format_amount(
+                exchange_rates.convert_pesewas(PRICE_MONTHLY_GHS, _pc_currency), _pc_currency)
             st.info(
                 "Portfolio Q&A is available on the **Professional plan**. "
                 "Ask the system direct decision questions: 'Which KPI needs the most work?', "
                 "'What is my systemic gap?', 'Which results are at risk of a donor query?' "
                 "— the system routes you to the highest-leverage actions across your entire portfolio. "
-                "GHS 50/month vs. GHS 12,000–17,000 in rework costs from a donor-queried report."
+                f"{_pc_monthly}/month vs. {short_rework_cost_line(_pc_currency)}."
             )
             if st.button("Upgrade to Professional →", key="smr_chat_upgrade", type="primary"):
                 metrics.log_event("upgrade_prompt_clicked", _metrics_session_id(), context="portfolio_chat_attempt")
@@ -11055,7 +11217,8 @@ def render_screen_3():
                 "- **Unlimited portfolio uploads** — assess your full logframe or re-score after fixes\n"
                 "- **Portfolio heatmap** — see systemic gaps across every indicator\n"
                 "- **Unlimited single-result checks and Audit My Report uploads** too\n\n"
-                f"*GHS {PRICE_PER_CHECK_GHS/100:.0f} per check · or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for unlimited*"
+                f"*{exchange_rates.format_amount(exchange_rates.convert_pesewas(PRICE_PER_CHECK_GHS, st.session_state.get('currency', 'GHS')), st.session_state.get('currency', 'GHS'))} per check · "
+                f"or {exchange_rates.format_amount(exchange_rates.convert_pesewas(PRICE_MONTHLY_GHS, st.session_state.get('currency', 'GHS')), st.session_state.get('currency', 'GHS'))}/month for unlimited*"
             ))
         elif uploaded is not None and not _safe_rate_limit_ok(
             _csvpf_email, "portfolio_upload", max_count=15, window_seconds=3600
@@ -11375,7 +11538,7 @@ def render_screen_4_agency_dashboard():
             "- **Systemic gaps panel** — your most recurring evidence weaknesses, ranked\n"
             "- **Portfolio trend lines** — readiness over time, across your whole book of work\n"
             "- **One-click Portfolio Readiness Report (PDF)** — for internal reporting or a funder\n\n"
-            f"*GHS {PRICE_AGENCY_GHS/100:.0f}/month*"
+            f"*{exchange_rates.format_amount(exchange_rates.convert_pesewas(PRICE_AGENCY_GHS, st.session_state.get('currency', 'GHS')), st.session_state.get('currency', 'GHS'))}/month*"
         ))
         return
 
@@ -13299,7 +13462,64 @@ def main():
                 pass
     # --- End Paystack handler ---
 
+    # --- Stripe payment callback handler (USD/GBP/EUR) ---
+    # Mirrors the Paystack handler above; success_url is
+    # "{base}?stripe_session_id={CHECKOUT_SESSION_ID}" (see
+    # utils/stripe_payments.create_checkout_session).
+    _stripe_session_id = st.query_params.get("stripe_session_id", "")
+    if _stripe_session_id:
+        from utils.stripe_payments import get_checkout_session
+        _spay_result = get_checkout_session(_stripe_session_id)
+        if _spay_result.get("status") == "success":
+            _spay_email = (_spay_result.get("email") or st.session_state.get("user_email") or "").strip().lower()
+            if _spay_email:
+                _splan = _spay_result.get("plan", "per_use")
+                _sdays = 365 if _splan == "annual" else (30 if _splan in ("monthly", "agency") else 1)
+                upsert_user(_spay_email)
+                mark_paid(_spay_email, days=_sdays)
+                if _splan == "agency":
+                    set_user_plan(_spay_email, "agency")
+                elif _splan in ("monthly", "annual"):
+                    set_user_plan(_spay_email, "professional")
+                st.session_state["user_email"] = _spay_email
+                st.session_state["is_paid"] = True
+                metrics.log_event("payment_completed", _spay_email)
+                try:
+                    from utils.crm import log_event as _crm_log_event
+                    _crm_log_event(_spay_email, "tier_change", metadata={"plan_label": _splan, "days": _sdays})
+                except Exception:
+                    pass
+                st.session_state.pop("_pay_once_url", None)
+                st.session_state.pop("_pay_monthly_url", None)
+                st.session_state.pop("_pay_agency_url", None)
+                st.session_state.pop("_pay_annual_url", None)
+                st.session_state["screen"] = 1
+                st.session_state["current_tab"] = 0
+                st.query_params["screen"] = "1"
+                st.query_params["tab"] = "0"
+                st.session_state["entry_mode"] = "⚡ Instant Report Check"
+                st.session_state["_payment_success"] = True
+                try:
+                    st.query_params.clear()
+                except Exception:
+                    pass
+                st.rerun()
+            else:
+                st.session_state["pending_stripe_session_id"] = _stripe_session_id
+                try:
+                    st.query_params.clear()
+                except Exception:
+                    pass
+        elif _spay_result.get("status") == "failed":
+            st.warning("Payment didn't go through. Please try again.")
+            try:
+                st.query_params.clear()
+            except Exception:
+                pass
+    # --- End Stripe handler ---
+
     _init_from_query_params()
+    _ensure_currency_default()
     # Magic-link login confirm-click landing — shown regardless of screen
     _login_token = st.query_params.get("login_token", "")
     if _login_token:
