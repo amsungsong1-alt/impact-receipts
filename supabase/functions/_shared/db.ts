@@ -1,18 +1,19 @@
 /**
  * supabase/functions/_shared/db.ts
  *
- * Supabase REST helpers shared between paystack-webhook and stripe-webhook.
- * Both webhooks write to the same `payments`/`users`/`crm_events` tables,
- * so this extraction avoids a second manually-synced copy of the same
- * upsert/PATCH logic (the HMAC-signature-verification scheme is NOT shared
- * here, since Paystack and Stripe use genuinely different verification --
- * see each webhook's own signature check).
+ * Supabase REST helpers shared between paystack-webhook and
+ * flutterwave-webhook. Both webhooks write to the same
+ * `payments`/`users`/`crm_events` tables, so this extraction avoids a
+ * second manually-synced copy of the same upsert/PATCH logic (the
+ * signature-verification scheme is NOT shared here, since Paystack and
+ * Flutterwave use genuinely different verification -- see each webhook's
+ * own signature check).
  *
  * `payments.paystack_reference` is reused as the generic external-charge
- * reference for Stripe rows too (Stripe's Checkout Session id) rather than
- * adding a second reference column -- the column name is a naming leftover
- * from before a second processor existed, not worth a migration+backfill
- * just to rename.
+ * reference for Flutterwave rows too (Flutterwave's tx_ref/flw_ref) rather
+ * than adding a second reference column -- the column name is a naming
+ * leftover from before a second processor existed, not worth a
+ * migration+backfill just to rename.
  */
 
 export async function upsertPayment(row: Record<string, unknown>): Promise<void> {

@@ -1,13 +1,15 @@
 """
 test_billing.py — golden tests for utils/auth.py, utils/metering.py, and the
-new parts of utils/paystack.py (subscriptions + webhook signature).
+new parts of utils/paystack.py and utils/flutterwave_payments.py
+(subscriptions + webhook signature).
 
 No pytest, no real network calls, no real Supabase project: a small in-memory
 fake Supabase client stands in for utils.db._get_client()/utils.auth._get_client()
 (same swap-the-network-seam approach as test_council.py's fake for
 council._call_haiku, just applied to a chainier query-builder API), and
-utils.paystack's `requests` module reference is swapped for a fake with
-canned responses. Run with: python test_billing.py
+utils.paystack's/utils.flutterwave_payments's `requests` module references
+are each swapped for a fake with canned responses. Run with:
+python test_billing.py
 """
 
 import hashlib
@@ -18,7 +20,7 @@ import utils.auth as auth
 import utils.db as db
 import utils.metering as metering
 import utils.paystack as paystack
-import utils.stripe_payments as stripe_payments
+import utils.flutterwave_payments as flutterwave_payments
 
 
 # ---------------------------------------------------------------------------
@@ -564,135 +566,112 @@ def run_paystack_subscriptions():
     print("PASS: paystack subscriptions — plan-tied init, disable, and webhook signature verification.")
 
 
-class _FakeStripeObj(dict):
-    """Minimal stand-in for Stripe SDK response objects, which support both
-    dict-style (.get(...)) and attribute-style (.url) access."""
-    def __getattr__(self, name):
-        try:
-            return self[name]
-        except KeyError:
-            raise AttributeError(name)
-
-
-def run_stripe_payments():
-    """utils/stripe_payments.py -- imports the real `stripe` package (module
-    level only inside function bodies, so this doesn't affect app.py's
-    ability to import cleanly without it), and swaps its
-    checkout.Session.create/retrieve and Webhook.construct_event for fakes,
-    same swap-the-network-seam approach as run_paystack_subscriptions()."""
-    import stripe
-
+def run_flutterwave_payments():
+    """utils/flutterwave_payments.py -- swaps its `requests` module
+    reference for a fake with canned responses, same swap-the-network-seam
+    approach as run_paystack_subscriptions()."""
     failures = []
-    original_create = stripe.checkout.Session.create
-    original_retrieve = stripe.checkout.Session.retrieve
-    original_construct_event = stripe.Webhook.construct_event
-    original_secret_key = stripe_payments._secret_key
-    original_base_url = stripe_payments._base_url
-    stripe_payments._secret_key = lambda: "sk_test_fake"
-    stripe_payments._base_url = lambda: "https://test.example.com"
-
-    _next_session = {}
-    _next_exception = {}
-
-    def fake_create(**kwargs):
-        if _next_exception.get("create"):
-            raise _next_exception["create"]
-        return _next_session.get("create")
-
-    def fake_retrieve(session_id):
-        if _next_exception.get("retrieve"):
-            raise _next_exception["retrieve"]
-        return _next_session.get("retrieve")
-
-    def fake_construct_event(payload, sig_header, secret):
-        if _next_exception.get("construct_event"):
-            raise _next_exception["construct_event"]
-        return {"type": "checkout.session.completed"}
-
-    stripe.checkout.Session.create = fake_create
-    stripe.checkout.Session.retrieve = fake_retrieve
-    stripe.Webhook.construct_event = fake_construct_event
+    original_requests = flutterwave_payments.requests
+    original_secret_key = flutterwave_payments._secret_key
+    original_webhook_secret_hash = flutterwave_payments._webhook_secret_hash
+    original_base_url = flutterwave_payments._base_url
+    fake_requests = _FakeRequests()
+    flutterwave_payments.requests = fake_requests
+    flutterwave_payments._secret_key = lambda: "FLWSECK_test_fake"
+    flutterwave_payments._base_url = lambda: "https://test.example.com"
 
     try:
-        # 1. create_checkout_session success (one-off).
-        _next_session["create"] = _FakeStripeObj(url="https://checkout.stripe.com/pay/cs_test_123")
-        url = stripe_payments.create_checkout_session("user@example.com", 335, "USD", "per_use", mode="payment")
-        if url != "https://checkout.stripe.com/pay/cs_test_123":
+        # 1. create_checkout_session success (one-off, no payment_plan_id).
+        fake_requests.post_response = _FakeResponse(
+            200, {"status": "success", "data": {"link": "https://checkout.flutterwave.com/pay/abc123"}})
+        url = flutterwave_payments.create_checkout_session("user@example.com", 335, "USD", "per_use", mode="payment")
+        if url != "https://checkout.flutterwave.com/pay/abc123":
             failures.append(f"create_checkout_session success: unexpected url {url!r}")
 
-        # 2. create_checkout_session success (subscription).
-        _next_session["create"] = _FakeStripeObj(url="https://checkout.stripe.com/pay/cs_test_456")
-        url2 = stripe_payments.create_checkout_session("user@example.com", 335, "USD", "monthly", mode="subscription")
-        if url2 != "https://checkout.stripe.com/pay/cs_test_456":
+        # 2. create_checkout_session success (subscription, with payment_plan_id).
+        fake_requests.post_response = _FakeResponse(
+            200, {"status": "success", "data": {"link": "https://checkout.flutterwave.com/pay/def456"}})
+        url2 = flutterwave_payments.create_checkout_session(
+            "user@example.com", 335, "USD", "monthly", mode="subscription", payment_plan_id="12345")
+        if url2 != "https://checkout.flutterwave.com/pay/def456":
             failures.append(f"create_checkout_session subscription success: unexpected url {url2!r}")
 
-        # 3. Non-Stripe currency rejected before any network call.
-        url3 = stripe_payments.create_checkout_session("user@example.com", 5000, "GHS", "monthly", mode="subscription")
+        # 3. Non-Flutterwave currency rejected before any network call.
+        url3 = flutterwave_payments.create_checkout_session("user@example.com", 5000, "GHS", "monthly", mode="subscription")
         if url3 != "":
-            failures.append("create_checkout_session should refuse a non-Stripe currency (GHS)")
+            failures.append("create_checkout_session should refuse a currency Flutterwave isn't configured for (GHS)")
 
-        # 4. Non-recurring plan label rejected for a subscription checkout.
-        url4 = stripe_payments.create_checkout_session("user@example.com", 335, "USD", "per_use", mode="subscription")
+        # 4. Subscription checkout without a payment_plan_id is rejected -- unlike
+        # Paystack, there is no plain-one-off fallback for a missing plan.
+        url4 = flutterwave_payments.create_checkout_session("user@example.com", 335, "USD", "monthly", mode="subscription")
         if url4 != "":
-            failures.append("create_checkout_session(mode='subscription') should refuse a non-recurring plan label")
+            failures.append("create_checkout_session(mode='subscription') should refuse a missing payment_plan_id")
 
         # 5. Missing secret key fails closed, no network call.
-        stripe_payments._secret_key = lambda: ""
-        url5 = stripe_payments.create_checkout_session("user@example.com", 335, "USD", "per_use", mode="payment")
+        flutterwave_payments._secret_key = lambda: ""
+        url5 = flutterwave_payments.create_checkout_session("user@example.com", 335, "USD", "per_use", mode="payment")
         if url5 != "":
             failures.append("create_checkout_session should fail closed with no secret key configured")
-        stripe_payments._secret_key = lambda: "sk_test_fake"
+        flutterwave_payments._secret_key = lambda: "FLWSECK_test_fake"
 
-        # 6. Network/API failure degrades gracefully (never raises out of the function).
-        _next_exception["create"] = ConnectionError("network down")
-        url6 = stripe_payments.create_checkout_session("user@example.com", 335, "USD", "per_use", mode="payment")
-        if url6 != "" or not stripe_payments.last_payment_error():
-            failures.append("create_checkout_session should return '' and set last_payment_error() on failure")
-        _next_exception.pop("create", None)
+        # 6. Flutterwave-reported error surfaces via last_payment_error().
+        fake_requests.post_response = _FakeResponse(200, {"status": "error", "message": "Invalid currency"})
+        url6 = flutterwave_payments.create_checkout_session("user@example.com", 335, "USD", "per_use", mode="payment")
+        if url6 != "" or flutterwave_payments.last_payment_error() != "Invalid currency":
+            failures.append(f"create_checkout_session error path: url={url6!r} "
+                             f"err={flutterwave_payments.last_payment_error()!r}")
 
-        # 7. get_checkout_session success path.
-        _next_session["retrieve"] = _FakeStripeObj(
-            payment_status="paid", status="complete", amount_total=335,
-            currency="usd", metadata={"plan": "per_use"}, customer_email="user@example.com",
-        )
-        result = stripe_payments.get_checkout_session("cs_test_123")
+        # 7. Network failure degrades gracefully (never raises out of the function).
+        fake_requests.raise_on_post = True
+        url7 = flutterwave_payments.create_checkout_session("user@example.com", 335, "USD", "per_use", mode="payment")
+        if url7 != "" or not flutterwave_payments.last_payment_error():
+            failures.append("create_checkout_session should return '' and set last_payment_error() on a network exception")
+        fake_requests.raise_on_post = False
+
+        # 8. verify_transaction success path -- amount comes back in major
+        # units from Flutterwave and must be converted to minor units.
+        fake_requests.post_response = _FakeResponse(200, {
+            "status": "success",
+            "data": {
+                "status": "successful", "amount": 3.35, "currency": "usd",
+                "meta": {"plan": "per_use"}, "customer": {"email": "user@example.com"},
+            },
+        })
+        result = flutterwave_payments.verify_transaction("999")
         if result != {"status": "success", "amount": 335, "currency": "USD", "plan": "per_use", "email": "user@example.com"}:
-            failures.append(f"get_checkout_session success: unexpected result {result!r}")
+            failures.append(f"verify_transaction success: unexpected result {result!r}")
 
-        # 8. get_checkout_session unpaid session.
-        _next_session["retrieve"] = _FakeStripeObj(payment_status="unpaid", status="open")
-        result2 = stripe_payments.get_checkout_session("cs_test_789")
+        # 9. verify_transaction failed/unsuccessful charge.
+        fake_requests.post_response = _FakeResponse(200, {"status": "success", "data": {"status": "failed"}})
+        result2 = flutterwave_payments.verify_transaction("998")
         if result2.get("status") != "failed":
-            failures.append(f"get_checkout_session unpaid session should report status='failed', got {result2!r}")
+            failures.append(f"verify_transaction failed charge should report status='failed', got {result2!r}")
 
-        # 9. verify_webhook_signature: valid signature accepted.
-        if not stripe_payments.verify_webhook_signature(b'{"type":"checkout.session.completed"}', "t=1,v1=abc", "whsec_test"):
-            failures.append("verify_webhook_signature should accept a signature the SDK validates")
+        # 10. verify_webhook_signature: matching secret hash accepted.
+        if not flutterwave_payments.verify_webhook_signature("shared-secret-hash", "shared-secret-hash"):
+            failures.append("verify_webhook_signature should accept a matching secret hash")
 
-        # 10. Tampered/invalid signature rejected.
-        _next_exception["construct_event"] = ValueError("Invalid signature")
-        if stripe_payments.verify_webhook_signature(b'{"tampered":true}', "t=1,v1=bad", "whsec_test"):
-            failures.append("verify_webhook_signature should reject a signature the SDK rejects")
-        _next_exception.pop("construct_event", None)
+        # 11. Non-matching header rejected.
+        if flutterwave_payments.verify_webhook_signature("wrong-value", "shared-secret-hash"):
+            failures.append("verify_webhook_signature should reject a non-matching verif-hash header")
 
-        # 11. Missing secret/signature header fails closed, no SDK call needed.
-        if stripe_payments.verify_webhook_signature(b"{}", "", "whsec_test"):
+        # 12. Missing secret/header fails closed.
+        if flutterwave_payments.verify_webhook_signature("", "shared-secret-hash"):
             failures.append("verify_webhook_signature should fail closed with no signature header")
-        if stripe_payments.verify_webhook_signature(b"{}", "t=1,v1=abc", ""):
-            failures.append("verify_webhook_signature should fail closed with no endpoint secret")
+        if flutterwave_payments.verify_webhook_signature("shared-secret-hash", ""):
+            failures.append("verify_webhook_signature should fail closed with no configured secret hash")
     finally:
-        stripe.checkout.Session.create = original_create
-        stripe.checkout.Session.retrieve = original_retrieve
-        stripe.Webhook.construct_event = original_construct_event
-        stripe_payments._secret_key = original_secret_key
-        stripe_payments._base_url = original_base_url
+        flutterwave_payments.requests = original_requests
+        flutterwave_payments._secret_key = original_secret_key
+        flutterwave_payments._webhook_secret_hash = original_webhook_secret_hash
+        flutterwave_payments._base_url = original_base_url
 
     if failures:
         print("FAILED:")
         for f in failures:
             print("  -", f)
         raise SystemExit(1)
-    print("PASS: stripe payments — checkout session creation, redirect read-back, and webhook signature verification.")
+    print("PASS: flutterwave payments — checkout session creation, redirect read-back, and webhook signature verification.")
 
 
 def run_data_deletion():
@@ -740,5 +719,5 @@ if __name__ == "__main__":
     run_magic_link()
     run_sessions()
     run_paystack_subscriptions()
-    run_stripe_payments()
+    run_flutterwave_payments()
     run_data_deletion()
