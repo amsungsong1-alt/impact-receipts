@@ -82,6 +82,13 @@ _TRUTHFULNESS_DISCLAIMER = (
     "not independent verification that it's true."
 )
 
+# beneficiary_voice values that mean "this was never actually addressed" --
+# the explicit "No beneficiary voice captured" answer AND the dropdown's
+# unanswered default (app.py's _BV_OPTIONS[0], "Choose an option...") both
+# count; "Not applicable to this result type" is a legitimate opt-out and
+# stays un-flagged.
+_BV_UNADDRESSED = {"No beneficiary voice captured", "Choose an option..."}
+
 
 def _readiness_banner_html(diag_state: str) -> str:
     band = _READINESS_BAND.get(diag_state, "Needs Work")
@@ -114,7 +121,7 @@ def get_diagnostic_state(
             "Inputs look like placeholder text — please provide real result and evidence details",
         )
     if confidence >= SUBMISSION_THRESHOLD and clarity >= SUBMISSION_THRESHOLD:
-        if beneficiary_voice == "No beneficiary voice captured":
+        if beneficiary_voice in _BV_UNADDRESSED:
             return (
                 "NEEDS REFINEMENT",
                 "Strong on both axes — add beneficiary feedback to reach the highest evidence tier.",

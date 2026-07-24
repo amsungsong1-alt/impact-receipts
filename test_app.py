@@ -326,7 +326,10 @@ GOLDEN = {
     # Clarity scores updated to match actual evaluator output (pre-existing drift
     # from description_quality + audit_trail additions; no scoring logic changed here).
     "strong": {
-        "confidence_score": 4.2,
+        # confidence_score includes the beneficiary-voice bonus (Gap-1 fix,
+        # was silently discarded before): direct 1.2 + verify 2.0 + recency
+        # 1.0 + bv_bonus 0.5 = 4.7 (capped at 5.0, doesn't reach it here).
+        "confidence_score": 4.7,
         "clarity_score": 5.0,
         "verdict": "Strong KPI — submission-ready on both axes",
     },
@@ -341,10 +344,15 @@ GOLDEN = {
         "verdict": "High risk — strengthen both axes before relying on this result",
     },
     "qualitative": {
-        "confidence_score": 3.8,
+        # confidence_score now includes its beneficiary-voice bonus (Gap-1
+        # fix): 3.5 + bv_bonus 0.3 = 3.8... plus rounding -> 4.1, which
+        # crosses SUBMISSION_THRESHOLD=4.0 -- this fixture's verdict changes
+        # from "Well-defined but weak" to "Strong KPI" purely because a bonus
+        # that was always silently computed is now actually counted.
+        "confidence_score": 4.1,
         "clarity_score": 4.99,
-        # conf=3.8 < SUBMISSION_THRESHOLD=4.0, clar=4.99 >= 4.0 → "Well-defined but weak"
-        "verdict": "Well-defined but weak evidence — strengthen the verification chain",
+        # conf=4.1 >= SUBMISSION_THRESHOLD=4.0, clar=4.99 >= 4.0 → "Strong KPI"
+        "verdict": "Strong KPI — submission-ready on both axes",
     },
     "qualitative_toggle_only": {
         "confidence_score": 0.3,
@@ -908,6 +916,75 @@ def run_monthly_trend_summary():
           "all-passing month, and NaN safety verified.")
 
 
+def run_beneficiary_voice_bonus_wiring():
+    """Gap 1 fix: the beneficiary-voice bonus was computed but discarded --
+    now it must actually move confidence_score, capped so it can't push the
+    total above the existing 5.0 axis ceiling (direct 2.0 + verify 2.0 +
+    recency 1.0 + bv_bonus 0.5 = 5.5 uncapped -> must cap at 5.0)."""
+    failures = []
+
+    submission = {
+        "result_statement": (
+            "Our WASH programme directly caused a reduction in diarrhea incidence among "
+            "children under 5 in the target villages during 2025."
+        ),
+        "target_group": "Children under 5",
+        "timeframe": "January-June 2025",
+        "geographic_scope": "Northern Region",
+        "additional_context": "MEL lead owns this result.",
+        "internal_review": "Reviewed by MEL Officer",
+        "external_review": "Verified by independent third party",
+        "logframe_indicator": "Diarrhea incidence rate",
+        "logframe_target": "10%",
+        "logframe_achievement": "6%",
+        "beneficiary_voice": "Direct beneficiary feedback collected (e.g., Lean Data survey, focus groups, NPS)",
+        "bv_method_detail": "Independent phone survey administered by a non-programme enumerator, n=300, June 2025.",
+        "evidence": [{
+            "type": "Tracer survey results",
+            "description": (
+                "Baseline and endline household surveys were triangulated against clinic "
+                "records. A theory of change links improved water access to reduced "
+                "diarrhea incidence. A comparison group of non-target villages showed no "
+                "significant change over the same period, ruling out alternative "
+                "explanations such as broader seasonal trends."
+            ),
+            "recency": "June 2025",
+            "verified_by": "Independent evaluator",
+        }],
+        "provenance_checklist": {
+            "sampling_documented": "Yes",
+            "double_counting_checked": "Yes",
+            "collection_tool_named": "Yes",
+            "collector_independent": "Yes",
+            "recall_period_ok": "Yes",
+            "auditor_traceable": "Yes — an auditor could retrieve the original records",
+        },
+    }
+    ev = evaluator.evaluate_submission(submission)
+    cc = ev["confidence_components"]
+
+    if not (cc["direct_level"] == 5 and cc["verify_level"] == 5 and cc["recency_level"] == 5):
+        failures.append(
+            "This test's fixture must hit direct_level=5, verify_level=5, recency_level=5 "
+            f"to actually exercise the 5.0 cap; got {cc['direct_level']}/{cc['verify_level']}/{cc['recency_level']}"
+        )
+    if cc["bv_bonus"] != 0.5:
+        failures.append(f"Expected the top-tier beneficiary-voice bonus (0.5), got {cc['bv_bonus']}")
+
+    if ev["raw_confidence_score"] != 5.0:
+        failures.append(
+            "direct(2.0)+verify(2.0)+recency(1.0)+bv_bonus(0.5)=5.5 should cap at 5.0, "
+            f"got raw_confidence_score={ev['raw_confidence_score']}"
+        )
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: beneficiary-voice bonus — actually moves confidence_score, capped at the 5.0 axis ceiling.")
+
+
 def run_directness_floor():
     """Gap 3 fix: the literal repro case from the third-party stress-test
     report. CASES["strong"] uses attendance-sheet evidence (Directness
@@ -985,5 +1062,6 @@ if __name__ == "__main__":
     run_framework_crosswalk()
     run_sector_tailoring()
     run_monthly_trend_summary()
+    run_beneficiary_voice_bonus_wiring()
     run_directness_floor()
     run_truthfulness_disclaimer()

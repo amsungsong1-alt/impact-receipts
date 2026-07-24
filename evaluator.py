@@ -1545,7 +1545,14 @@ def evaluate_submission(submission: dict) -> dict:
     provenance_adjustment = get_provenance_adjustment(provenance_checklist)
     verify_score = round(min(2.0, max(0.0, (verify_level / 5) * 2.0 + provenance_adjustment)), 2)
 
-    confidence_score = round(direct_score + verify_score + recency_score, 1)
+    bv_field  = submission.get("beneficiary_voice", "")
+    bv_detail = submission.get("bv_method_detail", "")
+    bv_bonus  = compute_beneficiary_voice_bonus(bv_field, bv_detail) if bv_field else 0.0
+
+    # direct+verify+recency already sum to 5.0 at full marks -- the bonus
+    # recovers points when other components aren't perfect, capped so it
+    # can't push the total above the axis ceiling.
+    confidence_score = round(min(5.0, direct_score + verify_score + recency_score + bv_bonus), 1)
 
     quality_multiplier, content_issues = validate_content_quality(result_stmt, ev_desc, verified_by, ev_type)
 
@@ -1560,10 +1567,6 @@ def evaluate_submission(submission: dict) -> dict:
     raw_confidence_score = confidence_score
     confidence_score = round(confidence_score * quality_multiplier, 1)
     confidence_label, confidence_meaning = interpret_score(confidence_score)
-
-    bv_field  = submission.get("beneficiary_voice", "")
-    bv_detail = submission.get("bv_method_detail", "")
-    bv_bonus  = compute_beneficiary_voice_bonus(bv_field, bv_detail) if bv_field else 0.0
 
     direct_rationale = get_directness_rationale(ev_desc, ev_type, result_stmt, direct_level)
     direct_signals = _directness_signals(ev_desc, ev_type, result_stmt)
