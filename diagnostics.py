@@ -114,6 +114,7 @@ def get_diagnostic_state(
     content_issues: list | None = None,
     beneficiary_voice: str = "",
     direct_level: int = 5,
+    compliance_hard_gate: bool = False,
 ) -> tuple:
     if content_issues and len(content_issues) >= 2:
         return (
@@ -121,6 +122,16 @@ def get_diagnostic_state(
             "Inputs look like placeholder text — please provide real result and evidence details",
         )
     if confidence >= SUBMISSION_THRESHOLD and clarity >= SUBMISSION_THRESHOLD:
+        # Checked first (most severe): an outstanding do-no-harm/child-
+        # safeguarding gap must not be diluteable by an otherwise-strong
+        # report -- see evaluator.compute_compliance_layer()'s docstring.
+        if compliance_hard_gate:
+            return (
+                "NEEDS REFINEMENT",
+                "Strong on both axes — but a do-no-harm or child-safeguarding review is still "
+                "outstanding for this evidence. This must be resolved before the result can be "
+                "treated as submission-ready.",
+            )
         if beneficiary_voice in _BV_UNADDRESSED:
             return (
                 "NEEDS REFINEMENT",

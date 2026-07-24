@@ -916,6 +916,107 @@ def run_monthly_trend_summary():
           "all-passing month, and NaN safety verified.")
 
 
+def run_compliance_layer():
+    """Gap 2 fix: the do-no-harm/consent/child-safeguarding "Governance &
+    Compliance" layer was computed in app.py but never persisted into the
+    real evaluation (a display-only preview, discarded every render). Now
+    lives in evaluator.compute_compliance_layer(), returned as
+    evaluate_submission()'s "compliance_components", and
+    child_safety_gap_unaddressed hard-gates the top diagnostic badge."""
+    failures = []
+
+    full_marks_checklist = {
+        "consent_status": "Yes — written consent forms on file",
+        "anonymization_status": "Yes — fully anonymized",
+        "compliance_law_status": "Yes — compliant (e.g. Ghana Act 843, Nigeria NDPA, Kenya DPA)",
+        "safeguarding_status": "Yes — reviewed, no concerns identified",
+        "child_safeguarding_status": "Yes — child safeguarding policy applied, guardian consent obtained where applicable",
+        "secure_handling_status": "Yes — stored securely, access restricted to authorised staff",
+        "dpp_uploaded": True,
+    }
+    full = evaluator.compute_compliance_layer(
+        "Beneficiary narrative or testimony", "Some result", "Some group", full_marks_checklist)
+    if full["compliance_score"] != 24:
+        failures.append(f"Full-marks checklist should score 24, got {full['compliance_score']}")
+    if full["child_safety_gap_unaddressed"]:
+        failures.append("Full-marks checklist should not trigger the child-safety gate")
+
+    # Safeguarding-triggering evidence type, checklist left entirely unanswered.
+    unanswered = evaluator.compute_compliance_layer(
+        "Case study", "Some result", "Some group", {})
+    if not unanswered["safeguarding_triggered"]:
+        failures.append("'Case study' evidence type should be safeguarding-triggering")
+    if not unanswered["child_safety_gap_unaddressed"]:
+        failures.append("Safeguarding-triggering evidence type with an unanswered checklist should gate")
+
+    # Same evidence type, safeguarding explicitly marked "Not applicable" —
+    # a legitimate opt-out, must NOT gate.
+    not_applicable = evaluator.compute_compliance_layer(
+        "Case study", "Some result", "Some group",
+        {"safeguarding_status": "Not applicable (no beneficiary stories/photos)"})
+    if not_applicable["child_safety_gap_unaddressed"]:
+        failures.append("'Not applicable' safeguarding answer should NOT trigger the child-safety gate")
+
+    # Minors mentioned in the result statement, child-safeguarding left unanswered.
+    minors_unanswered = evaluator.compute_compliance_layer(
+        "Attendance sheets / participant registers",
+        "Trained 200 children in reading skills", "Primary school children", {})
+    if not minors_unanswered["minors_involved"]:
+        failures.append("Result statement mentioning 'children' should set minors_involved=True")
+    if not minors_unanswered["child_safety_gap_unaddressed"]:
+        failures.append("Minors involved with an unanswered child-safeguarding checklist should gate")
+
+    # Explicit "No — not yet reviewed" is exactly as unaddressed as never answering.
+    explicit_no = evaluator.compute_compliance_layer(
+        "Case study", "Some result", "Some group",
+        {"safeguarding_status": "No — not yet reviewed"})
+    if not explicit_no["child_safety_gap_unaddressed"]:
+        failures.append("'No — not yet reviewed' should trigger the child-safety gate, same as unanswered")
+
+    # get_diagnostic_state() hard gate: outstanding compliance issue caps the
+    # badge even when both axes clear the aggregate threshold.
+    _diag_gated, _ = diagnostics.get_diagnostic_state(5.0, 5.0, [], "", direct_level=5, compliance_hard_gate=True)
+    if _diag_gated != "NEEDS REFINEMENT":
+        failures.append(f"compliance_hard_gate=True should cap the badge at NEEDS REFINEMENT, got {_diag_gated!r}")
+    _diag_clear, _ = diagnostics.get_diagnostic_state(5.0, 5.0, [], "", direct_level=5, compliance_hard_gate=False)
+    if _diag_clear != "STRONG":
+        failures.append(f"compliance_hard_gate=False should not affect the badge, got {_diag_clear!r}")
+
+    # Generic (non-safeguarding) evidence type with no compliance answers at
+    # all must NOT gate -- only the safeguarding/child-safeguarding trigger does.
+    generic = evaluator.compute_compliance_layer(
+        "Attendance sheets / participant registers", "Trained 200 farmers", "Farmers", {})
+    if generic["child_safety_gap_unaddressed"]:
+        failures.append("Non-safeguarding-triggering evidence with no minors mentioned should not gate")
+
+    # End-to-end: CASES["qualitative"] uses "Case study" evidence with no
+    # governance_checklist supplied -- must reach evaluate_submission() with
+    # compliance_components present and gate the diagnostic badge, even
+    # though Gaps 1+3 alone would have pushed it to STRONG.
+    ev = evaluator.evaluate_submission(CASES["qualitative"])
+    if "compliance_components" not in ev:
+        failures.append("evaluate_submission() must return compliance_components")
+    _diag_qual, _ = diagnostics.get_diagnostic_state(
+        ev["confidence_score"], ev["clarity_score"], [],
+        CASES["qualitative"].get("beneficiary_voice", ""),
+        direct_level=ev["confidence_components"]["direct_level"],
+        compliance_hard_gate=ev["compliance_components"]["child_safety_gap_unaddressed"],
+    )
+    if _diag_qual != "NEEDS REFINEMENT":
+        failures.append(
+            f"CASES['qualitative'] (Case study evidence, no governance_checklist) should be gated "
+            f"to NEEDS REFINEMENT, got {_diag_qual!r}"
+        )
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: compliance layer — do-no-harm/child-safeguarding gaps now hard-gate the "
+          "diagnostic badge instead of being silently discarded.")
+
+
 def run_beneficiary_voice_bonus_wiring():
     """Gap 1 fix: the beneficiary-voice bonus was computed but discarded --
     now it must actually move confidence_score, capped so it can't push the
@@ -1064,4 +1165,5 @@ if __name__ == "__main__":
     run_monthly_trend_summary()
     run_beneficiary_voice_bonus_wiring()
     run_directness_floor()
+    run_compliance_layer()
     run_truthfulness_disclaimer()

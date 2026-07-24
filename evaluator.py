@@ -440,6 +440,185 @@ def compute_beneficiary_voice_bonus(beneficiary_voice: str, method_detail: str =
     return base
 
 
+# ---------------------------------------------------------------------------
+# Governance & Compliance Layer (do-no-harm / consent / child-safeguarding).
+# Distinct from clarity_components["governance_score"] below (named-owner /
+# review / decision-context, max 0.75) -- always refer to THIS layer as
+# "compliance_*" to avoid the naming collision. Moved here from app.py's
+# ephemeral, display-only _compute_governance_score() (v3.2), which computed
+# this same 0-24 score but never persisted it into the saved evaluation --
+# see child_safety_gap_unaddressed below, which now actually gates the
+# diagnostic classifier (diagnostics.get_diagnostic_state()).
+# ---------------------------------------------------------------------------
+
+PII_EVIDENCE_TYPES = [
+    "Attendance sheets / participant registers",
+    "Photos with metadata",
+    "Raw datasets or survey exports",
+    "Tracer survey results",
+]
+
+# Evidence types that may carry beneficiary stories, photos, or testimony —
+# trigger the do-no-harm / safeguarding check, not just the PII/data-law checks.
+SAFEGUARDING_EVIDENCE_TYPES = [
+    "Photos with metadata",
+    "Case study",
+    "Outcome harvesting",
+    "Beneficiary narrative or testimony",
+]
+
+# Keywords suggesting the result statement/target group may involve minors —
+# used only to decide whether to prompt the child-safeguarding question and
+# show a warning. Never used to auto-answer the checklist.
+CHILD_SAFEGUARDING_KEYWORDS = (
+    "child", "children", "minor", "minors", "student", "students", "pupil", "pupils",
+    "adolescent", "adolescents", "youth", "girl", "girls", "boy", "boys", "orphan", "orphans",
+)
+
+# "Unaddressed" for gating purposes: the never-answered placeholder state AND
+# the explicit "No — not yet reviewed" answer both count (a user who
+# affirmatively confirmed the review hasn't happened is exactly as
+# unaddressed as one who never looked at the question). A legitimate
+# "Not applicable" opt-out is NOT in this set.
+_SAFEGUARDING_UNADDRESSED = {"", "Choose an option...", "Select safeguarding status...", "No — not yet reviewed"}
+_CHILD_SAFEGUARDING_UNADDRESSED = {"", "Choose an option...", "Select child safeguarding status...", "No — not yet reviewed"}
+
+
+def compute_compliance_layer(evidence_type: str, result_statement: str, target_group: str, checklist: dict) -> dict:
+    """
+    Deterministic do-no-harm / consent / child-safeguarding scoring (Core
+    Humanitarian Standard Commitment 4; Bond Evidence Principles 2024 —
+    Transparency/Data Protection). Distinct from the Clarity axis's
+    "Governance" sub-score (named ownership) -- see module note above.
+
+    checklist keys (each a raw dropdown-label string, "Choose an option..."
+    or similarly-named placeholder if unanswered, matching the pattern
+    already used by provenance_checklist): consent_status,
+    anonymization_status, compliance_law_status, safeguarding_status,
+    child_safeguarding_status, secure_handling_status, dpp_uploaded (bool).
+
+    Returns:
+      compliance_score:              int, 0-24
+      compliance_pct:                float, 0-100
+      pii_selected / safeguarding_triggered / minors_involved:  bool
+      gaps:                          list[str]
+      child_safety_gap_unaddressed:  bool -- do-no-harm or child-safeguarding
+                                      triggered AND left unaddressed. This is
+                                      the ONLY thing that drives the hard gate
+                                      in diagnostics.get_diagnostic_state();
+                                      generic consent/anonymization/data-law/
+                                      secure-handling gaps do NOT gate -- they
+                                      remain visible via `gaps` but are lower
+                                      severity (documentation completeness,
+                                      not active-harm risk) and blending them
+                                      into the gate would reopen the same
+                                      dilution problem this fix exists to close.
+    """
+    checklist = checklist or {}
+    text = f"{result_statement or ''} {target_group or ''}".lower()
+
+    pii_selected = evidence_type in PII_EVIDENCE_TYPES
+    safeguarding_triggered = evidence_type in SAFEGUARDING_EVIDENCE_TYPES
+    minors_involved = any(kw in text for kw in CHILD_SAFEGUARDING_KEYWORDS)
+
+    consent    = checklist.get("consent_status", "")
+    anon       = checklist.get("anonymization_status", "")
+    law        = checklist.get("compliance_law_status", "")
+    safeguard  = checklist.get("safeguarding_status", "")
+    child_safe = checklist.get("child_safeguarding_status", "")
+    secure     = checklist.get("secure_handling_status", "")
+    dpp        = bool(checklist.get("dpp_uploaded", False))
+
+    score = 0
+    gaps  = []
+
+    if consent in ("", "Choose an option...", "Select consent status..."):
+        pass  # 0 pts, no gap — user has not answered yet
+    elif consent == "Yes — written consent forms on file":
+        score += 5
+    elif consent == "Yes — verbal consent documented":
+        score += 3
+    elif consent.startswith("Partial"):
+        score += 1
+    elif consent.startswith("Not applicable"):
+        score += 3
+    else:
+        gaps.append("Consent not obtained")
+
+    if anon in ("", "Choose an option...", "Select anonymization status..."):
+        pass  # 0 pts, no gap
+    elif anon == "Yes — fully anonymized":
+        score += 4
+    elif anon == "Partially anonymized":
+        score += 2
+    elif anon == "Not applicable":
+        score += 3
+    else:
+        gaps.append("Evidence not anonymized")
+
+    if law in ("", "Choose an option...", "Select compliance status..."):
+        pass  # 0 pts, no gap
+    elif law.startswith("Yes"):
+        score += 3
+    elif law.startswith("Unsure"):
+        score += 1
+    elif law.startswith("No"):
+        gaps.append("Data law compliance not confirmed")
+
+    if safeguard in ("", "Choose an option...", "Select safeguarding status..."):
+        pass  # 0 pts, no gap
+    elif safeguard.startswith("Yes"):
+        score += 3
+    elif safeguard.startswith("Partial"):
+        score += 1
+    elif safeguard.startswith("Not applicable"):
+        score += 3
+    elif safeguard.startswith("No"):
+        gaps.append("Do-no-harm review not completed (Core Humanitarian Standard, Commitment 4)")
+
+    if child_safe in ("", "Choose an option...", "Select child safeguarding status..."):
+        pass  # 0 pts, no gap
+    elif child_safe.startswith("Yes"):
+        score += 3
+    elif child_safe.startswith("Partial"):
+        score += 1
+    elif child_safe.startswith("Not applicable"):
+        score += 3
+    elif child_safe.startswith("No"):
+        gaps.append("Child safeguarding review not completed (Core Humanitarian Standard, Commitment 4 — Keeping Children Safe)")
+
+    if secure in ("", "Choose an option...", "Select secure handling status..."):
+        pass  # 0 pts, no gap
+    elif secure.startswith("Yes"):
+        score += 3
+    elif secure.startswith("Partial"):
+        score += 1
+    elif secure.startswith("Not applicable"):
+        score += 3
+    elif secure.startswith("No"):
+        gaps.append("Secure handling of identifiable testimony not confirmed (Bond Evidence Principles 2024 — Transparency/Data Protection)")
+
+    if dpp:
+        score += 5
+
+    compliance_score = min(24, score)
+
+    child_safety_gap_unaddressed = (
+        (safeguarding_triggered and safeguard in _SAFEGUARDING_UNADDRESSED)
+        or (minors_involved and child_safe in _CHILD_SAFEGUARDING_UNADDRESSED)
+    )
+
+    return {
+        "compliance_score": compliance_score,
+        "compliance_pct": round(compliance_score / 24 * 100, 1),
+        "pii_selected": pii_selected,
+        "safeguarding_triggered": safeguarding_triggered,
+        "minors_involved": minors_involved,
+        "gaps": gaps,
+        "child_safety_gap_unaddressed": child_safety_gap_unaddressed,
+    }
+
+
 _TEST_PATTERNS = {"test", "abc", "xxx", "asdf", "qwerty", "lorem", "placeholder", "sample"}
 
 
@@ -1647,6 +1826,11 @@ def evaluate_submission(submission: dict) -> dict:
         f"Combined: {verdict}."
     )
 
+    compliance_components = compute_compliance_layer(
+        ev_type, result_stmt, submission.get("target_group", "") or "",
+        submission.get("governance_checklist", {}) or {},
+    )
+
     return {
         # v3.0 primary keys
         "confidence_score":         confidence_score,
@@ -1661,6 +1845,7 @@ def evaluate_submission(submission: dict) -> dict:
         "clarity_meaning":       clarity_meaning,
         "confidence_components": confidence_components,
         "clarity_components":    clarity_components,
+        "compliance_components": compliance_components,
         "evidence_ladder":       evidence_ladder,
         "indicator_maturity":    indicator_maturity,
         "funder_readiness":      funder_readiness,

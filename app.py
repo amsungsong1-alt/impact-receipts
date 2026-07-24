@@ -524,21 +524,11 @@ _PROVENANCE_LABELS = {
 }
 
 # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
-PII_EVIDENCE_TYPES = [
-    "Attendance sheets / participant registers",
-    "Photos with metadata",
-    "Raw datasets or survey exports",
-    "Tracer survey results",
-]
-
-# Evidence types that may carry beneficiary stories, photos, or testimony —
-# trigger the do-no-harm / safeguarding check, not just the PII/data-law checks.
-SAFEGUARDING_EVIDENCE_TYPES = [
-    "Photos with metadata",
-    "Case study",
-    "Outcome harvesting",
-    "Beneficiary narrative or testimony",
-]
+# PII_EVIDENCE_TYPES / SAFEGUARDING_EVIDENCE_TYPES / CHILD_SAFEGUARDING_KEYWORDS
+# now live in evaluator.py (compute_compliance_layer() owns the actual
+# scoring); referenced here via _evaluator.* rather than duplicated, so the
+# UI's "does this need a compliance review?" trigger can never drift from
+# what the scoring engine actually checks.
 
 # Governance checklist display maps: value → (icon, description, pts_earned)
 CONSENT_CHECKLIST_MAP = {
@@ -567,14 +557,6 @@ SAFEGUARDING_CHECKLIST_MAP = {
     "Not applicable (no beneficiary stories/photos)": ("✓", "Not applicable", 3),
     "No — not yet reviewed":                          ("✗", "Do-no-harm review not completed", 0),
 }
-
-# Keywords suggesting the result statement/target group may involve minors —
-# used only to decide whether to prompt the child-safeguarding question and
-# show a warning. Never used to auto-answer the checklist.
-CHILD_SAFEGUARDING_KEYWORDS = (
-    "child", "children", "minor", "minors", "student", "students", "pupil", "pupils",
-    "adolescent", "adolescents", "youth", "girl", "girls", "boy", "boys", "orphan", "orphans",
-)
 
 CHILD_SAFEGUARDING_CHECKLIST_MAP = {
     "Yes — child safeguarding policy applied, guardian consent obtained where applicable":
@@ -2447,99 +2429,7 @@ def _minors_possibly_involved(slot: int) -> bool:
         st.session_state.get(f"result_statement{s}", "") or "",
         st.session_state.get(f"target_group{s}", "") or "",
     ]).lower()
-    return any(kw in text for kw in CHILD_SAFEGUARDING_KEYWORDS)
-
-
-def _compute_governance_score(slot: int):
-    """Returns (governance_score 0-24, pii_selected bool, gaps list,
-    safeguarding_triggered bool, minors_possibly_involved bool)."""
-    s = _slot_suffix(slot)
-    ev_type = st.session_state.get(f"evidence_type{s}", "")
-    pii_selected = ev_type in PII_EVIDENCE_TYPES
-    safeguarding_triggered = ev_type in SAFEGUARDING_EVIDENCE_TYPES
-    minors_involved = _minors_possibly_involved(slot)
-
-    consent    = st.session_state.get(f"gov_consent_status{s}", "")
-    anon       = st.session_state.get(f"gov_anonymization_status{s}", "")
-    law        = st.session_state.get(f"gov_compliance_law_status{s}", "")
-    safeguard  = st.session_state.get(f"gov_safeguarding_status{s}", "")
-    child_safe = st.session_state.get(f"gov_child_safeguarding_status{s}", "")
-    secure     = st.session_state.get(f"gov_secure_handling_status{s}", "")
-    dpp        = st.session_state.get("gov_dpp_uploaded", False)
-
-    score = 0
-    gaps  = []
-
-    if consent in ("Choose an option...", "Select consent status..."):
-        pass  # 0 pts, no gap — user has not answered yet
-    elif consent == "Yes — written consent forms on file":
-        score += 5
-    elif consent == "Yes — verbal consent documented":
-        score += 3
-    elif consent.startswith("Partial"):
-        score += 1
-    elif consent.startswith("Not applicable"):
-        score += 3
-    else:
-        gaps.append("Consent not obtained")
-
-    if anon in ("Choose an option...", "Select anonymization status..."):
-        pass  # 0 pts, no gap
-    elif anon == "Yes — fully anonymized":
-        score += 4
-    elif anon == "Partially anonymized":
-        score += 2
-    elif anon == "Not applicable":
-        score += 3
-    else:
-        gaps.append("Evidence not anonymized")
-
-    if law in ("Choose an option...", "Select compliance status..."):
-        pass  # 0 pts, no gap
-    elif law.startswith("Yes"):
-        score += 3
-    elif law.startswith("Unsure"):
-        score += 1
-    elif law.startswith("No"):
-        gaps.append("Data law compliance not confirmed")
-
-    if safeguard in ("Choose an option...", "Select safeguarding status..."):
-        pass  # 0 pts, no gap
-    elif safeguard.startswith("Yes"):
-        score += 3
-    elif safeguard.startswith("Partial"):
-        score += 1
-    elif safeguard.startswith("Not applicable"):
-        score += 3
-    elif safeguard.startswith("No"):
-        gaps.append("Do-no-harm review not completed (Core Humanitarian Standard, Commitment 4)")
-
-    if child_safe in ("Choose an option...", "Select child safeguarding status..."):
-        pass  # 0 pts, no gap
-    elif child_safe.startswith("Yes"):
-        score += 3
-    elif child_safe.startswith("Partial"):
-        score += 1
-    elif child_safe.startswith("Not applicable"):
-        score += 3
-    elif child_safe.startswith("No"):
-        gaps.append("Child safeguarding review not completed (Core Humanitarian Standard, Commitment 4 — Keeping Children Safe)")
-
-    if secure in ("Choose an option...", "Select secure handling status..."):
-        pass  # 0 pts, no gap
-    elif secure.startswith("Yes"):
-        score += 3
-    elif secure.startswith("Partial"):
-        score += 1
-    elif secure.startswith("Not applicable"):
-        score += 3
-    elif secure.startswith("No"):
-        gaps.append("Secure handling of identifiable testimony not confirmed (Bond Evidence Principles 2024 — Transparency/Data Protection)")
-
-    if dpp:
-        score += 5
-
-    return min(24, score), pii_selected, gaps, safeguarding_triggered, minors_involved
+    return any(kw in text for kw in _evaluator.CHILD_SAFEGUARDING_KEYWORDS)
 # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
 
 
@@ -2913,6 +2803,7 @@ def _render_live_score_preview(slot: int = 1):
     clar_label  = ev.get("clarity_label", "—")
     conf_comp   = ev.get("confidence_components", {})
     clar_comp   = ev.get("clarity_components", {})
+    compliance_comp = ev.get("compliance_components", {})
 
     # --- v3.4: cache "what to fix" so destination tabs can show highlighted notes ---
     s = _slot_suffix(slot)
@@ -2923,7 +2814,8 @@ def _render_live_score_preview(slot: int = 1):
 
     # Headline: is this good enough to submit?
     _live_diag_state, _ = get_diagnostic_state(raw_conf, clar_score, content_issues, sub.get("beneficiary_voice", ""),
-                                                direct_level=conf_comp.get("direct_level", 5))
+                                                direct_level=conf_comp.get("direct_level", 5),
+                                                compliance_hard_gate=compliance_comp.get("child_safety_gap_unaddressed", False))
     if _live_diag_state != "INVALID INPUT":
         _render_readiness_banner(_live_diag_state)
 
@@ -2988,7 +2880,8 @@ def _render_live_score_preview(slot: int = 1):
         ], key=f"live_clar_chart{s}")
 
     # Gate assessment uses penalized conf_score
-    state, state_sub = get_diagnostic_state(conf_score, clar_score, direct_level=conf_comp.get("direct_level", 5))
+    state, state_sub = get_diagnostic_state(conf_score, clar_score, direct_level=conf_comp.get("direct_level", 5),
+                                             compliance_hard_gate=compliance_comp.get("child_safety_gap_unaddressed", False))
     st.caption(f"Status: **{state}** — {state_sub}")
 
     # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
@@ -3013,19 +2906,21 @@ def _render_live_score_preview(slot: int = 1):
     # --- END UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
 
     # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
-    gov_score, pii_selected, gov_gaps, safeguarding_triggered, minors_involved = _compute_governance_score(slot)
+    # Sourced from evaluator.compute_compliance_layer() via ev, computed once
+    # inside evaluate_submission() -- this is now the single place the math
+    # lives (previously duplicated here as a display-only preview that never
+    # reached the persisted evaluation; see evaluator.py's module note).
+    gov_score = compliance_comp.get("compliance_score", 0)
+    gov_gaps  = compliance_comp.get("gaps", [])
     conf_100 = round(raw_conf * 20, 1)
     gov_adjustment = round(gov_score * 0.3, 1)
-    if gov_score == 0 and (pii_selected or safeguarding_triggered or minors_involved):
+    if compliance_comp.get("child_safety_gap_unaddressed"):
         gov_adjustment -= 8
     adjusted_conf = min(100.0, conf_100 + gov_adjustment)
 
-    st.session_state["_gov_score_computed"] = gov_score
-    st.session_state["_gov_gaps_computed"]  = gov_gaps
-    st.session_state["_gov_pii_computed"]   = pii_selected
-    st.session_state["_conf_adj_computed"]  = adjusted_conf
+    st.session_state["_gov_gaps_computed"] = gov_gaps
 
-    # Read governance field values for display (scoring unchanged — uses _compute_governance_score above)
+    # Read governance field values for display (scoring unchanged — uses ev["compliance_components"] above)
     _disp_consent    = st.session_state.get(f"gov_consent_status{s}", "")
     _disp_anon       = st.session_state.get(f"gov_anonymization_status{s}", "")
     _disp_law        = st.session_state.get(f"gov_compliance_law_status{s}", "")
@@ -3290,6 +3185,15 @@ def _build_submission_from_session(slot: int = 1) -> dict:
             "collector_independent":   st.session_state.get(f"provenance_independence{s}", "Choose an option..."),
             "recall_period_ok":        st.session_state.get(f"provenance_recall{s}", "Choose an option..."),
             "auditor_traceable":       st.session_state.get(f"provenance_traceability{s}", "Choose an option..."),
+        },
+        "governance_checklist": {
+            "consent_status":            st.session_state.get(f"gov_consent_status{s}", "Choose an option..."),
+            "anonymization_status":      st.session_state.get(f"gov_anonymization_status{s}", "Choose an option..."),
+            "compliance_law_status":     st.session_state.get(f"gov_compliance_law_status{s}", "Choose an option..."),
+            "safeguarding_status":       st.session_state.get(f"gov_safeguarding_status{s}", "Choose an option..."),
+            "child_safeguarding_status": st.session_state.get(f"gov_child_safeguarding_status{s}", "Choose an option..."),
+            "secure_handling_status":    st.session_state.get(f"gov_secure_handling_status{s}", "Choose an option..."),
+            "dpp_uploaded":              st.session_state.get("gov_dpp_uploaded", False),
         },
         "qualitative_evidence": st.session_state.get(f"qualitative_evidence{s}", False),
         "qualitative_rigor_checklist": {
@@ -4372,8 +4276,8 @@ def _render_tab3_slot(slot: int):
 
     # Determine whether to auto-open the detail expander (PII/safeguarding triggers)
     _ev_type_now = st.session_state.get(f"evidence_type{s}", "")
-    _pii_triggered = _ev_type_now in PII_EVIDENCE_TYPES
-    _safeguarding_triggered = _ev_type_now in SAFEGUARDING_EVIDENCE_TYPES
+    _pii_triggered = _ev_type_now in _evaluator.PII_EVIDENCE_TYPES
+    _safeguarding_triggered = _ev_type_now in _evaluator.SAFEGUARDING_EVIDENCE_TYPES
     _minors_triggered = _minors_possibly_involved(slot)
     _compliance_needed = _pii_triggered or _safeguarding_triggered or _minors_triggered
 
@@ -8081,6 +7985,7 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     verdict      = ev.get("verdict", "")
     conf_comp    = ev.get("confidence_components", {})
     clar_comp    = ev.get("clarity_components", {})
+    compliance_comp = ev.get("compliance_components", {})
     fixes        = ev.get("fixes", [])
 
     snippet = submission.get("result_statement", "")
@@ -8093,7 +7998,8 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     content_issues    = ev.get("content_issues", [])
     bv_voice_field    = submission.get("beneficiary_voice", "")
     diag_state, diag_sub = get_diagnostic_state(conf_score, clar_score, content_issues, bv_voice_field,
-                                                 direct_level=conf_comp.get("direct_level", 5))
+                                                 direct_level=conf_comp.get("direct_level", 5),
+                                                 compliance_hard_gate=compliance_comp.get("child_safety_gap_unaddressed", False))
 
     # Single status signal — diagnostic badge carries state + description
     diag_cfg = _DIAGNOSTIC_BADGE.get(diag_state, {"bg": "#9E9E9E", "text": "#FFFFFF", "subtitle": ""})
@@ -12203,6 +12109,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
         evaluation.get("content_issues", []),
         submission.get("beneficiary_voice", ""),
         direct_level=evaluation.get("confidence_components", {}).get("direct_level", 5),
+        compliance_hard_gate=evaluation.get("compliance_components", {}).get("child_safety_gap_unaddressed", False),
     )
     _readiness_html = _readiness_banner_html(_diag_state)
 
