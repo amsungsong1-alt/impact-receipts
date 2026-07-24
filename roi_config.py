@@ -2,10 +2,14 @@
 roi_config.py — per-country/currency MEL consultant day-rate ranges and the
 ROI/rework-cost framing derived from them, for the pricing page and paywall.
 
-Only GHS has a sourced figure (DevEx MEL Salary Survey 2024). All other
-currencies are estimates pending real sourcing — see is_estimated below.
-Do not treat estimated ranges as citable; the UI must visibly flag them
-differently from the GHS figure.
+GHS, USD, and EUR have sourced figures (see each entry's "source" field).
+NGN, KES, ZAR, and GBP are estimates pending real sourcing -- day-rate
+consulting data for these was searched for and not found at a comparable
+quality bar (see is_estimated below); only annual-salary or generic
+non-development-sector consulting data turned up, which wasn't reliable
+enough to convert into a day rate without inventing a multiplier. Do not
+treat estimated ranges as citable; the UI must visibly flag them
+differently from the sourced figures.
 """
 
 ROI_DAY_RATES = {
@@ -43,11 +47,12 @@ ROI_DAY_RATES = {
     },
     "USD": {
         "country_label": "International (USD)",
-        "day_rate_low": 250,
-        "day_rate_high": 450,
+        "day_rate_low": 430,
+        "day_rate_high": 650,
         "currency_symbol": "$",
-        "is_estimated": True,
-        "source": "",
+        "is_estimated": False,
+        "source": "UN Office of Human Resources Policy Guideline OHR/PG/2025/2 "
+                   "(17 Jan 2025), international consultant fee scale, Level C",
     },
     "GBP": {
         "country_label": "International (GBP)",
@@ -59,11 +64,13 @@ ROI_DAY_RATES = {
     },
     "EUR": {
         "country_label": "International (EUR)",
-        "day_rate_low": 220,
-        "day_rate_high": 380,
+        "day_rate_low": 400,
+        "day_rate_high": 800,
         "currency_symbol": "€",
-        "is_estimated": True,
-        "source": "",
+        "is_estimated": False,
+        "source": "EU development-cooperation consultancy assignment rates "
+                   "(junior 3-5yr to senior 10+yr experts), via DevelopmentAid "
+                   "recruiter guide",
     },
 }
 
