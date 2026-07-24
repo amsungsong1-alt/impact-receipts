@@ -29,6 +29,7 @@ import framework_crosswalk as _framework_crosswalk
 import metrics
 from diagnostics import (
     _DIAGNOSTIC_BADGE, _READINESS_BAND, _READINESS_STYLE, _LIMITS_DISCLAIMER,
+    _TRUTHFULNESS_DISCLAIMER,
     _readiness_banner_html, get_diagnostic_state,
     _BRAND_BADGE, _VERDICT_CSS, _DIRECTNESS_TIPS, _VERIFICATION_TIPS,
     _RECENCY_TIPS, _CLARITY_TIPS, _SCORING_GUIDE, _axis_badge_html,
@@ -1458,7 +1459,7 @@ def _render_readiness_banner(diag_state: str):
         f"</div>",
         unsafe_allow_html=True,
     )
-    st.caption(_LIMITS_DISCLAIMER)
+    st.caption(f"{_LIMITS_DISCLAIMER} {_TRUTHFULNESS_DISCLAIMER}")
 
 
 INTERNAL_REVIEW_OPTIONS = [

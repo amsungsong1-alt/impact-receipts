@@ -73,6 +73,15 @@ _LIMITS_DISCLAIMER = (
     "Guidance only — your donor makes the final call, not this tool."
 )
 
+# Rule-based dimensions (esp. Directness) are satisfied by pattern-matching
+# the evidence description, not by independently verifying the underlying
+# claim is true -- shown alongside _LIMITS_DISCLAIMER so a well-written but
+# unsubstantiated description doesn't read as independently verified.
+_TRUTHFULNESS_DISCLAIMER = (
+    "Scores reflect what your evidence is described as containing, "
+    "not independent verification that it's true."
+)
+
 
 def _readiness_banner_html(diag_state: str) -> str:
     band = _READINESS_BAND.get(diag_state, "Needs Work")
@@ -84,7 +93,7 @@ def _readiness_banner_html(diag_state: str) -> str:
         f"{style['icon']} {band} &mdash; {style['caption']}"
         f"</div>"
         f"<p style='color:#424242;font-size:0.875rem;text-align:center;margin:-8px 0 16px;'>"
-        f"{_LIMITS_DISCLAIMER}</p>"
+        f"{_LIMITS_DISCLAIMER} {_TRUTHFULNESS_DISCLAIMER}</p>"
     )
 
 

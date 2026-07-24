@@ -908,9 +908,31 @@ def run_monthly_trend_summary():
           "all-passing month, and NaN safety verified.")
 
 
+def run_truthfulness_disclaimer():
+    failures = []
+
+    if not diagnostics._TRUTHFULNESS_DISCLAIMER:
+        failures.append("_TRUTHFULNESS_DISCLAIMER must be a non-empty string")
+
+    _banner_html = diagnostics._readiness_banner_html("STRONG")
+    if "independent verification" not in _banner_html:
+        failures.append(
+            "_readiness_banner_html() must include the truthfulness disclaimer "
+            f"('independent verification' not found in: {_banner_html!r})"
+        )
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: truthfulness disclaimer — present in the readiness banner HTML.")
+
+
 if __name__ == "__main__":
     run()
     run_systemic_gaps()
     run_framework_crosswalk()
     run_sector_tailoring()
     run_monthly_trend_summary()
+    run_truthfulness_disclaimer()
