@@ -106,6 +106,7 @@ def get_diagnostic_state(
     clarity: float,
     content_issues: list | None = None,
     beneficiary_voice: str = "",
+    direct_level: int = 5,
 ) -> tuple:
     if content_issues and len(content_issues) >= 2:
         return (
@@ -117,6 +118,13 @@ def get_diagnostic_state(
             return (
                 "NEEDS REFINEMENT",
                 "Strong on both axes — add beneficiary feedback to reach the highest evidence tier.",
+            )
+        if direct_level < 4:
+            return (
+                "NEEDS REFINEMENT",
+                "Strong on documentation completeness — but your evidence for HOW the programme "
+                "caused this result is still activity-level. Add comparison/baseline data or a "
+                "causal-link narrative to reach Submission-Ready.",
             )
         return "STRONG", "Ready for submission"
     if confidence >= 3.5 and clarity < 3.0:

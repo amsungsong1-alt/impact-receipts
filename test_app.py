@@ -908,6 +908,56 @@ def run_monthly_trend_summary():
           "all-passing month, and NaN safety verified.")
 
 
+def run_directness_floor():
+    """Gap 3 fix: the literal repro case from the third-party stress-test
+    report. CASES["strong"] uses attendance-sheet evidence (Directness
+    level 3/5 -- "activity occurred, not yet contribution") but reaches
+    aggregate confidence/clarity >= 4.0 via maxed Verification/Recency/
+    Clarity. Before this fix, get_diagnostic_state() had no per-dimension
+    floor, so this reached the top "STRONG" badge despite Directness never
+    leaving "activity-level" territory. Must now be NEEDS REFINEMENT."""
+    failures = []
+
+    ev = evaluator.evaluate_submission(CASES["strong"])
+    direct_level = ev["confidence_components"]["direct_level"]
+    if direct_level != 3:
+        failures.append(
+            f"CASES['strong'] expected direct_level 3 (programme-records tier), got {direct_level} "
+            "-- if evidence-scoring logic changed, re-verify this test's premise still holds."
+        )
+
+    _diag_state, _ = diagnostics.get_diagnostic_state(
+        ev["confidence_score"], ev["clarity_score"], [],
+        CASES["strong"].get("beneficiary_voice", ""),
+        direct_level=direct_level,
+    )
+    if _diag_state != "NEEDS REFINEMENT":
+        failures.append(
+            f"CASES['strong'] (activity-only Directness evidence) should be gated to "
+            f"NEEDS REFINEMENT by the Directness floor, got {_diag_state!r}"
+        )
+
+    # Regression guard: the floor doesn't fire when direct_level clears the
+    # comparison/causal-link tier (>=4), even with identical aggregate scores.
+    _diag_state_ok, _ = diagnostics.get_diagnostic_state(4.2, 5.0, [], "", direct_level=4)
+    if _diag_state_ok != "STRONG":
+        failures.append(f"direct_level=4 (comparison/causal-link tier) should not trigger the floor, got {_diag_state_ok!r}")
+
+    # Default direct_level=5 (omitted) preserves old behavior for any caller
+    # that doesn't pass it.
+    _diag_state_default, _ = diagnostics.get_diagnostic_state(4.2, 5.0, [], "")
+    if _diag_state_default != "STRONG":
+        failures.append(f"omitting direct_level should default to no-floor-concern (5), got {_diag_state_default!r}")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: Directness floor — activity-only causal evidence can no longer reach "
+          "Submission-Ready via compensation from other dimensions.")
+
+
 def run_truthfulness_disclaimer():
     failures = []
 
@@ -935,4 +985,5 @@ if __name__ == "__main__":
     run_framework_crosswalk()
     run_sector_tailoring()
     run_monthly_trend_summary()
+    run_directness_floor()
     run_truthfulness_disclaimer()
