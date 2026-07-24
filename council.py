@@ -111,6 +111,30 @@ COUNCIL_MEMBERS = [
 
 _MEMBER_BY_ID = {m["id"]: m for m in COUNCIL_MEMBERS}
 
+# Always-on for the Critical Reviewer ("contrarian"), regardless of score level
+# or verdict branch -- appended directly in build_member_system_prompt(), NOT
+# folded into COUNCIL_MEMBERS' "instruction" field and NOT routed through
+# _verdict_modifier(), so no future edit to the verdict-aware modifier logic
+# can accidentally silence it. This exists because evaluator.py's Directness
+# scoring is deterministic keyword/phrase-presence matching, not a semantic
+# truth check -- a fabricated one-sentence claim containing the right
+# buzzwords can score the maximum level. This instruction is the advisory-
+# layer countermeasure (never a scoring-layer one -- see CLAUDE.md's rule
+# against letting an AI call touch compute_confidence/compute_clarity/the
+# diagnostic classifier/banding thresholds).
+_CRITICAL_REVIEWER_SUBSTANCE_CHECK = (
+    "ALWAYS-ON SUBSTANCE CHECK (applies at every score level, never softened): "
+    "This tool's Directness score is based on keyword/phrase matching in the evidence "
+    "description, not a semantic check of whether the claim is actually true. A "
+    "well-written but thin claim can score the maximum level just by containing the "
+    "right methodological language (e.g. 'triangulated', 'ruled out alternative "
+    "explanations', 'baseline/endline'), without any real names, numbers, dates, "
+    "methods, or sample sizes behind it. As part of your 2 weaknesses, explicitly "
+    "assess whether the evidence description reads as genuinely substantiated or "
+    "merely keyword-pattern-matched. If it is thin despite scoring well, name that "
+    "as one of your 2 weaknesses even when the overall scores look strong."
+)
+
 # ---------------------------------------------------------------------------
 # Shared context builder
 # ---------------------------------------------------------------------------
@@ -174,8 +198,18 @@ def _verdict_modifier(member_id: str, ev: dict) -> str:
     clar = ev.get("clarity_score", 0)
     threshold = 4.0  # matches SUBMISSION_THRESHOLD in evaluator.py
 
-    # Both strong — refinement mode
+    # Both strong — refinement mode (except the Critical Reviewer, which must
+    # not soften scrutiny exactly when a submission has cleared the score
+    # thresholds -- see _CRITICAL_REVIEWER_SUBSTANCE_CHECK's docstring above)
     if conf >= threshold and clar >= threshold:
+        if member_id == "contrarian":
+            return (
+                "NOTE: This result scores well on both axes. Do NOT soften your scrutiny "
+                "because of that — a high score can come from evidence that matches the "
+                "right keywords without being genuinely substantiated (see the substance "
+                "check in your instructions). Your job is unchanged: name exactly 2 "
+                "weaknesses a skeptical donor reviewer would flag."
+            )
         return (
             "NOTE: This result scores well on both axes. "
             "Frame your assessment as refinement, not remediation. "
@@ -222,8 +256,9 @@ def build_member_system_prompt(member_id: str, submission: dict, ev: dict) -> st
     context  = _build_shared_context(submission, ev)
     modifier = _verdict_modifier(member_id, ev)
     extra    = f"\n{modifier}" if modifier else ""
+    substance_check = f"\n{_CRITICAL_REVIEWER_SUBSTANCE_CHECK}" if member_id == "contrarian" else ""
     return (
-        f"{member['instruction']}{extra}\n\n"
+        f"{member['instruction']}{extra}{substance_check}\n\n"
         f"RULES:\n"
         f"1. Base your assessment ONLY on the data provided below.\n"
         f"2. Never suggest exaggerating, falsifying, or inflating reported numbers.\n"

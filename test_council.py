@@ -243,6 +243,47 @@ def run_logframe_match():
     print("PASS: logframe match — accepts real candidates, rejects invented ones, degrades safely.")
 
 
+def run_critical_reviewer_substance_check():
+    """Gap 4 fix: the Critical Reviewer ("contrarian") must always carry the
+    keyword-vs-substance check, and must never receive the "refinement, not
+    remediation" softening the other 4 personas get when both axes score
+    well -- since that's exactly when a keyword-gamed submission needs the
+    most scrutiny, not the least."""
+    failures = []
+
+    submission = {"result_statement": "x", "target_group": "y"}
+
+    # 1. Both axes strong: Critical Reviewer keeps the substance check, and
+    # does NOT get the "refinement, not remediation" softening.
+    ev_strong = {"confidence_score": 4.5, "clarity_score": 4.5}
+    prompt_contrarian_strong = council.build_member_system_prompt("contrarian", submission, ev_strong)
+    if "ALWAYS-ON SUBSTANCE CHECK" not in prompt_contrarian_strong:
+        failures.append("Critical Reviewer prompt (both axes strong) is missing the substance check")
+    if "Frame your assessment as refinement, not remediation." in prompt_contrarian_strong:
+        failures.append("Critical Reviewer prompt (both axes strong) should NOT be softened into refinement mode")
+
+    # 2. Regression guard: the other 4 personas still get softened when both
+    # axes score well -- only the Critical Reviewer's behavior changed.
+    prompt_strategist_strong = council.build_member_system_prompt("strategist", submission, ev_strong)
+    if "Frame your assessment as refinement, not remediation." not in prompt_strategist_strong:
+        failures.append("Programme Strategist prompt (both axes strong) should still be softened into refinement mode")
+
+    # 3. Both axes weak: substance check is still present -- confirms it's
+    # truly always-on, not just active in the "both strong" branch.
+    ev_weak = {"confidence_score": 2.0, "clarity_score": 2.0}
+    prompt_contrarian_weak = council.build_member_system_prompt("contrarian", submission, ev_weak)
+    if "ALWAYS-ON SUBSTANCE CHECK" not in prompt_contrarian_weak:
+        failures.append("Critical Reviewer prompt (both axes weak) is missing the substance check")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: Critical Reviewer substance check — always-on, never softened by verdict-mode framing.")
+
+
 if __name__ == "__main__":
     run()
     run_logframe_match()
+    run_critical_reviewer_substance_check()
