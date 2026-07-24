@@ -58,10 +58,6 @@ try:
         initialize_payment, verify_payment, last_payment_error,
         initialize_subscription_payment, disable_subscription,
     )
-    from utils.flutterwave_payments import (
-        create_checkout_session as flutterwave_create_checkout_session,
-        last_payment_error as flutterwave_last_payment_error,
-    )
     from utils.anonymize import anonymize as _anonymize_value
     from utils.auth import (
         send_login_email, verify_magic_link_token, redeem_magic_link_token,
@@ -95,8 +91,6 @@ except ImportError:
     def last_payment_error(): return ""
     def initialize_subscription_payment(e, a, plan_code, plan_label): return ""
     def disable_subscription(subscription_code, email_token): return False, "Billing is not configured."
-    def flutterwave_create_checkout_session(email, amount_minor_units, currency, plan, mode="payment", payment_plan_id=""): return ""
-    def flutterwave_last_payment_error(): return ""
     def _anonymize_value(v): return None
     def send_login_email(e, base_url): return False, "Login is not configured.", ""
     def verify_magic_link_token(t): return None
@@ -2150,7 +2144,7 @@ def _init_from_query_params() -> None:
         return
     st.session_state["_nav_initialized"] = True
     _p = st.query_params
-    if any(k in _p for k in ("paystack_ref", "reference", "trxref", "login_token", "transaction_id")):
+    if any(k in _p for k in ("paystack_ref", "reference", "trxref", "login_token")):
         return
     if "screen" in _p:
         try:
@@ -2557,43 +2551,26 @@ def _plan_code(secret_name: str) -> str:
     return _secret(secret_name)
 
 
-def _flutterwave_plan_id(plan: str, currency: str) -> str:
-    """Read a FLUTTERWAVE_PLAN_*_{CURRENCY} payment-plan id from
-    secrets/env (see scripts/setup_flutterwave_plans.py). Empty string if
-    not configured yet -- unlike Paystack's Subscribe buttons, there is no
-    plain-one-off fallback here, since Flutterwave has no equivalent of
-    Stripe's inline recurring price_data; a missing plan id means the
-    Subscribe button shows a clear error instead of silently charging a
-    one-off amount."""
-    _names = {
-        ("monthly", "USD"): "FLUTTERWAVE_PLAN_PROFESSIONAL_MONTHLY_USD",
-        ("monthly", "GBP"): "FLUTTERWAVE_PLAN_PROFESSIONAL_MONTHLY_GBP",
-        ("monthly", "EUR"): "FLUTTERWAVE_PLAN_PROFESSIONAL_MONTHLY_EUR",
-        ("annual", "USD"): "FLUTTERWAVE_PLAN_PROFESSIONAL_ANNUAL_USD",
-        ("annual", "GBP"): "FLUTTERWAVE_PLAN_PROFESSIONAL_ANNUAL_GBP",
-        ("annual", "EUR"): "FLUTTERWAVE_PLAN_PROFESSIONAL_ANNUAL_EUR",
-        ("agency", "USD"): "FLUTTERWAVE_PLAN_AGENCY_MONTHLY_USD",
-        ("agency", "GBP"): "FLUTTERWAVE_PLAN_AGENCY_MONTHLY_GBP",
-        ("agency", "EUR"): "FLUTTERWAVE_PLAN_AGENCY_MONTHLY_EUR",
-    }
-    _secret_name = _names.get((plan, currency), "")
-    return _secret(_secret_name) if _secret_name else ""
-
-
 def _checkout_route_for_currency(currency: str) -> str:
-    """Decides which processor actually handles a checkout for the given
-    display currency. GHS charges natively via Paystack. NGN/KES/ZAR still
-    charge the GHS amount via Paystack (the merchant account is Ghana-only
-    and cannot settle those currencies) -- callers must show a disclaimer
-    that the charge will appear in GHS. USD/GBP/EUR route to Flutterwave,
-    which charges the real converted amount (Stripe was the original
-    choice, but Stripe requires the merchant business to be incorporated
-    in one of its supported countries, which does not include Ghana)."""
-    if currency in ("NGN", "KES", "ZAR"):
-        return "paystack_ghs_fallback"
-    if currency in ("USD", "GBP", "EUR"):
-        return "flutterwave"
-    return "paystack_native"
+    """Decides how a checkout for the given display currency is actually
+    charged. GHS charges natively via Paystack. Every other currency
+    (NGN/KES/ZAR/USD/GBP/EUR) still charges the GHS amount via the same
+    Paystack account -- Paystack already accepts foreign-issued cards on a
+    GHS-denominated charge (the cardholder's own bank converts at the
+    point of sale, same as any foreign-card purchase), and the Ghana
+    merchant account can't settle in a second currency anyway. Callers
+    must show a disclaimer that the charge will appear in GHS.
+
+    (Stripe and Flutterwave were both evaluated as a second processor for
+    USD/GBP/EUR -- Stripe requires the merchant business to be
+    incorporated in one of its supported countries, which does not
+    include Ghana; Flutterwave's Ghana onboarding is currently
+    enterprise-only ($5M+ annual volume). Neither is available at this
+    business's current stage, hence routing everything through the
+    existing Paystack account instead.)"""
+    if currency == "GHS":
+        return "paystack_native"
+    return "paystack_ghs_fallback"
 
 
 def _render_currency_selector(key: str) -> str:
@@ -2661,12 +2638,7 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                            use_container_width=True, type="primary")
         elif st.button("Pay for 1 Check", key="pay_once", use_container_width=True):
             with st.spinner("Preparing payment link…"):
-                if _route == "flutterwave":
-                    _url = flutterwave_create_checkout_session(
-                        email, exchange_rates.convert_pesewas(PRICE_PER_CHECK_GHS, _currency),
-                        _currency, "per_use", mode="payment")
-                else:
-                    _url = initialize_payment(email, PRICE_PER_CHECK_GHS, "per_use")
+                _url = initialize_payment(email, PRICE_PER_CHECK_GHS, "per_use")
             if _url:
                 st.session_state["_pay_once_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
@@ -2674,7 +2646,7 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                 _log_upgrade_prompt_crm("upgrade_prompt_clicked", prompt_context)
                 st.rerun()
             else:
-                _detail = flutterwave_last_payment_error() if _route == "flutterwave" else last_payment_error()
+                _detail = last_payment_error()
                 st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
     with _c2:
         st.markdown(f"**Professional:** {_disp_monthly}/month")
@@ -2684,18 +2656,12 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                            use_container_width=True, type="primary")
         elif st.button("Subscribe Professional", key="pay_monthly", use_container_width=True, type="primary"):
             with st.spinner("Preparing payment link…"):
-                if _route == "flutterwave":
-                    _url = flutterwave_create_checkout_session(
-                        email, exchange_rates.convert_pesewas(PRICE_MONTHLY_GHS, _currency),
-                        _currency, "monthly", mode="subscription",
-                        payment_plan_id=_flutterwave_plan_id("monthly", _currency))
-                else:
-                    _plan_monthly = _plan_code("PAYSTACK_PLAN_PROFESSIONAL_MONTHLY")
-                    _url = (
-                        initialize_subscription_payment(email, PRICE_MONTHLY_GHS, _plan_monthly, "monthly")
-                        if _plan_monthly else
-                        initialize_payment(email, PRICE_MONTHLY_GHS, "monthly")
-                    )
+                _plan_monthly = _plan_code("PAYSTACK_PLAN_PROFESSIONAL_MONTHLY")
+                _url = (
+                    initialize_subscription_payment(email, PRICE_MONTHLY_GHS, _plan_monthly, "monthly")
+                    if _plan_monthly else
+                    initialize_payment(email, PRICE_MONTHLY_GHS, "monthly")
+                )
             if _url:
                 st.session_state["_pay_monthly_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
@@ -2703,7 +2669,7 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                 _log_upgrade_prompt_crm("upgrade_prompt_clicked", prompt_context)
                 st.rerun()
             else:
-                _detail = flutterwave_last_payment_error() if _route == "flutterwave" else last_payment_error()
+                _detail = last_payment_error()
                 st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
         if st.session_state.get("_pay_annual_url"):
             st.link_button(f"Complete annual payment →", st.session_state["_pay_annual_url"],
@@ -2711,18 +2677,12 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
         elif st.button(f"Or pay {_disp_annual}/year (2 months free)",
                        key="pay_annual", use_container_width=True):
             with st.spinner("Preparing payment link…"):
-                if _route == "flutterwave":
-                    _url = flutterwave_create_checkout_session(
-                        email, exchange_rates.convert_pesewas(PRICE_ANNUAL_GHS, _currency),
-                        _currency, "annual", mode="subscription",
-                        payment_plan_id=_flutterwave_plan_id("annual", _currency))
-                else:
-                    _plan_annual = _plan_code("PAYSTACK_PLAN_PROFESSIONAL_ANNUAL")
-                    _url = (
-                        initialize_subscription_payment(email, PRICE_ANNUAL_GHS, _plan_annual, "annual")
-                        if _plan_annual else
-                        initialize_payment(email, PRICE_ANNUAL_GHS, "annual")
-                    )
+                _plan_annual = _plan_code("PAYSTACK_PLAN_PROFESSIONAL_ANNUAL")
+                _url = (
+                    initialize_subscription_payment(email, PRICE_ANNUAL_GHS, _plan_annual, "annual")
+                    if _plan_annual else
+                    initialize_payment(email, PRICE_ANNUAL_GHS, "annual")
+                )
             if _url:
                 st.session_state["_pay_annual_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
@@ -2730,7 +2690,7 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                 _log_upgrade_prompt_crm("upgrade_prompt_clicked", prompt_context)
                 st.rerun()
             else:
-                _detail = flutterwave_last_payment_error() if _route == "flutterwave" else last_payment_error()
+                _detail = last_payment_error()
                 st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
     with _c3:
         st.markdown(f"**Agency:** {_disp_agency}/month")
@@ -2740,18 +2700,12 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                            use_container_width=True)
         elif st.button("Subscribe Agency", key="pay_agency", use_container_width=True):
             with st.spinner("Preparing payment link…"):
-                if _route == "flutterwave":
-                    _url = flutterwave_create_checkout_session(
-                        email, exchange_rates.convert_pesewas(PRICE_AGENCY_GHS, _currency),
-                        _currency, "agency", mode="subscription",
-                        payment_plan_id=_flutterwave_plan_id("agency", _currency))
-                else:
-                    _plan_agency = _plan_code("PAYSTACK_PLAN_AGENCY_MONTHLY")
-                    _url = (
-                        initialize_subscription_payment(email, PRICE_AGENCY_GHS, _plan_agency, "agency")
-                        if _plan_agency else
-                        initialize_payment(email, PRICE_AGENCY_GHS, "agency")
-                    )
+                _plan_agency = _plan_code("PAYSTACK_PLAN_AGENCY_MONTHLY")
+                _url = (
+                    initialize_subscription_payment(email, PRICE_AGENCY_GHS, _plan_agency, "agency")
+                    if _plan_agency else
+                    initialize_payment(email, PRICE_AGENCY_GHS, "agency")
+                )
             if _url:
                 st.session_state["_pay_agency_url"] = _url
                 metrics.log_event("payment_initiated", _metrics_session_id())
@@ -2759,19 +2713,13 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                 _log_upgrade_prompt_crm("upgrade_prompt_clicked", prompt_context)
                 st.rerun()
             else:
-                _detail = flutterwave_last_payment_error() if _route == "flutterwave" else last_payment_error()
+                _detail = last_payment_error()
                 st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
 
-    if _route == "flutterwave":
-        st.caption(
-            "Paid securely via Flutterwave — card. "
-            "If you are charged but not unlocked, contact us within 24 hours."
-        )
-    else:
-        st.caption(
-            "Paid securely via Paystack — MTN MoMo, Telecel, Visa/Mastercard. "
-            "If you are charged but not unlocked, contact us within 24 hours."
-        )
+    st.caption(
+        "Paid securely via Paystack — MTN MoMo, Telecel, Visa/Mastercard. "
+        "If you are charged but not unlocked, contact us within 24 hours."
+    )
     # Payment support WhatsApp CTA — server-side notification (council XXIV)
     _ps_email  = st.session_state.get("user_email", "")
     _ps_wa_key = "wa_payment_support_clicked"
@@ -5015,25 +4963,6 @@ def _complete_email_login(email: str) -> None:
                 _crm_log_event(email, "tier_change", metadata={"plan_label": _pr.get("plan"), "days": _pr_days})
             except Exception:
                 pass
-    _pending_flw_id = st.session_state.pop("pending_flutterwave_transaction_id", None)
-    if _pending_flw_id:
-        from utils.flutterwave_payments import verify_transaction
-        _spr = verify_transaction(_pending_flw_id)
-        if _spr.get("status") == "success":
-            _spr_plan = _spr.get("plan", "per_use")
-            _spr_days = 365 if _spr_plan == "annual" else (30 if _spr_plan in ("monthly", "agency") else 1)
-            mark_paid(email, days=_spr_days)
-            if _spr_plan == "agency":
-                set_user_plan(email, "agency")
-            elif _spr_plan in ("monthly", "annual"):
-                set_user_plan(email, "professional")
-            st.session_state["is_paid"] = True
-            metrics.log_event("payment_completed", email)
-            try:
-                from utils.crm import log_event as _crm_log_event
-                _crm_log_event(email, "tier_change", metadata={"plan_label": _spr_plan, "days": _spr_days})
-            except Exception:
-                pass
     for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
         st.session_state.pop(_k, None)
     # Restore draft from Supabase if the user is returning after a refresh
@@ -5536,10 +5465,7 @@ def render_pricing_page():
     _pq_wa_key = "wa_pricing_q_clicked"
     _pq_col1, _pq_col2 = st.columns([2, 1])
     with _pq_col1:
-        if _route == "flutterwave":
-            st.caption(f"Prices shown in {_currency}, converted daily from GHS. Paid via Flutterwave (card). "
-                       "Cancel anytime.")
-        elif _route == "paystack_ghs_fallback":
+        if _route == "paystack_ghs_fallback":
             st.caption(f"Prices shown in {_currency} (converted daily from GHS) for reference — "
                        "you'll be charged the GHS amount via Paystack (card, MoMo, bank). Cancel anytime.")
         else:
@@ -13489,64 +13415,6 @@ def main():
             except Exception:
                 pass
     # --- End Paystack handler ---
-
-    # --- Flutterwave payment callback handler (USD/GBP/EUR) ---
-    # Mirrors the Paystack handler above; Flutterwave appends
-    # "?status=...&tx_ref=...&transaction_id=..." to the bare redirect_url
-    # (see utils/flutterwave_payments.create_checkout_session) -- the
-    # `status` query param is client-controllable and never trusted
-    # directly; verify_transaction() re-checks it against Flutterwave's API.
-    _flw_transaction_id = st.query_params.get("transaction_id", "")
-    if _flw_transaction_id:
-        from utils.flutterwave_payments import verify_transaction
-        _spay_result = verify_transaction(_flw_transaction_id)
-        if _spay_result.get("status") == "success":
-            _spay_email = (_spay_result.get("email") or st.session_state.get("user_email") or "").strip().lower()
-            if _spay_email:
-                _splan = _spay_result.get("plan", "per_use")
-                _sdays = 365 if _splan == "annual" else (30 if _splan in ("monthly", "agency") else 1)
-                upsert_user(_spay_email)
-                mark_paid(_spay_email, days=_sdays)
-                if _splan == "agency":
-                    set_user_plan(_spay_email, "agency")
-                elif _splan in ("monthly", "annual"):
-                    set_user_plan(_spay_email, "professional")
-                st.session_state["user_email"] = _spay_email
-                st.session_state["is_paid"] = True
-                metrics.log_event("payment_completed", _spay_email)
-                try:
-                    from utils.crm import log_event as _crm_log_event
-                    _crm_log_event(_spay_email, "tier_change", metadata={"plan_label": _splan, "days": _sdays})
-                except Exception:
-                    pass
-                st.session_state.pop("_pay_once_url", None)
-                st.session_state.pop("_pay_monthly_url", None)
-                st.session_state.pop("_pay_agency_url", None)
-                st.session_state.pop("_pay_annual_url", None)
-                st.session_state["screen"] = 1
-                st.session_state["current_tab"] = 0
-                st.query_params["screen"] = "1"
-                st.query_params["tab"] = "0"
-                st.session_state["entry_mode"] = "⚡ Instant Report Check"
-                st.session_state["_payment_success"] = True
-                try:
-                    st.query_params.clear()
-                except Exception:
-                    pass
-                st.rerun()
-            else:
-                st.session_state["pending_flutterwave_transaction_id"] = _flw_transaction_id
-                try:
-                    st.query_params.clear()
-                except Exception:
-                    pass
-        elif _spay_result.get("status") == "failed":
-            st.warning("Payment didn't go through. Please try again.")
-            try:
-                st.query_params.clear()
-            except Exception:
-                pass
-    # --- End Flutterwave handler ---
 
     _init_from_query_params()
     _ensure_currency_default()

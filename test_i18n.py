@@ -209,9 +209,9 @@ def run_checkout_routing():
         "NGN": "paystack_ghs_fallback",
         "KES": "paystack_ghs_fallback",
         "ZAR": "paystack_ghs_fallback",
-        "USD": "flutterwave",
-        "GBP": "flutterwave",
-        "EUR": "flutterwave",
+        "USD": "paystack_ghs_fallback",
+        "GBP": "paystack_ghs_fallback",
+        "EUR": "paystack_ghs_fallback",
     }
     for currency, want in expected.items():
         got = app._checkout_route_for_currency(currency)
@@ -223,7 +223,7 @@ def run_checkout_routing():
         for f in failures:
             print("  -", f)
         raise SystemExit(1)
-    print("PASS: checkout routing — GHS native, NGN/KES/ZAR fall back to Paystack GHS charge, USD/GBP/EUR route to Flutterwave.")
+    print("PASS: checkout routing — GHS native, every other currency falls back to a GHS charge via Paystack.")
 
 
 if __name__ == "__main__":

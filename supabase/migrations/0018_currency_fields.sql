@@ -1,0 +1,21 @@
+-- 0018_currency_fields.sql
+-- Multi-currency pricing/ROI internationalization. The Paystack merchant
+-- account is Ghana-only (GHS), so real charges in any other currency
+-- (NGN/KES/ZAR/USD/GBP/EUR) are never attempted against a second
+-- processor -- Stripe requires the merchant business to be incorporated
+-- in one of its supported countries (Ghana isn't one), and Flutterwave's
+-- Ghana onboarding is currently enterprise-only ($5M+ annual volume), so
+-- neither is available at this business's current stage. Every non-GHS
+-- currency instead falls back to a GHS charge via the existing Paystack
+-- account, shown with a converted-price disclaimer -- Paystack already
+-- accepts foreign-issued cards on a GHS-denominated charge (the
+-- cardholder's own bank converts at the point of sale).
+--
+-- preferred_currency persists a signed-in user's currency choice across
+-- devices/sessions (session_state/query-param alone don't survive a
+-- device switch). payments.currency (0004_payments.sql) already exists
+-- and keeps recording what was ACTUALLY charged (always GHS); the new
+-- displayed_currency records what the user was BROWSING in at purchase
+-- time -- the two differ for every non-GHS currency's fallback charge.
+alter table users add column if not exists preferred_currency text;
+alter table payments add column if not exists displayed_currency text;

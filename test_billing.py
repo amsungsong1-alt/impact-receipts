@@ -1,15 +1,13 @@
 """
 test_billing.py — golden tests for utils/auth.py, utils/metering.py, and the
-new parts of utils/paystack.py and utils/flutterwave_payments.py
-(subscriptions + webhook signature).
+new parts of utils/paystack.py (subscriptions + webhook signature).
 
 No pytest, no real network calls, no real Supabase project: a small in-memory
 fake Supabase client stands in for utils.db._get_client()/utils.auth._get_client()
 (same swap-the-network-seam approach as test_council.py's fake for
 council._call_haiku, just applied to a chainier query-builder API), and
-utils.paystack's/utils.flutterwave_payments's `requests` module references
-are each swapped for a fake with canned responses. Run with:
-python test_billing.py
+utils.paystack's `requests` module reference is swapped for a fake with
+canned responses. Run with: python test_billing.py
 """
 
 import hashlib
@@ -20,7 +18,6 @@ import utils.auth as auth
 import utils.db as db
 import utils.metering as metering
 import utils.paystack as paystack
-import utils.flutterwave_payments as flutterwave_payments
 
 
 # ---------------------------------------------------------------------------
@@ -566,114 +563,6 @@ def run_paystack_subscriptions():
     print("PASS: paystack subscriptions — plan-tied init, disable, and webhook signature verification.")
 
 
-def run_flutterwave_payments():
-    """utils/flutterwave_payments.py -- swaps its `requests` module
-    reference for a fake with canned responses, same swap-the-network-seam
-    approach as run_paystack_subscriptions()."""
-    failures = []
-    original_requests = flutterwave_payments.requests
-    original_secret_key = flutterwave_payments._secret_key
-    original_webhook_secret_hash = flutterwave_payments._webhook_secret_hash
-    original_base_url = flutterwave_payments._base_url
-    fake_requests = _FakeRequests()
-    flutterwave_payments.requests = fake_requests
-    flutterwave_payments._secret_key = lambda: "FLWSECK_test_fake"
-    flutterwave_payments._base_url = lambda: "https://test.example.com"
-
-    try:
-        # 1. create_checkout_session success (one-off, no payment_plan_id).
-        fake_requests.post_response = _FakeResponse(
-            200, {"status": "success", "data": {"link": "https://checkout.flutterwave.com/pay/abc123"}})
-        url = flutterwave_payments.create_checkout_session("user@example.com", 335, "USD", "per_use", mode="payment")
-        if url != "https://checkout.flutterwave.com/pay/abc123":
-            failures.append(f"create_checkout_session success: unexpected url {url!r}")
-
-        # 2. create_checkout_session success (subscription, with payment_plan_id).
-        fake_requests.post_response = _FakeResponse(
-            200, {"status": "success", "data": {"link": "https://checkout.flutterwave.com/pay/def456"}})
-        url2 = flutterwave_payments.create_checkout_session(
-            "user@example.com", 335, "USD", "monthly", mode="subscription", payment_plan_id="12345")
-        if url2 != "https://checkout.flutterwave.com/pay/def456":
-            failures.append(f"create_checkout_session subscription success: unexpected url {url2!r}")
-
-        # 3. Non-Flutterwave currency rejected before any network call.
-        url3 = flutterwave_payments.create_checkout_session("user@example.com", 5000, "GHS", "monthly", mode="subscription")
-        if url3 != "":
-            failures.append("create_checkout_session should refuse a currency Flutterwave isn't configured for (GHS)")
-
-        # 4. Subscription checkout without a payment_plan_id is rejected -- unlike
-        # Paystack, there is no plain-one-off fallback for a missing plan.
-        url4 = flutterwave_payments.create_checkout_session("user@example.com", 335, "USD", "monthly", mode="subscription")
-        if url4 != "":
-            failures.append("create_checkout_session(mode='subscription') should refuse a missing payment_plan_id")
-
-        # 5. Missing secret key fails closed, no network call.
-        flutterwave_payments._secret_key = lambda: ""
-        url5 = flutterwave_payments.create_checkout_session("user@example.com", 335, "USD", "per_use", mode="payment")
-        if url5 != "":
-            failures.append("create_checkout_session should fail closed with no secret key configured")
-        flutterwave_payments._secret_key = lambda: "FLWSECK_test_fake"
-
-        # 6. Flutterwave-reported error surfaces via last_payment_error().
-        fake_requests.post_response = _FakeResponse(200, {"status": "error", "message": "Invalid currency"})
-        url6 = flutterwave_payments.create_checkout_session("user@example.com", 335, "USD", "per_use", mode="payment")
-        if url6 != "" or flutterwave_payments.last_payment_error() != "Invalid currency":
-            failures.append(f"create_checkout_session error path: url={url6!r} "
-                             f"err={flutterwave_payments.last_payment_error()!r}")
-
-        # 7. Network failure degrades gracefully (never raises out of the function).
-        fake_requests.raise_on_post = True
-        url7 = flutterwave_payments.create_checkout_session("user@example.com", 335, "USD", "per_use", mode="payment")
-        if url7 != "" or not flutterwave_payments.last_payment_error():
-            failures.append("create_checkout_session should return '' and set last_payment_error() on a network exception")
-        fake_requests.raise_on_post = False
-
-        # 8. verify_transaction success path -- amount comes back in major
-        # units from Flutterwave and must be converted to minor units.
-        fake_requests.post_response = _FakeResponse(200, {
-            "status": "success",
-            "data": {
-                "status": "successful", "amount": 3.35, "currency": "usd",
-                "meta": {"plan": "per_use"}, "customer": {"email": "user@example.com"},
-            },
-        })
-        result = flutterwave_payments.verify_transaction("999")
-        if result != {"status": "success", "amount": 335, "currency": "USD", "plan": "per_use", "email": "user@example.com"}:
-            failures.append(f"verify_transaction success: unexpected result {result!r}")
-
-        # 9. verify_transaction failed/unsuccessful charge.
-        fake_requests.post_response = _FakeResponse(200, {"status": "success", "data": {"status": "failed"}})
-        result2 = flutterwave_payments.verify_transaction("998")
-        if result2.get("status") != "failed":
-            failures.append(f"verify_transaction failed charge should report status='failed', got {result2!r}")
-
-        # 10. verify_webhook_signature: matching secret hash accepted.
-        if not flutterwave_payments.verify_webhook_signature("shared-secret-hash", "shared-secret-hash"):
-            failures.append("verify_webhook_signature should accept a matching secret hash")
-
-        # 11. Non-matching header rejected.
-        if flutterwave_payments.verify_webhook_signature("wrong-value", "shared-secret-hash"):
-            failures.append("verify_webhook_signature should reject a non-matching verif-hash header")
-
-        # 12. Missing secret/header fails closed.
-        if flutterwave_payments.verify_webhook_signature("", "shared-secret-hash"):
-            failures.append("verify_webhook_signature should fail closed with no signature header")
-        if flutterwave_payments.verify_webhook_signature("shared-secret-hash", ""):
-            failures.append("verify_webhook_signature should fail closed with no configured secret hash")
-    finally:
-        flutterwave_payments.requests = original_requests
-        flutterwave_payments._secret_key = original_secret_key
-        flutterwave_payments._webhook_secret_hash = original_webhook_secret_hash
-        flutterwave_payments._base_url = original_base_url
-
-    if failures:
-        print("FAILED:")
-        for f in failures:
-            print("  -", f)
-        raise SystemExit(1)
-    print("PASS: flutterwave payments — checkout session creation, redirect read-back, and webhook signature verification.")
-
-
 def run_data_deletion():
     """clear_user_draft()/delete_wa_conversations() -- the utils/db.py half
     of the "erase my history" feature (the utils/audits.py half,
@@ -719,5 +608,4 @@ if __name__ == "__main__":
     run_magic_link()
     run_sessions()
     run_paystack_subscriptions()
-    run_flutterwave_payments()
     run_data_deletion()
