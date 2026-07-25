@@ -2515,10 +2515,12 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
 
     if _route == "paystack_ghs_fallback":
         st.info(
-            f"You'll be charged **GHS {PRICE_MONTHLY_GHS/100:.0f}** (per-check: "
-            f"GHS {PRICE_PER_CHECK_GHS/100:.0f}) via Paystack — approximately the "
-            f"{_currency} amounts shown above at today's rate. Your card/MoMo "
-            "statement will show GHS."
+            f"💳 The {_currency} prices above are for reference only, at today's rate — "
+            f"this is **not a separate {_currency} charge**. Paystack (our Ghana payment "
+            f"processor) will charge your card in **GHS**: GHS {PRICE_PER_CHECK_GHS/100:.0f} "
+            f"per check, or GHS {PRICE_MONTHLY_GHS/100:.0f}/month for Professional. Your "
+            "bank converts this automatically, same as any other foreign-currency purchase — "
+            "your statement will show GHS, not the amount above."
         )
 
     _c1, _c2, _c3 = st.columns(3)
@@ -5428,8 +5430,10 @@ def render_pricing_page():
     _pq_col1, _pq_col2 = st.columns([2, 1])
     with _pq_col1:
         if _route == "paystack_ghs_fallback":
-            st.caption(f"Prices shown in {_currency} (converted daily from GHS) for reference — "
-                       "you'll be charged the GHS amount via Paystack (card, MoMo, bank). Cancel anytime.")
+            st.caption(f"Prices shown in {_currency} (converted daily from GHS) for reference only — "
+                       f"not a separate {_currency} charge. Paystack (Ghana) charges your card in "
+                       f"GHS: GHS {PRICE_MONTHLY_GHS/100:.0f}/month for Professional, "
+                       f"GHS {PRICE_AGENCY_GHS/100:.0f}/month for Agency. Cancel anytime.")
         else:
             st.caption("All prices in GHS (Ghana Cedis). Paid via Paystack (card, MoMo, bank). "
                        "Cancel anytime.")
