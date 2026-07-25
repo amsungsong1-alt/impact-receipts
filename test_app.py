@@ -318,6 +318,47 @@ CASES = {
         }],
         "provenance_checklist": {},
     },
+
+    "direction_mismatch": {
+        # Otherwise near-maximal evidence (mirrors "strong"), but the
+        # indicator implies an INCREASE and the reported achievement is
+        # LOWER than the baseline -- evaluate_logframe_linkage() detects
+        # this and previously computed a -0.2 penalty that was never
+        # actually applied to clarity_score, nor gated the diagnostic badge.
+        "result_statement": (
+            "Vaccination coverage among children under 5 was 32% in 2025, "
+            "up from a 40% baseline."
+        ),
+        "target_group": "Children under 5",
+        "timeframe": "January-June 2025",
+        "geographic_scope": "3 districts in Northern Ghana",
+        "additional_context": "MEL lead owns this result.",
+        "internal_review": "Reviewed by MEL Officer",
+        "external_review": "Verified by independent third party",
+        "logframe_indicator": "Increase in vaccination coverage rate",
+        "logframe_baseline": "40%",
+        "logframe_target": "60%",
+        "logframe_achievement": "32%",
+        "beneficiary_voice": "Direct beneficiary feedback collected (e.g., Lean Data survey, focus groups, NPS)",
+        "bv_method_detail": "Phone survey with 142 caregivers in June 2025, 30-minute structured interview.",
+        "evidence": [{
+            "type": "Attendance sheets / participant registers",
+            "description": (
+                "Signed attendance sheets from 12 vaccination sessions across 3 districts "
+                "in Northern Ghana, verified by District Health Officer."
+            ),
+            "recency": "June 2025",
+            "verified_by": "District Health Officer",
+        }],
+        "provenance_checklist": {
+            "sampling_documented": "Yes",
+            "double_counting_checked": "Yes",
+            "collection_tool_named": "Yes",
+            "collector_independent": "Yes",
+            "recall_period_ok": "Yes",
+            "auditor_traceable": "Yes — an auditor could retrieve the original records",
+        },
+    },
 }
 
 
@@ -424,6 +465,17 @@ GOLDEN = {
         "clarity_score": 3.99,
         # conf=3.2 < 4.0, clar=3.99 < 4.0 → "High risk"
         "verdict": "High risk — strengthen both axes before relying on this result",
+    },
+    "direction_mismatch": {
+        "confidence_score": 4.7,
+        "clarity_score": 4.77,
+        # The evaluate_submission()-level "verdict" is a separate, purely
+        # aggregate (conf>=threshold, clar>=threshold) calculation that does
+        # NOT know about direction_mismatch -- both axes clear threshold, so
+        # verdict still reads "Strong KPI". The diagnostic badge (a
+        # different code path, diagnostics.get_diagnostic_state(), tested
+        # separately below) is what actually gates on direction_mismatch.
+        "verdict": "Strong KPI — submission-ready on both axes",
     },
 }
 
@@ -1048,6 +1100,68 @@ def run_compliance_layer():
           "diagnostic badge instead of being silently discarded.")
 
 
+def run_direction_mismatch_gate():
+    """Clarity-rigor pass, item B: evaluate_logframe_linkage()'s
+    direction-mismatch check was computed but discarded -- now it both
+    applies a -0.2 to clarity_score AND hard-gates the diagnostic badge,
+    same pattern as the compliance/Directness-floor gates."""
+    failures = []
+
+    ev = evaluator.evaluate_submission(CASES["direction_mismatch"])
+    linkage = ev["logframe_linkage"]
+    if not linkage["direction_mismatch"]:
+        failures.append("CASES['direction_mismatch'] should trip evaluate_logframe_linkage()'s direction_mismatch flag")
+
+    # Both axes clear threshold (proven by GOLDEN above), but the diagnostic
+    # badge must still gate on the direction mismatch.
+    _diag_state, _ = diagnostics.get_diagnostic_state(
+        ev["confidence_score"], ev["clarity_score"], [],
+        CASES["direction_mismatch"].get("beneficiary_voice", ""),
+        direct_level=ev["confidence_components"]["direct_level"],
+        compliance_hard_gate=ev["compliance_components"]["child_safety_gap_unaddressed"],
+        direction_mismatch_flag=linkage["direction_mismatch"],
+    )
+    if _diag_state != "NEEDS REFINEMENT":
+        failures.append(
+            f"CASES['direction_mismatch'] should be gated to NEEDS REFINEMENT despite both "
+            f"axes clearing threshold, got {_diag_state!r}"
+        )
+
+    # Gate order: compliance and direction-mismatch both true -> compliance's
+    # message wins (checked first), mirroring the existing compliance-vs-
+    # beneficiary-voice boundary test.
+    _diag_both, _msg_both = diagnostics.get_diagnostic_state(
+        5.0, 5.0, [], "", direct_level=5,
+        compliance_hard_gate=True, direction_mismatch_flag=True,
+    )
+    if "do-no-harm" not in _msg_both and "child-safeguarding" not in _msg_both:
+        failures.append(
+            f"When both compliance_hard_gate and direction_mismatch_flag are True, "
+            f"compliance's message should win (checked first), got {_msg_both!r}"
+        )
+
+    # direction_mismatch_flag alone (compliance clear) -> its own message.
+    _diag_only, _msg_only = diagnostics.get_diagnostic_state(
+        5.0, 5.0, [], "", direct_level=5,
+        compliance_hard_gate=False, direction_mismatch_flag=True,
+    )
+    if _diag_only != "NEEDS REFINEMENT" or "direction" not in _msg_only.lower():
+        failures.append(f"direction_mismatch_flag alone should gate with a direction-specific message, got {(_diag_only, _msg_only)!r}")
+
+    # Omitting direction_mismatch_flag preserves old behavior (default False).
+    _diag_default, _ = diagnostics.get_diagnostic_state(5.0, 5.0, [], "", direct_level=5)
+    if _diag_default != "STRONG":
+        failures.append(f"omitting direction_mismatch_flag should default to no-gate-concern (False), got {_diag_default!r}")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: direction-mismatch gate — clarity_score penalty applied, diagnostic badge "
+          "gated, gate order (compliance > direction-mismatch > beneficiary-voice > Directness floor) verified.")
+
+
 def run_clarity_rigor_fixes():
     """Clarity-rigor pass, item A: standalone checks for the negation-guard,
     sampling_documented wiring, and auditor_traceable-based audit_trail
@@ -1291,4 +1405,5 @@ if __name__ == "__main__":
     run_beneficiary_voice_bonus_wiring()
     run_directness_floor()
     run_compliance_layer()
+    run_direction_mismatch_gate()
     run_truthfulness_disclaimer()

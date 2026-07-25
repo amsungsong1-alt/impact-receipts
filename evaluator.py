@@ -1841,6 +1841,17 @@ def evaluate_submission(submission: dict) -> dict:
         meas_score_c  = round(min(1.25, max(0.0, meas_score_c  + meas_adj)), 2)
         clarity_score = round(min(5.0,  max(0.0, clarity_score + meas_adj)), 2)
 
+    # Direction mismatch (evaluate_logframe_linkage() above): indicator implies
+    # an increase/decrease but the reported achievement moves the wrong way
+    # relative to the baseline. Previously this was computed and returned in
+    # linkage_result for display only, never actually applied to
+    # clarity_score -- leaving the number silently wrong everywhere it's
+    # used (Excel exports, benchmarks, systemic gaps, trend charts), not
+    # just the one diagnostic badge. Apply the same -0.2 the function itself
+    # already computes internally.
+    if linkage_result.get("direction_mismatch"):
+        clarity_score = round(max(0.0, clarity_score - 0.2), 2)
+
     # Same placeholder/test-content guard already applied to confidence_score
     # above -- previously Clarity had no guard at all, so a placeholder
     # submission ("test test test") could still score full marks on Clarity.

@@ -2815,7 +2815,8 @@ def _render_live_score_preview(slot: int = 1):
     # Headline: is this good enough to submit?
     _live_diag_state, _ = get_diagnostic_state(raw_conf, clar_score, content_issues, sub.get("beneficiary_voice", ""),
                                                 direct_level=conf_comp.get("direct_level", 5),
-                                                compliance_hard_gate=compliance_comp.get("child_safety_gap_unaddressed", False))
+                                                compliance_hard_gate=compliance_comp.get("child_safety_gap_unaddressed", False),
+                                                direction_mismatch_flag=ev.get("logframe_linkage", {}).get("direction_mismatch", False))
     if _live_diag_state != "INVALID INPUT":
         _render_readiness_banner(_live_diag_state)
 
@@ -2881,7 +2882,8 @@ def _render_live_score_preview(slot: int = 1):
 
     # Gate assessment uses penalized conf_score
     state, state_sub = get_diagnostic_state(conf_score, clar_score, direct_level=conf_comp.get("direct_level", 5),
-                                             compliance_hard_gate=compliance_comp.get("child_safety_gap_unaddressed", False))
+                                             compliance_hard_gate=compliance_comp.get("child_safety_gap_unaddressed", False),
+                                             direction_mismatch_flag=ev.get("logframe_linkage", {}).get("direction_mismatch", False))
     st.caption(f"Status: **{state}** — {state_sub}")
 
     # --- UX: ACTIONABLE SCORE PREVIEW (v3.2) ---
@@ -7999,7 +8001,8 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     bv_voice_field    = submission.get("beneficiary_voice", "")
     diag_state, diag_sub = get_diagnostic_state(conf_score, clar_score, content_issues, bv_voice_field,
                                                  direct_level=conf_comp.get("direct_level", 5),
-                                                 compliance_hard_gate=compliance_comp.get("child_safety_gap_unaddressed", False))
+                                                 compliance_hard_gate=compliance_comp.get("child_safety_gap_unaddressed", False),
+                                                 direction_mismatch_flag=ev.get("logframe_linkage", {}).get("direction_mismatch", False))
 
     # Single status signal — diagnostic badge carries state + description
     diag_cfg = _DIAGNOSTIC_BADGE.get(diag_state, {"bg": "#9E9E9E", "text": "#FFFFFF", "subtitle": ""})
@@ -12110,6 +12113,7 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
         submission.get("beneficiary_voice", ""),
         direct_level=evaluation.get("confidence_components", {}).get("direct_level", 5),
         compliance_hard_gate=evaluation.get("compliance_components", {}).get("child_safety_gap_unaddressed", False),
+        direction_mismatch_flag=evaluation.get("logframe_linkage", {}).get("direction_mismatch", False),
     )
     _readiness_html = _readiness_banner_html(_diag_state)
 

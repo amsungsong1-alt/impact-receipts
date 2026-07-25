@@ -115,6 +115,7 @@ def get_diagnostic_state(
     beneficiary_voice: str = "",
     direct_level: int = 5,
     compliance_hard_gate: bool = False,
+    direction_mismatch_flag: bool = False,
 ) -> tuple:
     if content_issues and len(content_issues) >= 2:
         return (
@@ -122,6 +123,10 @@ def get_diagnostic_state(
             "Inputs look like placeholder text — please provide real result and evidence details",
         )
     if confidence >= SUBMISSION_THRESHOLD and clarity >= SUBMISSION_THRESHOLD:
+        # Gate order: "this claim may be actively wrong" (compliance,
+        # direction mismatch) before "this claim is correct but
+        # under-evidenced" (beneficiary voice, Directness floor).
+        #
         # Checked first (most severe): an outstanding do-no-harm/child-
         # safeguarding gap must not be diluteable by an otherwise-strong
         # report -- see evaluator.compute_compliance_layer()'s docstring.
@@ -131,6 +136,18 @@ def get_diagnostic_state(
                 "Strong on both axes — but a do-no-harm or child-safeguarding review is still "
                 "outstanding for this evidence. This must be resolved before the result can be "
                 "treated as submission-ready.",
+            )
+        # Checked second: a factual/arithmetic defect in the headline number
+        # itself (the achievement literally moves the wrong way relative to
+        # the indicator and baseline) -- a correctness problem, not a
+        # depth-of-evidence problem, so it outranks the two gates below.
+        if direction_mismatch_flag:
+            return (
+                "NEEDS REFINEMENT",
+                "Strong on both axes — but the reported achievement moves in the opposite "
+                "direction from what this indicator implies (e.g. an indicator expecting an "
+                "increase, with achievement below baseline). Resolve this direction mismatch "
+                "before treating the result as submission-ready.",
             )
         if beneficiary_voice in _BV_UNADDRESSED:
             return (
