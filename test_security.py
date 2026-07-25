@@ -9,6 +9,7 @@ Run with: python test_security.py
 
 import streamlit as st
 import app
+import evaluator
 
 
 def run_user_email_overwrite_guard():
@@ -88,6 +89,56 @@ def run_portfolio_heatmap_sample_gate():
     print("PASS: portfolio heatmap sample gate -- count column present, small-N (n=3 < MIN_PORTFOLIO_SAMPLE=10) degrades correctly, empty input handled.")
 
 
+def run_readiness_card_crosswalk_tags():
+    """_build_html_report_card()'s Page-2 sub-score rows must carry compact
+    Bond 2024 / NESTA citation tags (item E of the NESTA/Bond/3ie/IRIS+
+    pass) -- sourced from diagnostics.get_bond_citation() and
+    framework_crosswalk.FRAMEWORKS/get_nesta_directness_mapping(), never
+    invented per-row copy. Only app.py can exercise this (no separate
+    "app.py UI helpers" test file exists), same rationale as the portfolio
+    heatmap test above."""
+    failures = []
+
+    submission = {
+        "result_statement": "Trained 487 smallholder farmers across 3 districts.",
+        "target_group": "Smallholder farmers",
+        "timeframe": "January-June 2025",
+        "geographic_scope": "3 districts",
+        "additional_context": "Informs Year 2 work plan.",
+        "internal_review": "Reviewed by MEL Officer",
+        "external_review": "Verified by independent third party",
+        "disaggregation_status": "Yes — fully disaggregated",
+        "evidence": [{
+            "type": "Attendance sheets / participant registers",
+            "description": "Signed attendance sheets from 12 sessions, verified by District Officer.",
+            "recency": "June 2025",
+            "verified_by": "District Agriculture Officer",
+        }],
+        "provenance_checklist": {"auditor_traceable": "Yes — an auditor could retrieve the original records"},
+    }
+    ev = evaluator.evaluate_submission(submission)
+    html = app._build_html_report_card(submission, ev, "20260101_000000")
+
+    if "Bond 2024" not in html:
+        failures.append("expected at least one Bond 2024 citation tag in the Readiness Card HTML")
+    if "NESTA L" not in html:
+        failures.append("expected at least one NESTA level citation tag in the Readiness Card HTML")
+    if "disaggregation bonus" not in html:
+        failures.append("expected the Definition row to show the disaggregation bonus note")
+    # Recency has no Bond citation and NESTA doesn't cite it -- its note
+    # must render without a stray separator when _crosswalk_tag() is empty.
+    if " &mdash; &middot;" in html or html.count("&mdash; &mdash;") > 0:
+        failures.append("a dimension with no citation tag produced a dangling separator")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: Readiness Card crosswalk tags -- Bond 2024/NESTA citations and disaggregation bonus note verified.")
+
+
 if __name__ == "__main__":
     run_user_email_overwrite_guard()
     run_portfolio_heatmap_sample_gate()
+    run_readiness_card_crosswalk_tags()

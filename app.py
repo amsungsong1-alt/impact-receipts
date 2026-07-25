@@ -34,7 +34,7 @@ from diagnostics import (
     _BRAND_BADGE, _VERDICT_CSS, _DIRECTNESS_TIPS, _VERIFICATION_TIPS,
     _RECENCY_TIPS, _CLARITY_TIPS, _SCORING_GUIDE, _axis_badge_html,
     _overview_score_values, _build_overview_chart_b64,
-    DONOR_PROFILES, build_donor_crosswalk_html,
+    DONOR_PROFILES, build_donor_crosswalk_html, get_bond_citation,
 )
 from prompts import (
     TOOLTIP_DEFINITION, TOOLTIP_MEASUREMENT, TOOLTIP_INTEGRITY,
@@ -12000,6 +12000,37 @@ def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str,
             row += f"<tr>{note_cell}</tr>"
         return row
 
+    # NESTA cites only Directness/Verification/Measurement (see
+    # framework_crosswalk.FRAMEWORKS["NESTA"]) -- Verification/Measurement's
+    # cited level is fixed per-criterion; Directness varies per submission
+    # via get_nesta_directness_mapping(), so it's looked up dynamically.
+    _NESTA_STATIC_LEVELS = {"verification": 4, "measurement": 2}
+
+    def _crosswalk_tag(dim_key: str) -> str:
+        """Compact one-line citation for a Page-2 sub-score row, e.g.
+        "Bond 2024 — Triangulation &middot; NESTA L4" -- sourced from
+        diagnostics.get_bond_citation() and framework_crosswalk.FRAMEWORKS/
+        get_nesta_directness_mapping(), never invented per-row copy. Omits
+        whichever half (or both) has nothing for this dimension rather than
+        force-mapping a citation that doesn't exist."""
+        parts = []
+        bond = get_bond_citation(dim_key)
+        if bond:
+            parts.append(f"Bond 2024 &mdash; {bond}")
+        if dim_key == "directness":
+            nlvl = _framework_crosswalk.get_nesta_directness_mapping(_direct_level)["nesta_level"]
+            parts.append(f"NESTA L{nlvl}")
+        elif dim_key in _NESTA_STATIC_LEVELS:
+            parts.append(f"NESTA L{_NESTA_STATIC_LEVELS[dim_key]}")
+        return " &middot; ".join(parts)
+
+    def _note_with_tag(note: str, dim_key: str) -> str:
+        tag = _crosswalk_tag(dim_key)
+        if not tag:
+            return note
+        sep = " &mdash; " if note else ""
+        return f"{note}{sep}{tag}"
+
     _card_threshold   = evaluation.get("threshold_used", 4.0)
     _card_track_label = evaluation.get("track_label", "INGO standard")
     _card_org_type    = submission.get("org_type", "International NGO (INGO)")
@@ -12078,19 +12109,19 @@ Evidence standard: <strong>{_card_track_label}</strong> &middot; threshold {_car
 
 <p style="font-size:11px;font-weight:700;color:#424242;margin:8px 0 4px;">CONFIDENCE</p>
 <table border="0" cellspacing="0" cellpadding="0" style="margin-bottom:10px;">
-{bar_row_with_note(round(conf_comp.get('direct_score',0),1), 2.0, 'Directness', _DIRECTNESS_TIPS.get(_direct_level,'')[:90])}
-{bar_row_with_note(round(conf_comp.get('verify_score',0),1), 2.0, 'Verification', _VERIFICATION_TIPS.get(_verify_level,'')[:90])}
-{bar_row_with_note(round(conf_comp.get('recency_score',0),1), 1.0, 'Recency', _recency_rationale(_recency_level))}
+{bar_row_with_note(round(conf_comp.get('direct_score',0),1), 2.0, 'Directness', _note_with_tag(_DIRECTNESS_TIPS.get(_direct_level,'')[:90], 'directness'))}
+{bar_row_with_note(round(conf_comp.get('verify_score',0),1), 2.0, 'Verification', _note_with_tag(_VERIFICATION_TIPS.get(_verify_level,'')[:90], 'verification'))}
+{bar_row_with_note(round(conf_comp.get('recency_score',0),1), 1.0, 'Recency', _note_with_tag(_recency_rationale(_recency_level), 'recency'))}
 </table>
 {_recency_warning_html}
 
 <p style="font-size:11px;font-weight:700;color:#424242;margin:8px 0 4px;">CLARITY</p>
 <table border="0" cellspacing="0" cellpadding="0" style="margin-bottom:10px;">
-{bar_row_with_note(round(clar_comp.get('definition_score',0),2), 1.25, def_label, _clarity_rationale(clar_comp.get('definition_score',0),1.25,'Definition'))}
-{bar_row_with_note(round(clar_comp.get('measurement_score',0),2), 1.25, meas_label, _clarity_rationale(clar_comp.get('measurement_score',0),1.25,'Measurement'))}
-{bar_row_with_note(round(clar_comp.get('integrity_score',0),2), 1.0, 'Integrity', _clarity_rationale(clar_comp.get('integrity_score',0),1.0,'Integrity'))}
-{bar_row_with_note(round(clar_comp.get('scope_score',0),2), 0.75, 'Scope', _clarity_rationale(clar_comp.get('scope_score',0),0.75,'Scope'))}
-{bar_row_with_note(round(clar_comp.get('governance_score',0),2), 0.75, 'Governance', _clarity_rationale(clar_comp.get('governance_score',0),0.75,'Governance'))}
+{bar_row_with_note(round(clar_comp.get('definition_score',0),2), 1.25, def_label, _note_with_tag(_clarity_rationale(clar_comp.get('definition_score',0),1.25,'Definition') + (f" (+{clar_comp.get('disaggregation_bonus',0)} disaggregation bonus)" if clar_comp.get('disaggregation_bonus', 0) > 0 else ""), 'definition'))}
+{bar_row_with_note(round(clar_comp.get('measurement_score',0),2), 1.25, meas_label, _note_with_tag(_clarity_rationale(clar_comp.get('measurement_score',0),1.25,'Measurement'), 'measurement'))}
+{bar_row_with_note(round(clar_comp.get('integrity_score',0),2), 1.0, 'Integrity', _note_with_tag(_clarity_rationale(clar_comp.get('integrity_score',0),1.0,'Integrity'), 'integrity'))}
+{bar_row_with_note(round(clar_comp.get('scope_score',0),2), 0.75, 'Scope', _note_with_tag(_clarity_rationale(clar_comp.get('scope_score',0),0.75,'Scope'), 'scope'))}
+{bar_row_with_note(round(clar_comp.get('governance_score',0),2), 0.75, 'Governance', _note_with_tag(_clarity_rationale(clar_comp.get('governance_score',0),0.75,'Governance'), 'governance'))}
 </table>
 
 {'<h2>Logframe Linkage</h2><table border="0" cellspacing="0" cellpadding="0" style="margin-bottom:10px;">' + lf_rows + '</table>' if lf_rows else ''}

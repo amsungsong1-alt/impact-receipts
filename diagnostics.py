@@ -499,6 +499,16 @@ _CROSSWALK_ROW_ORDER = [
 # criteria, so it isn't in DONOR_CROSSWALK — its mapping (Validity / Voice &
 # Inclusion) is handled directly in build_donor_crosswalk_html() below.
 
+
+def get_bond_citation(dim_key: str) -> str:
+    """First Bond Evidence Principle 2024 mapped to this DONOR_CROSSWALK
+    dimension key (e.g. "directness", "integrity"), or "" if Bond doesn't
+    cite this dimension. Exposes one lookup, not the raw dict, matching this
+    module's function-not-dict convention for external callers (see
+    DONOR_PROFILES/build_donor_crosswalk_html above)."""
+    bond = DONOR_CROSSWALK.get(dim_key, {}).get("bond", [])
+    return bond[0] if bond else ""
+
 # Donor-profile selector options, in display order. Each profile selects
 # which framework column(s) from DONOR_CROSSWALK to show, with a column
 # header label. Adding a donor profile = adding one entry here (and, if it
