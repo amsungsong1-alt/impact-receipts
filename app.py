@@ -11203,11 +11203,23 @@ def render_screen_3():
 # Screen 4 — Agency Dashboard (multi-client portfolio view, Agency tier only)
 # ---------------------------------------------------------------------------
 
+# Minimum sample size before the Portfolio Dashboard's Systemic Gaps panel
+# or Client x Donor heatmap will confidently render a percentage/average --
+# distinctly named from, but at the same value as, utils.audits'
+# MIN_BENCHMARK_SAMPLE (cross-org anonymized benchmark) and
+# utils.outcomes' MIN_BAND_SAMPLE (donor-acceptance-rate stat), which
+# gate different features. Without this, a single audit could render as
+# "100% fail" or a fully-colored heatmap cell with no indication the
+# sample is tiny.
+MIN_PORTFOLIO_SAMPLE = 10
+
+
 def _agency_client_donor_heatmap_df(audits_rows: list):
     """Groups list_audits_with_client()'s rows by (client, donor), averaging
-    primary_confidence_score/primary_clarity_score per cell. Cells with zero
-    audits are simply absent rows (not zero-filled) -- a blank heatmap cell
-    means "no data yet," not "score 0."""
+    primary_confidence_score/primary_clarity_score per cell, plus a count
+    per cell so callers can suppress cells below MIN_PORTFOLIO_SAMPLE. Cells
+    with zero audits are simply absent rows (not zero-filled) -- a blank
+    heatmap cell means "no data yet," not "score 0."""
     import pandas as pd
     if not audits_rows:
         return pd.DataFrame()
@@ -11216,28 +11228,68 @@ def _agency_client_donor_heatmap_df(audits_rows: list):
     df["donor_label"] = df["donor"].fillna("").replace("", "No donor specified")
     grouped = (df.groupby(["client_label", "donor_label"])
                  [["primary_confidence_score", "primary_clarity_score"]]
-                 .mean().reset_index())
+                 .agg(["mean", "count"]))
+    grouped.columns = ["_".join(c) for c in grouped.columns]
+    grouped = grouped.rename(columns={
+        "primary_confidence_score_mean": "primary_confidence_score",
+        "primary_clarity_score_mean":    "primary_clarity_score",
+        "primary_confidence_score_count": "n",
+        # clarity's count is identical (same rows) -- only one "n" column kept.
+    }).drop(columns=["primary_clarity_score_count"]).reset_index()
     return grouped
 
 
 def _render_agency_heatmap(grouped_df, metric_col: str, title: str) -> None:
     """Plotly heatmap of client x donor averages, respecting lite_mode (every
     other chart in the app falls back to a plain table in low-bandwidth
-    mode -- this shouldn't be the one inconsistent chart)."""
+    mode -- this shouldn't be the one inconsistent chart). Cells below
+    MIN_PORTFOLIO_SAMPLE render as blank/"insufficient data" rather than a
+    colored score computed from too few audits."""
     pivoted = grouped_df.pivot(index="client_label", columns="donor_label", values=metric_col)
+    n_pivoted = grouped_df.pivot(index="client_label", columns="donor_label", values="n")
     if st.session_state.get("lite_mode", False):
         st.caption(f"{title} (table view — charts hidden in low-bandwidth mode)")
-        st.dataframe(pivoted, use_container_width=True)
+        display_df = pivoted.copy().astype(object)
+        for r in display_df.index:
+            for c in display_df.columns:
+                n = n_pivoted.loc[r, c]
+                display_df.loc[r, c] = (
+                    f"insufficient data (n={int(n)})" if n < MIN_PORTFOLIO_SAMPLE
+                    else f"{pivoted.loc[r, c]:.1f}"
+                ) if n == n else ""  # n != n -> NaN (no data for this cell at all)
+        st.dataframe(display_df, use_container_width=True)
         return
+    import numpy as np
     import plotly.graph_objects as go
+    z = pivoted.values.copy().astype(float)
+    n = n_pivoted.reindex(index=pivoted.index, columns=pivoted.columns).values
+    insufficient = n < MIN_PORTFOLIO_SAMPLE
+    z[insufficient] = np.nan
+    customdata = np.where(np.isnan(n), 0, n)
     fig = go.Figure(data=go.Heatmap(
-        z=pivoted.values, x=list(pivoted.columns), y=list(pivoted.index),
+        z=z, x=list(pivoted.columns), y=list(pivoted.index),
         colorscale="RdYlGn", zmin=0, zmax=5,
         colorbar=dict(title=title),
-        hovertemplate="Client: %{y}<br>Donor: %{x}<br>" + title + ": %{z:.2f}<extra></extra>",
+        customdata=customdata,
+        hovertemplate=(
+            "Client: %{y}<br>Donor: %{x}<br>" + title + ": %{z:.2f}"
+            "<extra></extra>"
+        ),
     ))
+    # Annotate insufficient-data cells directly (Plotly renders NaN cells
+    # blank with no hover value, so the "why is this blank" reason needs a
+    # visible label, not just a suppressed hover).
+    annotations = []
+    for i, row_label in enumerate(pivoted.index):
+        for j, col_label in enumerate(pivoted.columns):
+            cell_n = n[i, j]
+            if cell_n == cell_n and cell_n < MIN_PORTFOLIO_SAMPLE:  # not NaN, below threshold
+                annotations.append(dict(
+                    x=col_label, y=row_label, text=f"n={int(cell_n)}",
+                    showarrow=False, font=dict(size=9, color="#616161"),
+                ))
     fig.update_layout(title=title, xaxis_title=None, yaxis_title=None,
-                       height=max(300, 40 * len(pivoted.index)))
+                       height=max(300, 40 * len(pivoted.index)), annotations=annotations)
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -11297,6 +11349,15 @@ def _build_portfolio_readiness_report_html(email: str, audits_rows: list, gaps: 
     avg_clar = (sum(r.get("primary_clarity_score") or 0 for r in audits_rows) / n_audits) if n_audits else 0
 
     def _gap_bar_row(dim: str, fail_pct: float, n_evaluated: int) -> str:
+        if n_evaluated < MIN_PORTFOLIO_SAMPLE:
+            return (
+                f"<tr>"
+                f"<td width='140' style='font-size:11px;color:#424242;padding:3px 0;'>{dim}</td>"
+                f"<td width='110' style='font-size:10px;padding:3px 4px;'></td>"
+                f"<td width='90' style='font-size:11px;color:#9E9E9E;padding:3px 0;{P}'>"
+                f"insufficient data (n={n_evaluated})</td>"
+                f"</tr>"
+            )
         bar_color = "#B71C1C" if fail_pct >= 50 else ("#F57F17" if fail_pct >= 25 else "#1B5E20")
         filled = max(0, round(min(fail_pct, 100) / 10))
         empty = 10 - filled
@@ -11322,6 +11383,16 @@ def _build_portfolio_readiness_report_html(email: str, audits_rows: list, gaps: 
     heatmap_df = _agency_client_donor_heatmap_df(audits_rows)
     client_rows = ""
     for _, r in heatmap_df.iterrows():
+        if r["n"] < MIN_PORTFOLIO_SAMPLE:
+            client_rows += (
+                f"<tr>"
+                f"<td style='font-size:10px;padding:4px 6px;border-bottom:1px solid #eee;'>{r['client_label']}</td>"
+                f"<td style='font-size:10px;padding:4px 6px;border-bottom:1px solid #eee;'>{r['donor_label']}</td>"
+                f"<td colspan='2' style='font-size:10px;color:#9E9E9E;padding:4px 6px;border-bottom:1px solid #eee;'>"
+                f"insufficient data (n={int(r['n'])})</td>"
+                f"</tr>"
+            )
+            continue
         c_bg, c_fg = _READINESS_CARD_SCORE_PALETTE.get(
             "Strong" if r["primary_confidence_score"] >= 4 else
             "Acceptable" if r["primary_confidence_score"] >= 3 else
@@ -11459,7 +11530,9 @@ def render_screen_4_agency_dashboard():
         st.caption("Not enough data yet.")
     else:
         for g in _gaps[:5]:
-            if g["dimension"] == "Verification" and g.get("verify_source_missing_pct", 0) > 0:
+            if g["n_evaluated"] < MIN_PORTFOLIO_SAMPLE:
+                st.caption(f"- **{g['dimension']}** — insufficient data (n={g['n_evaluated']}, need ≥{MIN_PORTFOLIO_SAMPLE})")
+            elif g["dimension"] == "Verification" and g.get("verify_source_missing_pct", 0) > 0:
                 st.markdown(
                     f"- **{g['dimension']}** — missing verification source in "
                     f"{g['verify_source_missing_pct']:.0f}% of results "
