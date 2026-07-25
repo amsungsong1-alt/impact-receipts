@@ -189,6 +189,22 @@ def compute_confidence(direct_level: int, verify_level: int, recency_level: int)
     return round(direct_score + verify_score + recency_score, 1)
 
 
+def _compute_integrity_score(description_quality: float, missing_data: str, audit_trail: str) -> float:
+    """Integrity starts at 0.75 baseline; +description_quality (up to +0.25)
+    for non-trivial evidence; minus penalties for missing data or no audit
+    trail. This prevents a near-empty form from scoring 1.0/1.0 on
+    Integrity. Single canonical formula -- evaluate_submission()'s displayed
+    clarity_components["integrity_score"] and get_what_to_fix()'s threshold
+    check both call this too, rather than each re-deriving their own
+    (previously divergent) version."""
+    return max(
+        0,
+        0.75 + description_quality
+        - (0.5 if missing_data == "Significant" else 0.25 if missing_data == "Minor" else 0)
+        - (0.25 if audit_trail == "No" else 0),
+    )
+
+
 def compute_clarity(
     definition_yes_count: int,
     measurement_yes_count: int,
@@ -199,25 +215,18 @@ def compute_clarity(
     governance_yes_count: int,
     measurement_denominator: int = 3,
     description_quality: float = 0.0,
+    disaggregation_bonus: float = 0.0,
 ) -> float:
-    definition  = (definition_yes_count  / 3) * 1.25
+    definition  = (definition_yes_count  / 3) * 1.25 + disaggregation_bonus
     measurement = (measurement_yes_count / measurement_denominator) * 1.25
-    # Integrity starts at 0.75 baseline; +description_quality (up to +0.25) for
-    # non-trivial evidence; minus penalties for missing data or no audit trail.
-    # This prevents a near-empty form from scoring 1.0/1.0 on Integrity.
-    integrity   = max(
-        0,
-        0.75 + description_quality
-        - (0.5 if missing_data == "Significant" else 0.25 if missing_data == "Minor" else 0)
-        - (0.25 if audit_trail == "No" else 0),
-    )
+    integrity   = _compute_integrity_score(description_quality, missing_data, audit_trail)
     scope       = min(
         0.75,
         (0.4 if coverage == "Full" else 0.25 if coverage == "Partial" else 0)
         + (0.35 if sample_ok else 0),
     )
     governance  = (governance_yes_count / 3) * 0.75
-    return round(definition + measurement + integrity + scope + governance, 2)
+    return round(min(5.0, definition + measurement + integrity + scope + governance), 2)
 
 
 def interpret_score(score: float) -> tuple:
@@ -1226,6 +1235,26 @@ _GEO_KEYWORDS = re.compile(
 )
 
 
+def _clause_has_regex_signal(text: str, pattern) -> bool:
+    """Regex-pattern sibling of _clause_has_signal() -- True if `pattern`
+    matches within a clause (split on . , ;) that does NOT also contain a
+    negation word, so "no district office visited" does not count as a
+    geographic-detail signal being present. `text` must already be
+    lowercased (unlike _GEO_KEYWORDS' own re.IGNORECASE flag, this
+    negation check matches _NEGATION_WORDS literally)."""
+    for clause in re.split(r"[.,;]", text):
+        if pattern.search(clause) and not any(neg in clause for neg in _NEGATION_WORDS):
+            return True
+    return False
+
+
+# Answers to the "Could an external auditor retrieve the original records?"
+# provenance item that count as a genuine audit trail, derived from
+# _TRACEABILITY_BONUS rather than duplicating the literal option strings a
+# second time -- any answer worth a positive traceability bonus is "Yes".
+_AUDIT_TRAIL_YES_ANSWERS = {k for k, v in _TRACEABILITY_BONUS.items() if v > 0}
+
+
 def _derive_clarity_params(submission: dict) -> dict:
     statement       = submission.get("result_statement", "") or ""
     timeframe       = (submission.get("timeframe", "") or "").strip()
@@ -1234,6 +1263,9 @@ def _derive_clarity_params(submission: dict) -> dict:
     additional_ctx  = (submission.get("additional_context", "") or "").strip()
     internal_review = submission.get("internal_review", "Not reviewed") or "Not reviewed"
     external_review = submission.get("external_review", "No external review") or "No external review"
+    # Hoisted so both the quantitative measurement-bias-control branch below
+    # and Scope/Integrity's sample_ok/audit_trail (further down) can read it.
+    provenance = submission.get("provenance_checklist", {}) or {}
 
     ev_list    = submission.get("evidence", []) or []
     ev         = ev_list[0] if ev_list else {}
@@ -1268,11 +1300,10 @@ def _derive_clarity_params(submission: dict) -> dict:
     else:
         definition_yes = sum([has_number, has_timeframe, has_target])
         has_method_desc    = len(ev_desc) > 50
-        has_method_keyword = any(k in desc_lower for k in _METHOD_KEYWORDS)
+        has_method_keyword = _clause_has_signal(desc_lower, _METHOD_KEYWORDS)
         has_structured     = ev_type in _STRUCTURED_EV_TYPES
         # Bias controls for quantitative evidence: enumerator independence or
         # recall-period mitigation from the provenance checklist.
-        provenance = submission.get("provenance_checklist", {}) or {}
         has_bias_control = (
             provenance.get("collector_independent") == "Yes"
             or provenance.get("recall_period_ok") == "Yes"
@@ -1280,20 +1311,29 @@ def _derive_clarity_params(submission: dict) -> dict:
         measurement_yes    = sum([has_method_desc, has_method_keyword, has_structured, has_bias_control])
 
     # --- Missing data ---
-    if any(k in desc_lower for k in ("significant", "majority missing", "most data missing")):
+    # "not all" is deliberately checked unguarded: it's a negation phrase
+    # used as a *positive* disclosure signal ("not all beneficiaries were
+    # surveyed"), so running it through the negation guard below would make
+    # it permanently unmatchable (it always contains its own negator).
+    if _clause_has_signal(desc_lower, ("significant", "majority missing", "most data missing")):
         missing_data = "Significant"
-    elif any(k in desc_lower for k in ("partial", "minor gap", "some missing", "not all", "incomplete")):
+    elif _clause_has_signal(desc_lower, ("partial", "minor gap", "some missing", "incomplete")) or "not all" in desc_lower:
         missing_data = "Minor"
     else:
         missing_data = "None"
 
     # --- Audit trail ---
-    audit_trail = "Yes" if verified_by else "No"
+    # Tied to the auditor_traceable provenance item (a genuine "could an
+    # auditor retrieve the original records" signal) rather than bare
+    # verified_by presence -- a single unverified name string previously
+    # boosted this, Scope's sample_ok, Governance's has_owner, AND
+    # Confidence's Verification level all at once.
+    audit_trail = "Yes" if provenance.get("auditor_traceable") in _AUDIT_TRAIL_YES_ANSWERS else "No"
 
     # --- Coverage ---
-    geo_text = geographic_scope + " " + statement
+    geo_text = (geographic_scope + " " + statement).lower()
     geo_specific = bool(geographic_scope and geographic_scope.lower() not in ("not specified",))
-    geo_detailed = bool(_GEO_KEYWORDS.search(geo_text))
+    geo_detailed = _clause_has_regex_signal(geo_text, _GEO_KEYWORDS)
     if geo_specific and geo_detailed:
         coverage = "Full"
     elif geo_specific:
@@ -1302,7 +1342,14 @@ def _derive_clarity_params(submission: dict) -> dict:
         coverage = "Limited"
 
     # --- Sample OK ---
-    sample_ok = bool(re.search(r"\b\d[\d,]*\b", ev_desc)) or bool(verified_by)
+    # Additive: a documented sampling/selection approach (the one real
+    # self-report signal for sample adequacy) now also counts, alongside
+    # the pre-existing digit-in-description / named-verifier signals.
+    sample_ok = (
+        bool(re.search(r"\b\d[\d,]*\b", ev_desc))
+        or bool(verified_by)
+        or provenance.get("sampling_documented") == "Yes"
+    )
 
     # --- Governance (3 yes/no) ---
     has_owner  = bool(verified_by)
@@ -1464,17 +1511,17 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict, accou
     # Clarity sub-scores
     def_count  = clarity_components.get("definition_yes_count", 0)
     meas_count = clarity_components.get("measurement_yes_count", 0)
+    meas_denom = clarity_components.get("measurement_denominator", 3)
     missing_data = clarity_components.get("missing_data", "None")
     audit_trail  = clarity_components.get("audit_trail", "Yes")
     coverage     = clarity_components.get("coverage", "Full")
     sample_ok    = clarity_components.get("sample_ok", True)
     gov_count    = clarity_components.get("governance_yes_count", 0)
+    description_quality = clarity_components.get("description_quality", 0.0)
 
     def_score  = (def_count  / 3) * 1.25
-    meas_score = (meas_count / 3) * 1.25
-    integrity  = max(0, 1.0
-        - (0.5 if missing_data == "Significant" else 0.25 if missing_data == "Minor" else 0)
-        - (0.25 if audit_trail == "No" else 0))
+    meas_score = (meas_count / meas_denom) * 1.25
+    integrity  = _compute_integrity_score(description_quality, missing_data, audit_trail)
     cov_score  = 0.4 if coverage == "Full" else 0.25 if coverage == "Partial" else 0
     scope      = min(0.75, cov_score + (0.35 if sample_ok else 0))
     gov_score  = (gov_count / 3) * 0.75
@@ -1776,9 +1823,8 @@ def evaluate_submission(submission: dict) -> dict:
     meas_score_c = round((clarity_params["measurement_yes_count"] / clarity_params.get("measurement_denominator", 3)) * 1.25, 2)
     miss         = clarity_params["missing_data"]
     audit        = clarity_params["audit_trail"]
-    integ        = round(max(0, 1.0
-        - (0.5 if miss == "Significant" else 0.25 if miss == "Minor" else 0)
-        - (0.25 if audit == "No" else 0)), 2)
+    integ        = round(_compute_integrity_score(
+        clarity_params.get("description_quality", 0.0), miss, audit), 2)
     cov          = clarity_params["coverage"]
     sok          = clarity_params["sample_ok"]
     scope_c      = round(min(0.75,
@@ -1794,6 +1840,12 @@ def evaluate_submission(submission: dict) -> dict:
     if meas_adj:
         meas_score_c  = round(min(1.25, max(0.0, meas_score_c  + meas_adj)), 2)
         clarity_score = round(min(5.0,  max(0.0, clarity_score + meas_adj)), 2)
+
+    # Same placeholder/test-content guard already applied to confidence_score
+    # above -- previously Clarity had no guard at all, so a placeholder
+    # submission ("test test test") could still score full marks on Clarity.
+    raw_clarity_score = clarity_score
+    clarity_score = round(clarity_score * quality_multiplier, 2)
 
     clarity_label, clarity_meaning = interpret_score(clarity_score)
 
@@ -1839,6 +1891,7 @@ def evaluate_submission(submission: dict) -> dict:
         "content_issues":           content_issues,
         "logframe_linkage":         linkage_result,
         "clarity_score":            clarity_score,
+        "raw_clarity_score":        raw_clarity_score,
         "confidence_label":      confidence_label,
         "clarity_label":         clarity_label,
         "confidence_meaning":    confidence_meaning,

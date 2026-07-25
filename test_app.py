@@ -335,12 +335,18 @@ GOLDEN = {
     },
     "weak": {
         "confidence_score": 0.1,
-        "clarity_score": 0.56,
+        # Clarity-rigor pass, item A3: the placeholder/test-content guard
+        # (quality_multiplier) now also applies to clarity_score, not just
+        # confidence_score -- this fixture triggers a low multiplier, so its
+        # clarity_score drops sharply (0.56 -> 0.05) exactly like confidence
+        # already did before this fix.
+        "clarity_score": 0.05,
         "verdict": "High risk — strengthen both axes before relying on this result",
     },
     "placeholder": {
         "confidence_score": 0.0,
-        "clarity_score": 2.82,
+        # Same A3 guard as "weak" above.
+        "clarity_score": 0.05,
         "verdict": "High risk — strengthen both axes before relying on this result",
     },
     "qualitative": {
@@ -350,49 +356,74 @@ GOLDEN = {
         # from "Well-defined but weak" to "Strong KPI" purely because a bonus
         # that was always silently computed is now actually counted.
         "confidence_score": 4.1,
-        "clarity_score": 4.99,
-        # conf=4.1 >= SUBMISSION_THRESHOLD=4.0, clar=4.99 >= 4.0 → "Strong KPI"
+        # Clarity-rigor pass, item A6: audit_trail now requires the
+        # auditor_traceable provenance item to be genuinely answered, not
+        # just a non-empty verified_by name -- this fixture's
+        # provenance_checklist doesn't answer it, so Integrity drops 0.25
+        # (4.99 -> 4.74).
+        "clarity_score": 4.74,
+        # conf=4.1 >= SUBMISSION_THRESHOLD=4.0, clar=4.74 >= 4.0 → "Strong KPI"
         "verdict": "Strong KPI — submission-ready on both axes",
     },
     "qualitative_toggle_only": {
         "confidence_score": 0.3,
-        "clarity_score": 0.92,
+        # A3 guard, same as "weak"/"placeholder".
+        "clarity_score": 0.46,
         "verdict": "High risk — strengthen both axes before relying on this result",
     },
     "missing_recency": {
         "confidence_score": 0.9,
-        "clarity_score": 3.55,
+        # A6: verified_by present but auditor_traceable unanswered -> Integrity
+        # drops 0.25; this fixture's short/thin evidence description also
+        # interacts with the A3 guard, compounding the drop (3.55 -> 1.77).
+        "clarity_score": 1.77,
         # both < 4.0 → "High risk"
         "verdict": "High risk — strengthen both axes before relying on this result",
     },
     "count_only_indicator": {
         "confidence_score": 3.0,
-        "clarity_score": 4.24,
-        # conf=3.0 < 4.0, clar=4.24 >= 4.0 → "Well-defined but weak"
-        "verdict": "Well-defined but weak evidence — strengthen the verification chain",
+        # A6: verified_by="Program Officer" but auditor_traceable unanswered
+        # -> Integrity drops 0.25 (4.24 -> 3.99), which now falls below the
+        # 4.0 threshold.
+        "clarity_score": 3.99,
+        # conf=3.0 < 4.0, clar=3.99 < 4.0 → "High risk"
+        "verdict": "High risk — strengthen both axes before relying on this result",
     },
     "over_attributed": {
         "confidence_score": 0.3,
-        "clarity_score": 2.92,
+        # A3 guard interacts with this fixture's thin evidence.
+        "clarity_score": 1.46,
         "verdict": "High risk — strengthen both axes before relying on this result",
     },
     "triangulated_contribution": {
         "confidence_score": 3.8,
-        "clarity_score": 3.94,
-        # conf=3.8 < 4.0 (False), clar=3.94 < 4.0 (False) → "High risk"
-        "verdict": "High risk — strengthen both axes before relying on this result",
+        # A5 fix: the evidence description reads "...showed no significant
+        # change over the same period" -- describing the COMPARISON GROUP's
+        # outcome, not missing data. The old plain keyword match falsely
+        # tripped missing_data="Significant" (a -0.5 Integrity penalty) on
+        # the coincidental word "significant"; the new negation guard
+        # correctly ignores it (the clause contains "no "). Net effect after
+        # also applying A6's audit_trail tightening (-0.25, verified_by set
+        # but auditor_traceable unanswered): +0.5 - 0.25 = +0.25
+        # (3.94 -> 4.19).
+        "clarity_score": 4.19,
+        # conf=3.8 < 4.0 (False), clar=4.19 >= 4.0 (True) → "Well-defined but weak"
+        "verdict": "Well-defined but weak evidence — strengthen the verification chain",
     },
     "partial_logframe_mismatch": {
         "confidence_score": 2.2,
-        "clarity_score": 3.74,
+        # A6 audit_trail tightening.
+        "clarity_score": 3.49,
         # both < 4.0 → "High risk"
         "verdict": "High risk — strengthen both axes before relying on this result",
     },
     "provenance_marked_na": {
         "confidence_score": 3.2,
-        "clarity_score": 4.24,
-        # conf=3.2 < 4.0 (False), clar=4.24 >= 4.0 (True) → "Well-defined but weak"
-        "verdict": "Well-defined but weak evidence — strengthen the verification chain",
+        # A6: verified_by present but auditor_traceable unanswered -> Integrity
+        # drops 0.25 (4.24 -> 3.99), which now falls below the 4.0 threshold.
+        "clarity_score": 3.99,
+        # conf=3.2 < 4.0, clar=3.99 < 4.0 → "High risk"
+        "verdict": "High risk — strengthen both axes before relying on this result",
     },
 }
 
@@ -1017,6 +1048,99 @@ def run_compliance_layer():
           "diagnostic badge instead of being silently discarded.")
 
 
+def run_clarity_rigor_fixes():
+    """Clarity-rigor pass, item A: standalone checks for the negation-guard,
+    sampling_documented wiring, and auditor_traceable-based audit_trail
+    fixes -- exercised directly via _derive_clarity_params() for precision,
+    same convention as DIRECTNESS_GOLDEN/VERIFICATION_GOLDEN above."""
+    failures = []
+
+    def _params(**overrides):
+        base = {
+            "result_statement": "Reached 200 households in 2025.",
+            "target_group": "Households",
+            "timeframe": "2025",
+            "geographic_scope": "Northern Region",
+            "additional_context": "",
+            "internal_review": "Not reviewed",
+            "external_review": "No external review",
+            "evidence": [{"type": "Other", "description": "", "verified_by": ""}],
+            "provenance_checklist": {},
+        }
+        base.update(overrides)
+        return base
+
+    # 1. A negated method/geo phrase must not register as a positive signal.
+    # Kept under 50 chars so has_method_desc's length check (a separate,
+    # unrelated Measurement signal) doesn't also contribute -- this isolates
+    # the keyword-negation guard specifically.
+    negated = evaluator._derive_clarity_params(_params(
+        geographic_scope="Not specified",
+        evidence=[{
+            "type": "Other",
+            "description": "No survey done, no district visit.",
+            "verified_by": "",
+        }],
+    ))
+    if negated["measurement_yes_count"] != 0:
+        failures.append(
+            f"Negated method keyword ('no survey done') should not count toward Measurement, "
+            f"got measurement_yes_count={negated['measurement_yes_count']}"
+        )
+    if negated["coverage"] == "Full":
+        failures.append("Negated geo keyword ('no district visit') should not yield Full coverage")
+
+    # 2. sampling_documented="Yes" alone (no digit in description, no verifier) makes sample_ok True.
+    sampling_only = evaluator._derive_clarity_params(_params(
+        evidence=[{"type": "Other", "description": "A qualitative account with no figures.", "verified_by": ""}],
+        provenance_checklist={"sampling_documented": "Yes"},
+    ))
+    if not sampling_only["sample_ok"]:
+        failures.append("sampling_documented='Yes' alone should make sample_ok True")
+
+    # 3. auditor_traceable unanswered drops audit_trail to 'No' even with verified_by set.
+    unanswered_traceable = evaluator._derive_clarity_params(_params(
+        evidence=[{"type": "Other", "description": "Some evidence.", "verified_by": "Program Officer"}],
+        provenance_checklist={},
+    ))
+    if unanswered_traceable["audit_trail"] != "No":
+        failures.append(
+            f"verified_by set but auditor_traceable unanswered should give audit_trail='No', "
+            f"got {unanswered_traceable['audit_trail']!r}"
+        )
+
+    # 4. auditor_traceable genuinely answered "Yes" gives audit_trail='Yes'.
+    answered_traceable = evaluator._derive_clarity_params(_params(
+        evidence=[{"type": "Other", "description": "Some evidence.", "verified_by": "Program Officer"}],
+        provenance_checklist={"auditor_traceable": "Yes — an auditor could retrieve the original records"},
+    ))
+    if answered_traceable["audit_trail"] != "Yes":
+        failures.append(
+            f"auditor_traceable genuinely answered 'Yes' should give audit_trail='Yes', "
+            f"got {answered_traceable['audit_trail']!r}"
+        )
+
+    # 5. Integrity formula consistency: evaluate_submission()'s displayed integrity_score
+    # must match the value actually summed into clarity_score (via compute_clarity()).
+    ev = evaluator.evaluate_submission(CASES["strong"])
+    cc = ev["clarity_components"]
+    recomputed_integrity = evaluator._compute_integrity_score(
+        cc["description_quality"], cc["missing_data"], cc["audit_trail"])
+    if cc["integrity_score"] != round(recomputed_integrity, 2):
+        failures.append(
+            f"Displayed integrity_score ({cc['integrity_score']}) should match "
+            f"_compute_integrity_score()'s output ({round(recomputed_integrity, 2)})"
+        )
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: Clarity rigor fixes — negation guards, sampling_documented wiring, "
+          "auditor_traceable-based audit_trail, and Integrity formula consistency verified.")
+
+
 def run_beneficiary_voice_bonus_wiring():
     """Gap 1 fix: the beneficiary-voice bonus was computed but discarded --
     now it must actually move confidence_score, capped so it can't push the
@@ -1163,6 +1287,7 @@ if __name__ == "__main__":
     run_framework_crosswalk()
     run_sector_tailoring()
     run_monthly_trend_summary()
+    run_clarity_rigor_fixes()
     run_beneficiary_voice_bonus_wiring()
     run_directness_floor()
     run_compliance_layer()
