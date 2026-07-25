@@ -53,6 +53,82 @@ _UNIVERSAL_THRESHOLDS: dict = {
     "Governance":   0.5,
 }
 
+# NESTA Level 3 ("evidence of causality... through use of a randomised
+# controlled trial or comprehensive qualitative evaluation") is a
+# meaningfully higher bar than the universal Directness threshold, which
+# only requires evaluator.score_directness()'s level 2 (perception evidence)
+# to pass. Framework-specific, not a generic per-framework override
+# mechanism -- only NESTA's published standard is this much stricter than
+# every other framework already in FRAMEWORKS on this one dimension.
+_NESTA_THRESHOLD_OVERRIDES: dict = {"Directness": 2.0}
+
+# evaluator.py's 5-level Directness ladder and NESTA's 5 published levels
+# measure different things and are NOT numerically aligned: evaluator asks
+# "how directly does this evidence tie to the claimed result," NESTA asks
+# "how rigorously is causality established." A perfect evaluator score does
+# not imply NESTA Level 5 -- NESTA Levels 4-5 (independent evaluation +
+# cost-effectiveness; multi-site replication with documented systems) test
+# things this evaluator does not assess at all, so no evaluator level maps
+# to them. Level descriptions per Nesta's own published Standards of
+# Evidence (nesta.org.uk/feature/innovation-methods/standards-evidence/).
+NESTA_DIRECTNESS_MAPPING: dict = {
+    0: {
+        "nesta_level": 0, "nesta_label": "Below Level 1 — no evidence",
+        "rationale": "No evidence description or evidence type was provided.",
+    },
+    1: {
+        "nesta_level": 0, "nesta_label": "Below Level 1 — no evidence",
+        "rationale": (
+            "An unhedged causal claim with no triangulation, comparison basis, or "
+            "causal-link statement behind it does not clear even NESTA's Level 1 bar, "
+            "which requires a coherent, evidenced theory of change, not an assertion."
+        ),
+    },
+    2: {
+        "nesta_level": 1, "nesta_label": "Level 1 — Theory of change",
+        "rationale": (
+            "Perception-based evidence alone (survey, interview, focus group) describes "
+            "beneficiary experience but does not yet show measured change, which is "
+            "what separates Level 1 from Level 2."
+        ),
+    },
+    3: {
+        "nesta_level": 1, "nesta_label": "Level 1 — Theory of change",
+        "rationale": (
+            "Programme records (attendance sheets, activity logs) show the activity "
+            "took place, not that it caused a change in outcomes -- still Level 1."
+        ),
+    },
+    4: {
+        "nesta_level": 2, "nesta_label": "Level 2 — Data showing change",
+        "rationale": (
+            "A comparison/baseline basis or an explicit causal-link statement shows "
+            "positive change is being captured, matching Level 2 -- but without a "
+            "control/comparison group ruling out other explanations, it doesn't yet "
+            "demonstrate causality (Level 3)."
+        ),
+    },
+    5: {
+        "nesta_level": 3, "nesta_label": "Level 3 — Causal impact",
+        "rationale": (
+            "Triangulated evidence, or a comparison basis combined with a causal-link "
+            "statement, is the strongest signal this evaluator can detect -- roughly "
+            "comparable to Level 3's causality bar, though NESTA Level 3 specifically "
+            "expects an RCT or a comprehensive qualitative evaluation, which this "
+            "evaluator cannot verify from a text description alone."
+        ),
+    },
+}
+
+
+def get_nesta_directness_mapping(direct_level: int) -> dict:
+    """Maps one of evaluator.get_directness_level()'s 0-5 levels to its closest
+    NESTA Standards of Evidence level, for display in the NESTA framework
+    crosswalk. Returns the Level-0 ("no evidence") row for any level outside
+    0-5 rather than raising, matching this module's degrade-gracefully
+    convention."""
+    return NESTA_DIRECTNESS_MAPPING.get(direct_level, NESTA_DIRECTNESS_MAPPING[0])
+
 FRAMEWORKS: dict = {
     "USAID": {
         "label": "USAID ADS 201 / DQA",
@@ -245,6 +321,43 @@ FRAMEWORKS: dict = {
             },
         },
     },
+    "NESTA": {
+        "label": "NESTA Standards of Evidence",
+        # Only Directness/Verification/Measurement are cited -- NESTA's published
+        # standard doesn't address Recency/Definition/Scope/Governance, and no
+        # genuinely public NESTA language was found to ground an Integrity
+        # citation either, so Integrity is deliberately left out rather than
+        # force-mapped (see this module's docstring: no citation invented from
+        # nothing).
+        "criteria": {
+            "Directness": {
+                "citation": "NESTA Standards of Evidence — Level 3 (causal impact via RCT or comprehensive qualitative evaluation)",
+                "remediation": (
+                    "Add a comparison/control group basis or a rigorous qualitative "
+                    "evaluation design so your evidence demonstrates causality, not "
+                    "just a plausible link — NESTA Level 3 requires evidence the "
+                    "observed effect is actually caused by your intervention, not "
+                    "merely correlated with it."
+                ),
+            },
+            "Verification": {
+                "citation": "NESTA Standards of Evidence — Level 4 (independent evaluation)",
+                "remediation": (
+                    "Name an internal reviewer or, ideally, commission an independent "
+                    "evaluation — NESTA Level 4 requires an independent evaluation to "
+                    "validate the impact, not a self-reported figure."
+                ),
+            },
+            "Measurement": {
+                "citation": "NESTA Standards of Evidence — Level 2 (data showing change)",
+                "remediation": (
+                    "Describe your collection method and sampling approach — NESTA "
+                    "Level 2 requires data collection that shows positive change among "
+                    "the people your intervention reaches, not just an activity count."
+                ),
+            },
+        },
+    },
 }
 
 
@@ -279,7 +392,11 @@ def evaluate_frameworks(evaluation: dict) -> dict:
                 if score_key not in comp:
                     continue
                 current = comp.get(score_key) or 0
-                threshold = _UNIVERSAL_THRESHOLDS.get(dim_name, 0)
+                threshold = (
+                    _NESTA_THRESHOLD_OVERRIDES.get(dim_name, _UNIVERSAL_THRESHOLDS.get(dim_name, 0))
+                    if fw_key == "NESTA" else
+                    _UNIVERSAL_THRESHOLDS.get(dim_name, 0)
+                )
                 passed = current >= threshold
                 if not passed:
                     overall_ready = False

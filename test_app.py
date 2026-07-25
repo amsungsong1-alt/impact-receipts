@@ -880,13 +880,72 @@ def run_framework_crosswalk():
     except Exception as exc:
         failures.append(f"evaluate_frameworks raised on a dict with empty component sub-dicts: {exc}")
 
+    # 4. NESTA is measurably stricter on Directness than every other framework:
+    #    direct_score=1.6 (level 4/5, a comparison/causal-link basis but not full
+    #    triangulation) clears every other framework's 1.2 bar but fails NESTA's
+    #    2.0 override -- the whole point of adding a framework-specific threshold.
+    level4_direct = _ev(direct=1.6)
+    results4 = framework_crosswalk.evaluate_frameworks(level4_direct)
+    for fw_key, fw in results4.items():
+        row = next((r for r in fw["rows"] if r["criterion"] == "Directness"), None)
+        if row is None:
+            continue
+        if fw_key == "NESTA":
+            if row["pass"]:
+                failures.append("NESTA should fail Directness at direct_score=1.6 (below its 2.0 override), but it passed")
+        elif not row["pass"]:
+            failures.append(f"{fw_key} should pass Directness at direct_score=1.6 (above the 1.2 universal bar), but it failed")
+
     if failures:
         print("FAILED:")
         for f in failures:
             print("  -", f)
         raise SystemExit(1)
     print("PASS: framework crosswalk — pass/fail via universal thresholds, per-framework "
-          "citation coverage, and graceful degradation verified.")
+          "citation coverage, graceful degradation, and NESTA's stricter Directness bar verified.")
+
+
+def run_nesta_directness_mapping():
+    """framework_crosswalk.get_nesta_directness_mapping() -- evaluator's 5-level
+    Directness ladder is NOT numerically aligned with NESTA's 5 published
+    levels (Gap: NESTA was entirely absent from the codebase). Confirms the
+    mapping degrades a level-3 "programme records" evaluator score down to
+    NESTA Level 1, not a naive "3", and that no evaluator level over-claims
+    NESTA Level 4/5 (independent evaluation + cost-effectiveness; multi-site
+    replication), which this evaluator does not assess at all."""
+    failures = []
+
+    for level in range(0, 6):
+        row = framework_crosswalk.get_nesta_directness_mapping(level)
+        if "nesta_level" not in row or "nesta_label" not in row or "rationale" not in row:
+            failures.append(f"level {level} mapping is missing an expected key: {row}")
+        if row["nesta_level"] > 3:
+            failures.append(
+                f"level {level} maps to NESTA Level {row['nesta_level']} -- no evaluator level "
+                "should claim NESTA Level 4/5 (independent evaluation, multi-site replication), "
+                "which this evaluator cannot assess"
+            )
+
+    # Evaluator level 3 ("programme records" -- attendance sheets, activity logs)
+    # must map DOWN to NESTA Level 1, not "3" -- the two ladders measure
+    # different things (directness-to-claim vs. rigor-of-causality).
+    if framework_crosswalk.get_nesta_directness_mapping(3)["nesta_level"] != 1:
+        failures.append(
+            "evaluator level 3 (programme records) should map to NESTA Level 1, got "
+            f"{framework_crosswalk.get_nesta_directness_mapping(3)}"
+        )
+
+    # Out-of-range input degrades to the Level-0 row rather than raising.
+    if framework_crosswalk.get_nesta_directness_mapping(99)["nesta_level"] != 0:
+        failures.append("an out-of-range direct_level should degrade to the Level-0 row, not raise")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: NESTA Directness mapping — level-3 correctly demoted to NESTA Level 1, "
+          "no evaluator level over-claims NESTA Level 4/5, out-of-range input degrades safely.")
 
 
 def run_sector_tailoring():
@@ -1473,3 +1532,4 @@ if __name__ == "__main__":
     run_direction_mismatch_gate()
     run_truthfulness_disclaimer()
     run_disaggregation_bonus_wiring()
+    run_nesta_directness_mapping()
