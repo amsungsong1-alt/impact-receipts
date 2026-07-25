@@ -1324,6 +1324,71 @@ def run_beneficiary_voice_bonus_wiring():
     print("PASS: beneficiary-voice bonus — actually moves confidence_score, capped at the 5.0 axis ceiling.")
 
 
+def run_disaggregation_bonus_wiring():
+    """Gap fix (NESTA/Bond/3ie/IRIS+ pass, item D): disaggregation_status was
+    captured in the submission dict and shown on-screen captioned "advisory
+    only, no effect on your score" -- but evaluator.py never read it at all.
+    Now compute_disaggregation_bonus() feeds Clarity's Definition component
+    via _derive_clarity_params(), same anti-gaming discipline (exact dropdown
+    string, never keyword-guessed) as compute_beneficiary_voice_bonus()."""
+    failures = []
+
+    expected_bonuses = {
+        "Yes — fully disaggregated": 0.15,
+        "Partially disaggregated":   0.08,
+        "No":                        0.0,
+        "Not applicable":            0.0,
+        "Not specified":             0.0,
+        "":                          0.0,
+        "garbage":                   0.0,
+    }
+    for status, expected in expected_bonuses.items():
+        got = evaluator.compute_disaggregation_bonus(status)
+        if got != expected:
+            failures.append(f"compute_disaggregation_bonus({status!r}) expected {expected}, got {got}")
+
+    # Wiring: _derive_clarity_params() must surface the bonus for a submission
+    # carrying disaggregation_status, and evaluate_submission()'s
+    # clarity_components must expose it for display (parallel to bv_bonus in
+    # confidence_components).
+    base = dict(CASES["strong"])
+    base["disaggregation_status"] = "Partially disaggregated"
+    ev = evaluator.evaluate_submission(base)
+    if ev["clarity_components"].get("disaggregation_bonus") != 0.08:
+        failures.append(
+            "clarity_components['disaggregation_bonus'] expected 0.08, got "
+            f"{ev['clarity_components'].get('disaggregation_bonus')}"
+        )
+
+    # A submission that defaults to "Not specified" (every existing CASES
+    # fixture) must be byte-identical to pre-D behavior -- zero bonus.
+    default_params = evaluator._derive_clarity_params(CASES["strong"])
+    if default_params.get("disaggregation_bonus") != 0.0:
+        failures.append(
+            f"a submission with no disaggregation_status set should get bonus 0.0, "
+            f"got {default_params.get('disaggregation_bonus')}"
+        )
+
+    # 5.0 axis ceiling: definition(1.25+0.15) + measurement(1.25) +
+    # integrity(1.0) + scope(0.75) + governance(0.75) = 5.15 uncapped, must
+    # clamp to 5.0 (compute_clarity()'s min(5.0, ...) from the Clarity-rigor
+    # pass, item A3, ahead of this bonus being wired in).
+    capped = evaluator.compute_clarity(
+        definition_yes_count=3, measurement_yes_count=4, missing_data="None",
+        audit_trail="Yes", coverage="Full", sample_ok=True, governance_yes_count=3,
+        measurement_denominator=4, description_quality=0.25, disaggregation_bonus=0.15,
+    )
+    if capped != 5.0:
+        failures.append(f"expected the 5.0 axis ceiling to clamp an overflowing total, got {capped}")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: disaggregation bonus — wired into Clarity scoring, exact dropdown-value lookup, capped at the 5.0 axis ceiling.")
+
+
 def run_directness_floor():
     """Gap 3 fix: the literal repro case from the third-party stress-test
     report. CASES["strong"] uses attendance-sheet evidence (Directness
@@ -1407,3 +1472,4 @@ if __name__ == "__main__":
     run_compliance_layer()
     run_direction_mismatch_gate()
     run_truthfulness_disclaimer()
+    run_disaggregation_bonus_wiring()

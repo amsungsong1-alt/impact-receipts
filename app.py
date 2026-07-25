@@ -8381,15 +8381,19 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             "organization learned and how the program adapted as a result."
         )
 
-    # Additional advisory flags (v3.4, score-neutral)
+    # Additional advisory flags (v3.4). Disaggregation carries a real Clarity
+    # bonus (up to +0.15, see compute_disaggregation_bonus()) -- attribution
+    # remains advisory only, so the two can't share one blanket caption.
     attrib = submission.get("attribution_contribution", "Not specified")
     disagg = submission.get("disaggregation_status", "Not specified")
     if attrib != "Not specified" or disagg != "Not specified":
         st.markdown("#### Additional Advisory Flags")
-        st.caption("Optional checklist answers — advisory only, no effect on your score.")
         if attrib != "Not specified":
+            st.caption("Attribution — advisory only, no effect on your score.")
             st.markdown(f"- **Attribution vs. contribution distinguished:** {attrib}")
         if disagg != "Not specified":
+            _disagg_bonus_display = _evaluator.compute_disaggregation_bonus(disagg)
+            st.caption(f"Disaggregation — contributes up to +0.15 to your Clarity score (+{_disagg_bonus_display} applied here).")
             st.markdown(f"- **Beneficiary data disaggregated (women, youth, PWD, rural):** {disagg}")
 
     # Verdict banner
@@ -9006,9 +9010,12 @@ def render_screen_2():
         _render_result_card(sub, ev, card_idx=i,
                             donor=st.session_state.get("donor_selected", ""))
 
-    # Optional reporting flags — moved here from Tab 2 so users can fill after seeing scores
-    with st.expander("📝 Optional reporting flags (no score impact)", expanded=False):
-        st.caption("These appear as advisory flags in your report — they do not affect your Confidence or Clarity scores.")
+    # Optional reporting flags — moved here from Tab 2 so users can fill after seeing scores.
+    # Disaggregation is the one field here that now carries a real Clarity bonus (see
+    # _on_disaggregation_change below) -- it can't share the section's "no score impact"
+    # caption with the remaining, still-purely-advisory fields.
+    with st.expander("📝 Optional reporting flags", expanded=False):
+        st.caption("Attribution and learning notes appear as advisory flags in your report — they do not affect your Confidence or Clarity scores.")
         _s2_slot_suffix = _slot_suffix(1)
         st.selectbox(
             "Does your report distinguish attribution from contribution?",
@@ -9016,12 +9023,28 @@ def render_screen_2():
             key=f"attribution_contribution{_s2_slot_suffix}",
             help="Attribution claims your program caused the change on its own. Contribution acknowledges multiple factors.",
         )
+
+        def _on_disaggregation_change():
+            # Disaggregation is captured after evs is already cached above --
+            # without this, a changed answer would silently never reach the
+            # score (the exact "computed but discarded" bug class this pass
+            # exists to close). Clearing the cache re-enters the "if not
+            # st.session_state.get('evaluations')" recompute block on rerun.
+            st.session_state["evaluations"] = None
+            st.session_state["submissions_snapshot"] = None
+
         st.selectbox(
             "Is beneficiary data disaggregated (women, youth, PWD, rural)?",
-            options=["Not specified", "Yes — fully disaggregated", "Partially disaggregated", "No"],
+            options=["Not specified", "Yes — fully disaggregated", "Partially disaggregated", "No", "Not applicable"],
             key=f"disaggregation_status{_s2_slot_suffix}",
-            help="Many donors now expect results broken down by sex, age, disability, and location.",
+            help="Many donors now expect results broken down by sex, age, disability, and location. Adds up to +0.15 to your Clarity score.",
+            on_change=_on_disaggregation_change,
         )
+        _disagg_val = st.session_state.get(f"disaggregation_status{_s2_slot_suffix}", "Not specified")
+        _disagg_bonus = (_evaluator.compute_disaggregation_bonus(_disagg_val)
+                          if hasattr(_evaluator, "compute_disaggregation_bonus") else 0.0)
+        if _disagg_bonus > 0:
+            st.caption(f"✓ Disaggregation bonus: **+{_disagg_bonus}/0.15** applied to your Clarity score.")
         st.text_area(
             "What did you learn from this result, and how did your program adapt?",
             key=f"learning_notes{_s2_slot_suffix}",
@@ -12421,19 +12444,24 @@ def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart
 </ul>
 """
 
-    # --- Additional advisory flags (v3.4, score-neutral) ---
+    # --- Additional advisory flags (v3.4). Disaggregation carries a real
+    # Clarity bonus (up to +0.15) -- attribution remains advisory only. ---
     attrib = submission.get("attribution_contribution", "Not specified")
     disagg = submission.get("disaggregation_status", "Not specified")
     advisory_html = ""
     if attrib != "Not specified" or disagg != "Not specified":
         advisory_items = ""
         if attrib != "Not specified":
-            advisory_items += f"<li><strong>Attribution vs. contribution distinguished:</strong> {attrib}</li>"
+            advisory_items += f"<li><strong>Attribution vs. contribution distinguished:</strong> {attrib} <span style='color:#9E9E9E;'>(advisory only)</span></li>"
         if disagg != "Not specified":
-            advisory_items += f"<li><strong>Beneficiary data disaggregated (women, youth, PWD, rural):</strong> {disagg}</li>"
+            _disagg_bonus_html = _evaluator.compute_disaggregation_bonus(disagg)
+            advisory_items += (
+                f"<li><strong>Beneficiary data disaggregated (women, youth, PWD, rural):</strong> {disagg} "
+                f"<span style='color:#9E9E9E;'>(+{_disagg_bonus_html}/0.15 applied to Clarity score)</span></li>"
+            )
         advisory_html = f"""
 <h2>Additional Advisory Flags</h2>
-<p style="color:#616161;font-size:0.85rem;">Optional checklist answers — advisory only, no effect on your score.</p>
+<p style="color:#616161;font-size:0.85rem;">Attribution is advisory only; disaggregation contributes directly to your Clarity score.</p>
 <ul>{advisory_items}</ul>
 """
 

@@ -573,6 +573,21 @@ def build_donor_crosswalk_html(profile_key: str) -> str:
     bv_cell_html = "".join(f"<td>{c}</td>" for c in bv_cells)
     rows_html.append(f"<tr><td>Beneficiary Voice (Confidence bonus)</td>{bv_cell_html}</tr>")
 
+    # Disaggregation row — same "bonus, not one of the eight criteria"
+    # treatment as Beneficiary Voice above; Bond's Voice & Inclusion and
+    # IRIS+ both expect data broken down by sex/age/disability/location,
+    # not just a total headcount.
+    disagg_map = {
+        "dqa":       "Validity",
+        "bond":      "Voice &amp; Inclusion",
+        "community": "Data broken down by group (women, youth, PWD)",
+    }
+    disagg_cells = []
+    for fw_key, _ in frameworks:
+        disagg_cells.append(disagg_map.get(fw_key, "&mdash;"))
+    disagg_cell_html = "".join(f"<td>{c}</td>" for c in disagg_cells)
+    rows_html.append(f"<tr><td>Disaggregation (Clarity bonus)</td>{disagg_cell_html}</tr>")
+
     return (
         "<table style='width:100%;font-size:0.8rem;'>"
         f"<tr><th>ImpactProof sub-score</th>{header_cells}</tr>"

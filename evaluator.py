@@ -449,6 +449,25 @@ def compute_beneficiary_voice_bonus(beneficiary_voice: str, method_detail: str =
     return base
 
 
+# Bond Evidence Principles 2024 (Voice & Inclusion) and IRIS+ both expect a
+# "clear picture of who is affected" -- broken down by sex, age, disability,
+# location, not just a total headcount. Dict lookup keyed off the exact
+# dropdown string, never keyword-guessed from free text, matching
+# compute_beneficiary_voice_bonus()'s anti-gaming discipline above.
+_DISAGGREGATION_BONUS = {
+    "Yes — fully disaggregated": 0.15,
+    "Partially disaggregated":   0.08,
+    "No":                        0.0,
+    "Not applicable":            0.0,
+    "Not specified":             0.0,
+}
+
+
+def compute_disaggregation_bonus(disaggregation_status: str) -> float:
+    """Returns 0.0-0.15 Clarity bonus based on explicit dropdown selection."""
+    return _DISAGGREGATION_BONUS.get(disaggregation_status, 0.0)
+
+
 # ---------------------------------------------------------------------------
 # Governance & Compliance Layer (do-no-harm / consent / child-safeguarding).
 # Distinct from clarity_components["governance_score"] below (named-owner /
@@ -1366,6 +1385,9 @@ def _derive_clarity_params(submission: dict) -> dict:
     desc_word_count = len(ev_desc.split()) if ev_desc else 0
     description_quality = round(min(0.25, desc_word_count / 20 * 0.25), 3)
 
+    # --- Disaggregation bonus (Bond Voice & Inclusion / IRIS+) ---
+    disaggregation_bonus = compute_disaggregation_bonus(submission.get("disaggregation_status", "Not specified"))
+
     return {
         "definition_yes_count":    definition_yes,
         "measurement_yes_count":   measurement_yes,
@@ -1377,6 +1399,7 @@ def _derive_clarity_params(submission: dict) -> dict:
         "governance_yes_count":    governance_yes,
         "is_qualitative":          is_qualitative,
         "description_quality":     description_quality,
+        "disaggregation_bonus":    disaggregation_bonus,
     }
 
 
