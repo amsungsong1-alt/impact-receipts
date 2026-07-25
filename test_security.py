@@ -10,6 +10,8 @@ Run with: python test_security.py
 import streamlit as st
 import app
 import evaluator
+import utils.verification as verification
+from sqlalchemy import create_engine
 
 
 def run_user_email_overwrite_guard():
@@ -129,6 +131,10 @@ def run_readiness_card_crosswalk_tags():
     # must render without a stray separator when _crosswalk_tag() is empty.
     if " &mdash; &middot;" in html or html.count("&mdash; &mdash;") > 0:
         failures.append("a dimension with no citation tag produced a dangling separator")
+    # Item G3: the printed document must name the actual ?verify= URL, not
+    # just an inert "cite this reference ID" instruction.
+    if "?verify=IMP-20260101_000000" not in html:
+        failures.append("expected the printed Ref line to include a concrete ?verify=<ref_id> URL")
 
     if failures:
         print("FAILED:")
@@ -138,7 +144,55 @@ def run_readiness_card_crosswalk_tags():
     print("PASS: Readiness Card crosswalk tags -- Bond 2024/NESTA citations and disaggregation bonus note verified.")
 
 
+def run_verify_landing():
+    """_render_verify_landing() (item G2 of the NESTA/Bond/3ie/IRIS+ pass) --
+    the public ?verify=<ref_id> landing page that closes the "cite this
+    reference ID" promise every export already makes. Must render without
+    raising for both a match and a no-match, and must never expose the
+    stored content_hash or raw submission content."""
+    failures = []
+    original_get_engine = verification._get_engine
+    engine = create_engine("sqlite:///:memory:")
+    verification.Base.metadata.create_all(engine)
+    verification._get_engine = lambda: engine
+    try:
+        content_hash = verification.compute_content_hash(
+            "Trained 487 farmers.", "Attendance sheets.",
+            "Attendance sheets / participant registers", 4.7, 4.2,
+        )
+        verification.record_export(
+            "IMP-20260101_000000", "readiness_card", content_hash,
+            confidence_score=4.7, clarity_score=4.2, score_band="Strong",
+        )
+
+        try:
+            app._render_verify_landing("IMP-20260101_000000")
+        except Exception as exc:
+            failures.append(f"_render_verify_landing raised on a matching ref_id: {exc}")
+
+        try:
+            app._render_verify_landing("IMP-99999999_999999")
+        except Exception as exc:
+            failures.append(f"_render_verify_landing raised on a non-matching ref_id: {exc}")
+
+        # The landing page must only ever see the fields verify_ref_id() returns
+        # (never the raw content_hash or original submission text).
+        record = verification.verify_ref_id("IMP-20260101_000000")
+        if "content_hash" in record:
+            failures.append("verify_ref_id() result passed to the landing page includes the raw content_hash")
+    finally:
+        verification._get_engine = original_get_engine
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: verify landing page -- renders without raising for match/no-match, never exposes the content hash.")
+
+
 if __name__ == "__main__":
     run_user_email_overwrite_guard()
     run_portfolio_heatmap_sample_gate()
     run_readiness_card_crosswalk_tags()
+    run_verify_landing()

@@ -252,29 +252,34 @@ recommended aliases before introducing a new call site.
 
 ## Testing
 
-Eight plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
+Ten plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
 (API-calling functions are tested by temporarily swapping `council._call_haiku`, or
 `utils.paystack.requests`/`utils.db._get_client`/`utils.auth._get_client`, for a fake;
-`test_audits.py`/`test_crm.py`/`test_outcomes.py` swap `utils.audits._get_engine`/
-`utils.crm._get_engine`/`utils.outcomes._get_engine` for an in-memory SQLite engine instead,
-since the same SQLAlchemy models work unchanged against either dialect — note SQLite doesn't
-enforce foreign keys by default unlike Postgres, so that fixture explicitly enables
-`PRAGMA foreign_keys=ON` to exercise cascade-delete behavior correctly;
+`test_audits.py`/`test_crm.py`/`test_outcomes.py`/`test_verification.py` swap
+`utils.audits._get_engine`/`utils.crm._get_engine`/`utils.outcomes._get_engine`/
+`utils.verification._get_engine` for an in-memory SQLite engine instead, since the same
+SQLAlchemy models work unchanged against either dialect — note SQLite doesn't enforce foreign
+keys by default unlike Postgres, so that fixture explicitly enables `PRAGMA foreign_keys=ON`
+to exercise cascade-delete behavior correctly; `test_i18n.py` swaps
+`utils.exchange_rates._fetch_rates_from_api_uncached`/`utils.geoip._visitor_ip` for fakes;
 `test_security.py` imports `app.py` itself in Streamlit's "bare mode," where `st.session_state`
 still behaves as a plain dict within one process):
 
 ```powershell
-python test_app.py       # evaluator.py + diagnostics.py scoring behaviour
-python test_council.py   # fabrication guard + logframe match
-python test_metrics.py   # metrics event logging/summarization
-python test_billing.py   # auth token lifecycle, metering, Paystack subscriptions/webhook sig
-python test_audits.py    # saved audits, logframe library, benchmark, access log, encryption, deletion
-python test_crm.py       # crm events, agency-ready detection, account segmentation, purge
-python test_outcomes.py  # outcome feedback scheduling, hash-based ownership, acceptance-rate stats
-python test_security.py  # app.py-level regression tests (currently: the user_email overwrite guard)
+python test_app.py          # evaluator.py + diagnostics.py scoring behaviour
+python test_council.py      # fabrication guard + logframe match
+python test_metrics.py      # metrics event logging/summarization
+python test_billing.py      # auth token lifecycle, metering, Paystack subscriptions/webhook sig
+python test_audits.py       # saved audits, logframe library, benchmark, access log, encryption, deletion
+python test_crm.py          # crm events, agency-ready detection, account segmentation, purge
+python test_outcomes.py     # outcome feedback scheduling, hash-based ownership, acceptance-rate stats
+python test_verification.py # export reference-ID hashing, recording, and ?verify= lookup
+python test_i18n.py         # currency conversion, geoIP routing, ROI copy, Paystack checkout routing
+python test_security.py     # app.py-level regression tests (user_email overwrite guard, portfolio
+                             # heatmap sample gate, Readiness Card crosswalk tags, verify landing page)
 ```
 
-All eight must pass before pushing a change that touches scoring, AI post-processing, metrics,
+All ten must pass before pushing a change that touches scoring, AI post-processing, metrics,
 billing/auth, or audit persistence. When you intentionally change scoring behavior, re-baseline
 `test_app.py`'s golden values in the same commit — a scoring change that leaves the golden values
 stale silently breaks the safety net for the next change.
