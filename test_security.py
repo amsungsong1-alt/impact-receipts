@@ -11,6 +11,8 @@ import streamlit as st
 import app
 import evaluator
 import utils.verification as verification
+import utils.assessment_links as assessment_links
+from datetime import datetime, timedelta
 from sqlalchemy import create_engine
 
 
@@ -191,8 +193,81 @@ def run_verify_landing():
     print("PASS: verify landing page -- renders without raising for match/no-match, never exposes the content hash.")
 
 
+def _synthetic_full_audits(n=15):
+    """Synthetic _agency_full_audits()-shaped rows for exercising D4's three
+    Agency Dashboard views without a real DB -- covers full/small-N/empty
+    inputs across MIS/DSS/ESS render paths."""
+    clients = ["Acme NGO", "Beta Trust", "— Unassigned —"]
+    donors = ["USAID", "FCDO", "GIZ"]
+    org_types = ["National NGO", "International NGO (INGO)"]
+    ev_types = ["Attendance sheets / participant registers", "Tracer survey results"]
+    rows = []
+    for i in range(n):
+        rows.append({
+            "id": i, "ref_id": f"IMP-{i}", "created_at": datetime.now() - timedelta(days=30 * i),
+            "donor": donors[i % 3], "sector": "Health", "org_type": org_types[i % 2],
+            "client_id": i % 3, "client_name": clients[i % 3],
+            "evidence_type": ev_types[i % 2],
+            "confidence_score": 3.0 + (i % 5) * 0.3, "clarity_score": 3.0 + (i % 4) * 0.4,
+            "confidence_components": {"direct_score": 1.2, "verify_score": 1.8, "recency_score": 0.8},
+            "clarity_components": {"definition_score": 1.0, "measurement_score": 1.0, "integrity_score": 0.8,
+                                    "scope_score": 0.5, "governance_score": 0.5},
+            "beneficiary_voice_bonus": 0.3 if i % 2 == 0 else 0.0,
+            "disaggregation_bonus": 0.15 if i % 3 == 0 else 0.0,
+        })
+    return rows
+
+
+def run_agency_d4_views():
+    """D4a/D4b/D4c -- the three new Agency Dashboard views (MIS/DSS/ESS)
+    must render without raising across full data, below-MIN_PORTFOLIO_SAMPLE
+    data, and empty input. ESS additionally needs a real utils.assessment_links
+    engine swapped in for its Process/Learning panels."""
+    failures = []
+    original_get_engine = assessment_links._get_engine
+    engine = create_engine("sqlite:///:memory:")
+    assessment_links.Base.metadata.create_all(engine)
+    assessment_links._get_engine = lambda: engine
+    email = "agency@example.com"
+    try:
+        assessment_links.record_assessment(
+            "ASM-1", email, confidence_score=2.5, clarity_score=3.0, weakest_dimension="Directness")
+        assessment_links.record_assessment(
+            "ASM-2", email, confidence_score=3.9, clarity_score=3.4, weakest_dimension="Recency",
+            parent_assessment_id="ASM-1")
+
+        full = _synthetic_full_audits(15)
+        small = _synthetic_full_audits(3)
+
+        for label, fn, args in [
+            ("MIS/full", app._render_agency_mis_view, (full,)),
+            ("MIS/small-N", app._render_agency_mis_view, (small,)),
+            ("MIS/empty", app._render_agency_mis_view, ([],)),
+            ("DSS/full", app._render_agency_dss_view, (full,)),
+            ("DSS/small-N", app._render_agency_dss_view, (small,)),
+            ("DSS/empty", app._render_agency_dss_view, ([],)),
+            ("ESS/full", app._render_agency_ess_view, (full, email)),
+            ("ESS/small-N", app._render_agency_ess_view, (small, email)),
+            ("ESS/empty", app._render_agency_ess_view, ([], email)),
+        ]:
+            try:
+                fn(*args)
+            except Exception as exc:
+                failures.append(f"{label} raised: {exc}")
+    finally:
+        assessment_links._get_engine = original_get_engine
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: Agency Dashboard D4 views (MIS/DSS/ESS) -- render without raising across full/small-N/empty input.")
+
+
 if __name__ == "__main__":
     run_user_email_overwrite_guard()
     run_portfolio_heatmap_sample_gate()
     run_readiness_card_crosswalk_tags()
     run_verify_landing()
+    run_agency_d4_views()

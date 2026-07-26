@@ -278,7 +278,8 @@ python test_verification.py     # export reference-ID hashing, recording, and ?v
 python test_assessment_links.py # Ch.12 revision-linking: record/list/delta, hash isolation, no-DB degradation
 python test_i18n.py             # currency conversion, geoIP routing, ROI copy, Paystack checkout routing
 python test_security.py         # app.py-level regression tests (user_email overwrite guard, portfolio
-                                 # heatmap sample gate, Readiness Card crosswalk tags, verify landing page)
+                                 # heatmap sample gate, Readiness Card crosswalk tags, verify landing page,
+                                 # Agency Dashboard MIS/DSS/ESS views)
 ```
 
 All ten must pass before pushing a change that touches scoring, AI post-processing, metrics,

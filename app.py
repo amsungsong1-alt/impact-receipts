@@ -5664,6 +5664,35 @@ def render_my_audits_page():
                 delete_audit(email, _a_id)
                 st.session_state.pop(f"_audit_pdf_{_a_id}", None)
                 st.rerun()
+
+        # D4b -- Laudon Ch.12, DSS view's "per-report deep dive": the same
+        # Intelligence/sensitivity computations shown live on Screen 2 (D1/D2),
+        # applied here to this saved audit's stored scores. Pure functions
+        # over already-decrypted, already-scored components -- no re-evaluation.
+        with st.expander("🔍 Full breakdown", expanded=False):
+            _full_bd = get_audit(email, _a_id)
+            _evs_bd = (_full_bd or {}).get("evaluations") or []
+            if not _evs_bd:
+                st.caption("Could not load this audit's saved scores.")
+            else:
+                _ev0_bd = _evs_bd[0]
+                _cc_bd = _ev0_bd.get("confidence_components", {}) or {}
+                _cl_bd = _ev0_bd.get("clarity_components", {}) or {}
+                _weakest_bd = _evaluator.get_weakest_link(
+                    _ev0_bd.get("confidence_score", 0), _ev0_bd.get("clarity_score", 0), _cc_bd, _cl_bd)
+                if _weakest_bd.get("weakest_dimension"):
+                    st.markdown(f"**Weakest link:** {_weakest_bd['weakest_dimension']} "
+                                f"({_weakest_bd.get('weakest_pct', 0):.0f}% of target)")
+                    st.caption(_weakest_bd.get("gap_rationale", ""))
+                _sens_bd = _evaluator.compute_criterion_sensitivity(
+                    _ev0_bd.get("confidence_score", 0), _ev0_bd.get("clarity_score", 0), _cc_bd, _cl_bd)
+                _sens_bd_positive = [r for r in _sens_bd if r["delta"] > 0]
+                if _sens_bd_positive:
+                    st.markdown("**What would move the needle:**")
+                    for r in _sens_bd_positive:
+                        st.caption(f"- {r['dimension']}: +{r['delta']} to {r['axis']} total")
+                else:
+                    st.caption("Every criterion is already at or near its ceiling.")
         st.divider()
 
     # --- Logframe Library management ---
@@ -8124,6 +8153,27 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             f"</div>",
             unsafe_allow_html=True,
         )
+
+    # D5 -- Laudon Ch.12 p.474, operational-intelligence pattern: the same
+    # criterion being the weakest link three assessments running is a
+    # systemic gap, not a one-off. Account-wide (not per-result), so scoped
+    # to the primary result only -- same convention as the revision picker
+    # and disaggregation field below. Distinct from the diagnostic badge
+    # above, which only ever describes THIS single submission.
+    if card_idx == 0:
+        _asm_streak_email = st.session_state.get("user_email", "")
+        if _asm_streak_email:
+            try:
+                from utils.assessment_links import detect_systemic_gap_streak
+                _streak_dim = detect_systemic_gap_streak(_asm_streak_email)
+            except Exception:
+                _streak_dim = None
+            if _streak_dim:
+                st.warning(
+                    f"⚠️ **{_streak_dim}** has been your weakest link across your last 3 checks — "
+                    "this is a systemic gap, not a one-off. Worth addressing at the process level, "
+                    "not just fixing this one result."
+                )
 
     # D2 -- Laudon Ch.12 pp.477-478, sensitivity analysis: "what would move
     # the needle?" Deterministic, no AI call -- see evaluator.compute_criterion_sensitivity().
@@ -11599,6 +11649,240 @@ def _agency_evaluations_for_gaps(email: str) -> list:
     return evaluations
 
 
+def _agency_full_audits(email: str) -> list:
+    """D4a/D4b/D4c -- decrypts every saved audit once, pairing each with its
+    client/donor/sector/org_type and full per-criterion evaluation (primary
+    result only) -- the single shared source for all three new Agency
+    Dashboard views, avoiding 3x redundant N+1 decryption. Same N+1
+    get_audit()-per-row pattern as _agency_evaluations_for_gaps(), same
+    justification (Agency accounts' audit counts are small, runs once per
+    dashboard page load)."""
+    results = []
+    for a in list_audits_with_client(email, limit=200):
+        full = get_audit(email, a["id"])
+        if not full or not full.get("evaluations"):
+            continue
+        _ev0 = full["evaluations"][0]
+        _sub0 = (full.get("submissions") or [{}])[0]
+        _ev_type = ((_sub0.get("evidence") or [{}])[0]).get("type", "") if _sub0 else ""
+        results.append({
+            "id": a["id"], "ref_id": a["ref_id"], "created_at": a["created_at"],
+            "donor": a["donor"] or "No donor specified", "sector": a["sector"] or "No sector",
+            "org_type": a["org_type"] or "", "client_id": a["client_id"],
+            "client_name": a["client_name"] or "— Unassigned —",
+            "evidence_type": _ev_type or "Not specified",
+            "confidence_score": _ev0.get("confidence_score"),
+            "clarity_score": _ev0.get("clarity_score"),
+            "confidence_components": _ev0.get("confidence_components", {}) or {},
+            "clarity_components": _ev0.get("clarity_components", {}) or {},
+            "beneficiary_voice_bonus": _ev0.get("beneficiary_voice_bonus", 0) or 0,
+            "disaggregation_bonus": (_ev0.get("clarity_components", {}) or {}).get("disaggregation_bonus", 0) or 0,
+        })
+    return results
+
+
+def _render_agency_mis_view(full_audits: list) -> None:
+    """D4a -- Laudon Ch.12 pp.468-470/476, MIS view: operational, structured.
+    A filterable table of every saved audit plus one predefined production
+    report (evidence quality by client by quarter) -- Table 12.4's "sales
+    forecast" analogy applied to MEL, per the source brief's own framing."""
+    if not full_audits:
+        st.caption("No saved audits yet.")
+        return
+    import pandas as pd
+    df = pd.DataFrame(full_audits)
+
+    st.markdown("#### Filters")
+    _min_date = pd.to_datetime(df["created_at"]).min().date()
+    _max_date = pd.to_datetime(df["created_at"]).max().date()
+    _f1, _f2, _f3 = st.columns(3)
+    with _f1:
+        _start = st.date_input("From", value=_min_date, key="mis_date_start")
+        _end = st.date_input("To", value=_max_date, key="mis_date_end")
+    with _f2:
+        _ev_types = sorted(df["evidence_type"].dropna().unique().tolist())
+        _sel_types = st.multiselect("Evidence type", _ev_types, key="mis_ev_types")
+    with _f3:
+        _org_types = sorted([o for o in df["org_type"].dropna().unique().tolist() if o])
+        _sel_org = st.multiselect("Org type", _org_types, key="mis_org_types")
+
+    filtered = df.copy()
+    _created = pd.to_datetime(filtered["created_at"])
+    filtered = filtered[(_created.dt.date >= _start) & (_created.dt.date <= _end)]
+    if _sel_types:
+        filtered = filtered[filtered["evidence_type"].isin(_sel_types)]
+    if _sel_org:
+        filtered = filtered[filtered["org_type"].isin(_sel_org)]
+
+    st.markdown(f"#### Portfolio ({len(filtered)} result{'s' if len(filtered) != 1 else ''})")
+    if filtered.empty:
+        st.caption("No results match these filters.")
+    else:
+        _display = filtered[["ref_id", "client_name", "donor", "evidence_type",
+                              "confidence_score", "clarity_score", "created_at"]].copy()
+        _display.columns = ["Ref", "Client", "Donor", "Evidence type", "Confidence", "Clarity", "Date"]
+        st.dataframe(_display, use_container_width=True, hide_index=True)
+
+    st.markdown("#### Evidence quality by client by quarter")
+    st.caption("The MEL analogue of a sales forecast — average score per client, per quarter.")
+    if len(filtered) < MIN_PORTFOLIO_SAMPLE:
+        st.caption(f"Insufficient data (n={len(filtered)}, need ≥{MIN_PORTFOLIO_SAMPLE}).")
+    else:
+        _q = filtered.copy()
+        _q["Quarter"] = pd.to_datetime(_q["created_at"]).dt.to_period("Q").astype(str)
+        _report = (_q.groupby(["client_name", "Quarter"])
+                     .agg(avg_confidence=("confidence_score", "mean"),
+                          avg_clarity=("clarity_score", "mean"),
+                          n=("confidence_score", "count"))
+                     .reset_index())
+        _report = _report[_report["n"] >= MIN_PORTFOLIO_SAMPLE]
+        if _report.empty:
+            st.caption(f"No (client, quarter) cell has reached the ≥{MIN_PORTFOLIO_SAMPLE} sample size yet.")
+        else:
+            _report["avg_confidence"] = _report["avg_confidence"].round(2)
+            _report["avg_clarity"] = _report["avg_clarity"].round(2)
+            _report.columns = ["Client", "Quarter", "Avg Confidence", "Avg Clarity", "n"]
+            st.dataframe(_report, use_container_width=True, hide_index=True)
+
+
+def _render_agency_dss_view(full_audits: list) -> None:
+    """D4b -- Laudon Ch.12 pp.475-478, DSS view: analyst, semi-structured.
+    Ad hoc filter + recompute over a subset, plus a criterion x client pivot
+    (mean sub-score per cell) -- the pivot-table-equivalent the source brief
+    asks for."""
+    if not full_audits:
+        st.caption("No saved audits yet.")
+        return
+    import pandas as pd
+    df = pd.DataFrame(full_audits)
+
+    st.markdown("#### Filter this analysis")
+    _clients = sorted(df["client_name"].dropna().unique().tolist())
+    _donors = sorted(df["donor"].dropna().unique().tolist())
+    _fc1, _fc2 = st.columns(2)
+    with _fc1:
+        _sel_clients = st.multiselect("Client", _clients, key="dss_clients")
+    with _fc2:
+        _sel_donors = st.multiselect("Donor", _donors, key="dss_donors")
+    filtered = df.copy()
+    if _sel_clients:
+        filtered = filtered[filtered["client_name"].isin(_sel_clients)]
+    if _sel_donors:
+        filtered = filtered[filtered["donor"].isin(_sel_donors)]
+
+    st.markdown(f"#### Systemic gaps for this subset ({len(filtered)} result{'s' if len(filtered) != 1 else ''})")
+    _subset_evals = [
+        {"confidence_components": r["confidence_components"], "clarity_components": r["clarity_components"]}
+        for r in filtered.to_dict("records")
+    ]
+    _subset_gaps = _evaluator.compute_systemic_gaps(_subset_evals) if _subset_evals else []
+    if not _subset_gaps:
+        st.caption("Not enough data in this subset.")
+    else:
+        for g in _subset_gaps[:5]:
+            if g["n_evaluated"] < MIN_PORTFOLIO_SAMPLE:
+                st.caption(f"- **{g['dimension']}** — insufficient data (n={g['n_evaluated']})")
+            else:
+                st.markdown(f"- **{g['dimension']}** — below target in {g['fail_pct']:.0f}% of results")
+
+    st.markdown("#### Criterion × Client pivot")
+    st.caption("Mean sub-score per (criterion, client) cell — where at least "
+               f"{MIN_PORTFOLIO_SAMPLE} results support it.")
+    _pivot_rows = []
+    _filtered_records = filtered.to_dict("records")
+    for dim_name, (comp_key, score_key, _max_val) in _evaluator.DIMENSION_MAP.items():
+        _by_client: dict = {}
+        for r in _filtered_records:
+            score = (r.get(comp_key) or {}).get(score_key)
+            if score is not None:
+                _by_client.setdefault(r["client_name"], []).append(score)
+        for client, scores in _by_client.items():
+            if len(scores) >= MIN_PORTFOLIO_SAMPLE:
+                _pivot_rows.append({"Criterion": dim_name, "Client": client,
+                                     "Mean score": round(sum(scores) / len(scores), 2)})
+    if not _pivot_rows:
+        st.caption(f"No (criterion, client) cell has reached the ≥{MIN_PORTFOLIO_SAMPLE} sample size yet.")
+    else:
+        _pivot_df = pd.DataFrame(_pivot_rows).pivot(index="Criterion", columns="Client", values="Mean score")
+        st.dataframe(_pivot_df, use_container_width=True)
+
+
+def _render_agency_ess_view(full_audits: list, email: str) -> None:
+    """D4c -- Laudon Ch.12 pp.478-481, ESS view: director/donor-facing
+    balanced scorecard. Four panels mapped from Laudon's four scorecard
+    dimensions (financial/process/customer/learning) onto MEL, per the
+    source brief's own mapping (Accountability/Process/Stakeholder/Learning).
+    "Process"/"Learning" reuse D3's assessment_links -- account-wide, not
+    per-client, since that table isn't client_id-scoped (documented plan
+    boundary)."""
+    n = len(full_audits)
+    if n < MIN_PORTFOLIO_SAMPLE:
+        st.caption(f"Insufficient data for a portfolio scorecard (n={n}, need ≥{MIN_PORTFOLIO_SAMPLE}).")
+        return
+
+    import pandas as pd
+    df = pd.DataFrame(full_audits)
+
+    try:
+        from utils.assessment_links import list_recent_assessments, get_delta
+        _recent_asm = list_recent_assessments(email, limit=200)
+    except Exception:
+        _recent_asm = []
+
+    _p1, _p2, _p3, _p4 = st.columns(4)
+
+    with _p1:
+        st.markdown("**Accountability**")
+        _thresholds = {"CBO/Community-based organisation": 3.5, "Government agency": 3.5,
+                        "National NGO": 3.75, "International NGO (INGO)": 4.0}
+        def _passes(row):
+            _t = _thresholds.get(row["org_type"], 4.0)
+            return (row["confidence_score"] or 0) >= _t and (row["clarity_score"] or 0) >= _t
+        _pass_mask = df.apply(_passes, axis=1)
+        _pass_rate = round(_pass_mask.mean() * 100, 1)
+        st.metric("Submission-ready", f"{_pass_rate}%")
+        st.caption(f"{int(_pass_mask.sum())} of {n} results meet the donor threshold.")
+        with st.expander("View results"):
+            st.dataframe(df.assign(**{"Meets threshold": _pass_mask})[
+                ["ref_id", "client_name", "confidence_score", "clarity_score", "Meets threshold"]
+            ], use_container_width=True, hide_index=True)
+
+    with _p2:
+        st.markdown("**Process**")
+        _dates = sorted(pd.to_datetime(df["created_at"]))
+        _gap_days = [(b - a).days for a, b in zip(_dates[:-1], _dates[1:])]
+        _avg_gap = round(sum(_gap_days) / len(_gap_days), 1) if _gap_days else None
+        _revised = [a for a in _recent_asm if a.get("parent_assessment_id")]
+        _revision_rate = round(len(_revised) / len(_recent_asm) * 100, 1) if _recent_asm else None
+        st.metric("Avg. days between checks", _avg_gap if _avg_gap is not None else "—")
+        st.metric("Revision rate", f"{_revision_rate}%" if _revision_rate is not None else "—")
+        st.caption("Revision rate is account-wide, not per-client (see plan notes).")
+
+    with _p3:
+        st.markdown("**Stakeholder**")
+        _bv_rate = round((df["beneficiary_voice_bonus"] > 0).mean() * 100, 1)
+        _disagg_rate = round((df["disaggregation_bonus"] > 0).mean() * 100, 1)
+        st.metric("Beneficiary voice coverage", f"{_bv_rate}%")
+        st.metric("Disaggregation completeness", f"{_disagg_rate}%")
+
+    with _p4:
+        st.markdown("**Learning**")
+        try:
+            _deltas = [get_delta(a["assessment_id"]) for a in _recent_asm if a.get("parent_assessment_id")]
+            _deltas = [d for d in _deltas if d]
+        except Exception:
+            _deltas = []
+        if _deltas:
+            _avg_dc = round(sum(d["delta_confidence"] for d in _deltas) / len(_deltas), 2)
+            _avg_dl = round(sum(d["delta_clarity"] for d in _deltas) / len(_deltas), 2)
+            st.metric("Avg. Confidence gain per revision", f"+{_avg_dc}" if _avg_dc >= 0 else str(_avg_dc))
+            st.metric("Avg. Clarity gain per revision", f"+{_avg_dl}" if _avg_dl >= 0 else str(_avg_dl))
+        else:
+            st.metric("Avg. Confidence gain per revision", "—")
+            st.metric("Avg. Clarity gain per revision", "—")
+            st.caption("No linked revisions yet.")
+
+
 def _agency_trend_df(audits_rows: list):
     """One row per saved audit: created_at + the two denormalized score
     columns -- no decryption needed, unlike the systemic-gaps panel."""
@@ -11841,6 +12125,20 @@ def render_screen_4_agency_dashboard():
         st.caption("Not enough data yet.")
     else:
         _render_agency_trend_chart(_trend_df)
+
+    # D4 -- Laudon Ch.12 pp.468-470/476-481, BI delivery platform / constituency
+    # model: three lenses on this same account's own portfolio data (no
+    # multi-user model exists in this codebase -- confirmed with product).
+    st.divider()
+    st.markdown("### Portfolio Views")
+    _full_audits = _agency_full_audits(email)
+    _mis_tab, _dss_tab, _ess_tab = st.tabs(["📋 Operational (MIS)", "🔬 Analyst (DSS)", "📈 Executive (ESS)"])
+    with _mis_tab:
+        _render_agency_mis_view(_full_audits)
+    with _dss_tab:
+        _render_agency_dss_view(_full_audits)
+    with _ess_tab:
+        _render_agency_ess_view(_full_audits, email)
 
     st.divider()
     st.markdown("### Export")

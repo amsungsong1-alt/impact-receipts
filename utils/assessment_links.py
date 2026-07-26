@@ -116,10 +116,32 @@ def list_recent_assessments(email: str, limit: int = 10) -> list:
             return [{
                 "assessment_id": r.assessment_id, "confidence_score": r.confidence_score,
                 "clarity_score": r.clarity_score, "weakest_dimension": r.weakest_dimension,
+                "parent_assessment_id": r.parent_assessment_id,
                 "created_at": r.created_at,
             } for r in rows]
     except Exception:
         return []
+
+
+def detect_systemic_gap_streak(email: str, streak_length: int = 3) -> str | None:
+    """D5 -- Laudon Ch.12 p.474, operational-intelligence pattern: "the same
+    criterion is the weakest link three assessments running" is a systemic
+    gap, not a one-off incident. Pure read over already-shipped D3 data, zero
+    new schema -- list_recent_assessments() already stores weakest_dimension
+    ordered by recency per user.
+
+    Returns the shared dimension name if the `streak_length` most recent
+    assessments all agree on their weakest_dimension, else None (including
+    when there are fewer than `streak_length` assessments to compare, or any
+    of them has no weakest_dimension recorded)."""
+    recent = list_recent_assessments(email, limit=streak_length)
+    if len(recent) < streak_length:
+        return None
+    dims = {r["weakest_dimension"] for r in recent}
+    if len(dims) == 1:
+        _dim = dims.pop()
+        return _dim or None
+    return None
 
 
 def get_delta(assessment_id: str) -> dict | None:

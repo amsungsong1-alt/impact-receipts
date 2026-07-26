@@ -126,7 +126,54 @@ def run_never_raises_without_db():
     print("PASS: no-DB degradation — record_assessment/list_recent_assessments/get_delta never raise without a configured engine.")
 
 
+def run_systemic_gap_streak():
+    """D5 -- detect_systemic_gap_streak(): Laudon Ch.12 p.474 operational-
+    intelligence pattern. Confirms the 3-in-a-row true positive, a
+    mixed-dimension true negative, and the fewer-than-streak_length no-op."""
+    failures = []
+    original_get_engine = assessment_links._get_engine
+    engine = _fresh_engine()
+    assessment_links._get_engine = lambda: engine
+    email = "mel@example.com"
+    try:
+        # Fewer than 3 assessments recorded -- must not claim a streak.
+        assessment_links.record_assessment("ASM-1", email, weakest_dimension="Directness")
+        if assessment_links.detect_systemic_gap_streak(email) is not None:
+            failures.append("detect_systemic_gap_streak should return None with only 1 assessment recorded")
+
+        assessment_links.record_assessment("ASM-2", email, weakest_dimension="Directness")
+        if assessment_links.detect_systemic_gap_streak(email) is not None:
+            failures.append("detect_systemic_gap_streak should return None with only 2 assessments recorded")
+
+        # Third assessment shares the same weakest_dimension -- a genuine streak.
+        assessment_links.record_assessment("ASM-3", email, weakest_dimension="Directness")
+        streak = assessment_links.detect_systemic_gap_streak(email)
+        if streak != "Directness":
+            failures.append(f"expected a 'Directness' streak across ASM-1/2/3, got {streak!r}")
+
+        # A 4th assessment with a DIFFERENT weakest_dimension breaks the streak
+        # -- only the most recent 3 are considered, not any historical window.
+        assessment_links.record_assessment("ASM-4", email, weakest_dimension="Verification")
+        if assessment_links.detect_systemic_gap_streak(email) is not None:
+            failures.append("a differing 4th assessment should break the streak over the most recent 3")
+
+        # A different email (different hash) must never see this user's streak.
+        if assessment_links.detect_systemic_gap_streak("someone_else@example.com") is not None:
+            failures.append("detect_systemic_gap_streak leaked a streak across different email hashes")
+    finally:
+        assessment_links._get_engine = original_get_engine
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: systemic gap streak — 3-in-a-row detection, mixed-dimension negative, "
+          "insufficient-history no-op, and hash isolation verified.")
+
+
 if __name__ == "__main__":
     run_record_and_list()
     run_delta_computation()
     run_never_raises_without_db()
+    run_systemic_gap_streak()
