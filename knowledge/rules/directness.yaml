@@ -1,0 +1,33 @@
+# Directness — Laudon Ch.11 expert-system rule base.
+# Transcribed from evaluator.py::get_what_to_fix()'s live trigger conditions
+# (the source of truth for the on-screen "Priority fixes" list and its exact
+# message text) -- this file re-describes those same triggers declaratively
+# for utils/inference.py's firing trace. It does not replace get_what_to_fix()
+# or compute_confidence() in this pass; see the plan's "Reconciling with the
+# existing get_what_to_fix()" note.
+#
+# Conditions are evaluated by utils/inference.py's small closed-form
+# comparison parser against confidence_components/clarity_components --
+# never against raw text, and never via an unrestricted eval().
+- id: directness_no_primary_record
+  criterion: Directness
+  condition: "direct_score < 1.2"
+  confidence_effect: "up_to +2.0 relative to current direct_score"
+  clarity_effect: null
+  rationale: >-
+    Add a primary record — signed attendance sheets, payroll records, or a
+    KoboToolbox export — so your evidence directly ties to the claim.
+  source: "OECD-DAC 2019 — Effectiveness; USAID ADS 201.3.5.7 — Validity"
+  version: "2026.07.1"
+
+- id: directness_no_contribution_case
+  criterion: Directness
+  condition: "direct_score >= 1.2 and direct_score < 2.0"
+  confidence_effect: "up_to +2.0 relative to current direct_score"
+  clarity_effect: null
+  rationale: >-
+    Strengthen your contribution case — note what else could explain this
+    result and how you ruled it out, or triangulate with a second
+    independent data source.
+  source: "OECD-DAC 2019 — Effectiveness; Bond Evidence Principles 2024 — Triangulation"
+  version: "2026.07.1"

@@ -76,6 +76,13 @@ class Audit(Base):
     primary_clarity_score = Column(Float)
     primary_verdict = Column(Text)
     client_id = Column(BigInteger, ForeignKey("clients.id", ondelete="SET NULL"), nullable=True)
+    # Laudon Ch.11 expert-system rule base (utils/inference.py) -- which
+    # knowledge/rules/*.yaml version scored this audit, so a six-month-old
+    # score can be explained under the rules that produced it even after the
+    # live rule base has since changed. Nullable: audits saved before this
+    # column existed have no recorded version (honestly unknown, distinct
+    # from "unversioned" -- see migration 0021's comment).
+    rule_base_version = Column(Text, nullable=True)
 
 
 class LogframeLibrary(Base):
@@ -198,6 +205,7 @@ def save_audit(email: str, submissions: list, evaluations: list, ref_id: str) ->
                 primary_confidence_score=first_ev.get("confidence_score"),
                 primary_clarity_score=first_ev.get("clarity_score"),
                 primary_verdict=first_ev.get("verdict"),
+                rule_base_version=first_ev.get("rule_base_version"),
             )
             session.add(row)
             session.commit()
@@ -236,6 +244,7 @@ def list_audits(email: str, limit: int = 50) -> list[dict]:
                 "primary_clarity_score": r.primary_clarity_score,
                 "primary_verdict": r.primary_verdict,
                 "active_slots": r.active_slots,
+                "rule_base_version": r.rule_base_version,
             } for r in rows]
     except Exception:
         return []
@@ -556,6 +565,7 @@ def list_audits_with_client(email: str, limit: int = 200) -> list[dict]:
                 "primary_verdict": r.primary_verdict,
                 "active_slots": r.active_slots,
                 "client_id": r.client_id, "client_name": client_name,
+                "rule_base_version": r.rule_base_version,
             } for r, client_name in rows]
     except Exception:
         return []

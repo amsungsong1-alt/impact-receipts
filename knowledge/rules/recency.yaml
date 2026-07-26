@@ -1,0 +1,13 @@
+# Recency — Laudon Ch.11 expert-system rule base.
+# Transcribed from evaluator.py::get_what_to_fix(). See directness.yaml's
+# header comment for this file set's scope and discipline.
+- id: recency_evidence_stale
+  criterion: Recency
+  condition: "recency_score < 0.6"
+  confidence_effect: "up_to +1.0 relative to current recency_score"
+  clarity_effect: null
+  rationale: >-
+    Confirm your evidence date is within 6 months of the reporting period
+    end, or attach more recent confirmatory evidence.
+  source: "USAID ADS 201.3.5.7 — Timeliness"
+  version: "2026.07.1"

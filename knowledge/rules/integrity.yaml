@@ -1,0 +1,13 @@
+# Integrity — Laudon Ch.11 expert-system rule base.
+# Transcribed from evaluator.py::get_what_to_fix(). See directness.yaml's
+# header comment for this file set's scope and discipline.
+- id: integrity_data_gap_undisclosed
+  criterion: Integrity
+  condition: "integrity_score < 0.75"
+  confidence_effect: null
+  clarity_effect: "up_to +1.0 relative to current integrity_score"
+  rationale: >-
+    Close data gaps with original source records, or disclose the
+    limitation transparently in the evidence description.
+  source: "USAID ADS 201.3.5.7 — Integrity"
+  version: "2026.07.1"

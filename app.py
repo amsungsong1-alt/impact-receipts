@@ -6701,6 +6701,17 @@ def render_screen_1():
                                     if not _irc_raw:
                                         raise ValueError("Model returned an empty response. Try a different document or fill the form manually.")
                                     _irc_data = _ijson3.loads(_irc_raw)
+                                    # C2 -- Laudon Ch.11, extraction/scoring separation formalized:
+                                    # validate the extraction response's shape before any field
+                                    # reaches session_state. Routes into the existing "parse"
+                                    # failure classification below rather than a new failure mode.
+                                    from utils.extraction_schema import validate_extraction as _irc_validate
+                                    _irc_valid, _irc_val_errors = _irc_validate(_irc_data)
+                                    if not _irc_valid:
+                                        raise ValueError(
+                                            "Extraction response failed schema validation (parse): "
+                                            + "; ".join(_irc_val_errors)
+                                        )
 
                                     # Multi-result: if response has a 'results' array, process each slot
                                     _irc_results_arr = _irc_data.get("results")
@@ -10224,9 +10235,16 @@ def _extract_all_results_from_document(document_text: str, api_key: str,
         # Try clean parse first
         try:
             data = _json.loads(raw)
-            results = data.get("results", [])
-            if isinstance(results, list) and results:
-                return results, ""
+            # C2 -- Laudon Ch.11, extraction/scoring separation formalized:
+            # validate the response's shape before any result reaches the
+            # portfolio DataFrame. Falls through to the recovery path below
+            # on failure rather than a new failure mode.
+            from utils.extraction_schema import validate_extraction as _batch_validate
+            _batch_valid, _ = _batch_validate(data)
+            if _batch_valid:
+                results = data.get("results", [])
+                if isinstance(results, list) and results:
+                    return results, ""
         except _json.JSONDecodeError:
             pass
 

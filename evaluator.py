@@ -1913,6 +1913,21 @@ def evaluate_submission(submission: dict) -> dict:
     criterion_sensitivity = compute_criterion_sensitivity(
         confidence_score, clarity_score, confidence_components, clarity_components)
 
+    # Laudon Ch.11 -- expert-system firing trace (knowledge/rules/*.yaml via
+    # utils/inference.py). Purely additive, read-only over the already-computed
+    # components above -- never touches confidence_score/clarity_score. Local
+    # import + try/except so a rule-base load issue degrades to an empty
+    # trace rather than ever breaking the actual scoring output; evaluator.py
+    # otherwise has zero cross-module imports by design.
+    try:
+        from utils.inference import apply_rules
+        _rule_result = apply_rules(confidence_components, clarity_components)
+        rule_trace = _rule_result["trace"]
+        rule_base_version = _rule_result["rule_base_version"]
+    except Exception:
+        rule_trace = []
+        rule_base_version = "unversioned"
+
     label_rationale = (
         f"Confidence: {confidence_score}/5.0 ({confidence_label}) — {confidence_meaning} "
         f"Clarity: {clarity_score}/5.0 ({clarity_label}) — {clarity_meaning} "
@@ -1948,6 +1963,8 @@ def evaluate_submission(submission: dict) -> dict:
         "fixes":                 fixes,
         "weakest_link":          weakest_link,
         "criterion_sensitivity": criterion_sensitivity,
+        "rule_trace":            rule_trace,
+        "rule_base_version":     rule_base_version,
         "threshold_used":        _threshold,
         "track_label":           _track_label,
         # backward-compat keys

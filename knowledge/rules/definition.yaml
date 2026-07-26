@@ -1,0 +1,13 @@
+# Definition — Laudon Ch.11 expert-system rule base.
+# Transcribed from evaluator.py::get_what_to_fix(). See directness.yaml's
+# header comment for this file set's scope and discipline.
+- id: definition_missing_specificity
+  criterion: Definition
+  condition: "definition_score < 1.0"
+  confidence_effect: null
+  clarity_effect: "up_to +1.25 relative to current definition_score"
+  rationale: >-
+    Add the missing unit, timeframe, or target group to your result
+    statement so any reader interprets it the same way you do.
+  source: "OECD-DAC 2019 — Relevance; USAID ADS 201.3.5.7 — Validity"
+  version: "2026.07.1"

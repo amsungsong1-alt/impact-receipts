@@ -28,6 +28,18 @@ equivalent) before rendering its output.
   orchestrator; `compute_confidence`/`compute_clarity`/`compute_beneficiary_voice_bonus` are
   the scoring primitives. Includes the org-type-aware two-track threshold (CBO/Government=3.5,
   National NGO=3.75, INGO=4.0).
+- **`knowledge/rules/`** — Laudon Ch.11 expert-system rule base, one YAML file per criterion
+  (`directness.yaml`, `verification.yaml`, etc.). Each rule carries `id`/`criterion`/
+  `condition`/`confidence_effect`/`clarity_effect`/`rationale`/`source`/`version`, transcribed
+  from `evaluator.get_what_to_fix()`'s live trigger conditions (kept in sync by construction —
+  `test_inference.py` asserts the two agree on every golden fixture). Hot-reloadable
+  (`utils/inference.py::load_rule_base()` re-reads the YAML on every call, no caching) and
+  editable by a non-programmer. **Does not replace `compute_confidence()`/`compute_clarity()`**
+  — those remain the tested, deterministic source of truth for the actual scores; this rule
+  base only produces a firing trace (`evaluate_submission()`'s `rule_trace`/`rule_base_version`
+  keys) for auditability. Conditions are evaluated by a tiny closed-form comparison parser
+  (`utils/inference.py::evaluate_condition()`), never an `eval()` — a real trust boundary since
+  the YAML is meant to be hand-edited by MEL specialists.
 - **`diagnostics.py`** — readiness-band and diagnostic-state classification (7-state badge:
   STRONG / NEEDS REFINEMENT / MISLEADING / UNDEREVIDENCED / FUNDAMENTALLY WEAK / INCOMPLETE /
   INVALID INPUT, collapsed into a 3-state readiness band). Also UI-free.
@@ -252,7 +264,7 @@ recommended aliases before introducing a new call site.
 
 ## Testing
 
-Eleven plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
+Thirteen plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
 (API-calling functions are tested by temporarily swapping `council._call_haiku`, or
 `utils.paystack.requests`/`utils.db._get_client`/`utils.auth._get_client`, for a fake;
 `test_audits.py`/`test_crm.py`/`test_outcomes.py`/`test_verification.py`/
@@ -276,6 +288,9 @@ python test_crm.py              # crm events, agency-ready detection, account se
 python test_outcomes.py         # outcome feedback scheduling, hash-based ownership, acceptance-rate stats
 python test_verification.py     # export reference-ID hashing, recording, and ?verify= lookup
 python test_assessment_links.py # Ch.12 revision-linking: record/list/delta, hash isolation, no-DB degradation
+python test_inference.py        # Ch.11 expert-system rule base: YAML loads, condition parser, firing-trace
+                                 # agreement with get_what_to_fix(), deterministic wiring, graceful degradation
+python test_extraction_schema.py # Ch.11 extraction schema validation + per-field uncertainty flagging
 python test_i18n.py             # currency conversion, geoIP routing, ROI copy, Paystack checkout routing
 python test_security.py         # app.py-level regression tests (user_email overwrite guard, portfolio
                                  # heatmap sample gate, Readiness Card crosswalk tags, verify landing page,

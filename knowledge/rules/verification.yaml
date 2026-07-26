@@ -1,0 +1,26 @@
+# Verification — Laudon Ch.11 expert-system rule base.
+# Transcribed from evaluator.py::get_what_to_fix(). See directness.yaml's
+# header comment for this file set's scope and discipline.
+- id: verification_no_reviewer
+  criterion: Verification
+  condition: "verify_score < 1.2"
+  confidence_effect: "up_to +2.0 relative to current verify_score"
+  clarity_effect: null
+  rationale: >-
+    Name an internal reviewer or an external partner — this is the single
+    highest-leverage fix for Verification.
+  source: "USAID ADS 201.3.5.7 — Reliability + Precision"
+  version: "2026.07.1"
+
+- id: verification_provenance_gap
+  criterion: Verification
+  condition: "provenance_adjustment < 0.6 and verify_score < 2.0"
+  confidence_effect: "up_to +0.6 relative to current provenance_adjustment"
+  clarity_effect: null
+  rationale: >-
+    Strengthen your data chain — document your sampling method, confirm
+    there's no double-counting across activities, note how recall or
+    enumerator bias was addressed, and confirm an auditor could retrieve
+    the original records.
+  source: "USAID ADS 201.3.5.7 — Integrity + Audit Independence Principle"
+  version: "2026.07.1"

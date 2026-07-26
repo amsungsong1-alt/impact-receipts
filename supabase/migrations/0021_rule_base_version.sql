@@ -1,0 +1,11 @@
+-- 0021_rule_base_version.sql
+-- Laudon Ch.11 expert-system rule base (utils/inference.py, knowledge/rules/):
+-- records which rule-base version scored a saved audit, so a six-month-old
+-- score can be explained under the rules that produced it even after the
+-- rule base's YAML files have since been edited (Section D's acceptance
+-- criterion). Nullable -- audits saved before this migration have no
+-- recorded version, which is the honest state (we don't know), not "unversioned"
+-- (a specific, different claim the app itself may render for a live
+-- evaluation whose rule base failed to load -- see utils/inference.py's
+-- get_rule_base_version() default).
+alter table audits add column if not exists rule_base_version text;

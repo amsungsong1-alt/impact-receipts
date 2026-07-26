@@ -1,0 +1,14 @@
+# Measurement — Laudon Ch.11 expert-system rule base.
+# Transcribed from evaluator.py::get_what_to_fix(). See directness.yaml's
+# header comment for this file set's scope and discipline.
+- id: measurement_no_method_described
+  criterion: Measurement
+  condition: "measurement_score < 1.0"
+  confidence_effect: null
+  clarity_effect: "up_to +1.25 relative to current measurement_score"
+  rationale: >-
+    Describe your collection method and sampling approach in the evidence
+    description — specify the instrument used and how participants were
+    selected.
+  source: "USAID ADS 201.3.5.7 — Reliability; Bond Evidence Principles 2024 — Appropriateness"
+  version: "2026.07.1"

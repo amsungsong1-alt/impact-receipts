@@ -1,0 +1,13 @@
+# Scope — Laudon Ch.11 expert-system rule base.
+# Transcribed from evaluator.py::get_what_to_fix(). See directness.yaml's
+# header comment for this file set's scope and discipline.
+- id: scope_coverage_unstated
+  criterion: Scope
+  condition: "scope_score < 0.5"
+  confidence_effect: null
+  clarity_effect: "up_to +0.75 relative to current scope_score"
+  rationale: >-
+    State the sites and groups included and excluded so the reader can
+    correctly interpret the coverage.
+  source: "USAID ADS 201.3.5.7 — Precision; Bond Evidence Principles 2024 — Voice & Inclusion"
+  version: "2026.07.1"

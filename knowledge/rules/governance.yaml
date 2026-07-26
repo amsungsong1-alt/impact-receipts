@@ -1,0 +1,13 @@
+# Governance — Laudon Ch.11 expert-system rule base.
+# Transcribed from evaluator.py::get_what_to_fix(). See directness.yaml's
+# header comment for this file set's scope and discipline.
+- id: governance_no_named_owner
+  criterion: Governance
+  condition: "governance_score < 0.5"
+  confidence_effect: null
+  clarity_effect: "up_to +0.75 relative to current governance_score"
+  rationale: >-
+    Name an owner for this result and describe the decision it will inform
+    — without ownership the result is not actionable.
+  source: "OECD-DAC 2019 — Usefulness Principle"
+  version: "2026.07.1"
