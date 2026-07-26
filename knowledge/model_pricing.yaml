@@ -1,0 +1,28 @@
+# knowledge/model_pricing.yaml — Laudon Ch.9 CRM, C4: per-model Anthropic API
+# pricing, used to compute a real per-assessment cost floor for CLTV's gross
+# margin calculation.
+#
+# THESE RATES ARE A PLACEHOLDER, NOT A VERIFIED CURRENT PRICE LIST.
+# VERIFY against https://www.anthropic.com/pricing before relying on this
+# financially -- pricing changes over time and this file was not written
+# from a live-verified source. Presenting invented-looking numbers as real
+# pricing would be exactly the kind of fabrication this codebase's own
+# no-fabrication rule exists to catch, just applied to a cost model instead
+# of a user's evidence. Hot-reloadable, same convention as
+# knowledge/mel_calendar.yaml -- edit this file and the next request picks
+# it up, no redeploy needed.
+version: "2026.07.1"
+# Dollars per million tokens. Keys must match the exact model ID strings
+# used at the call sites (see CLAUDE.md's "AI call sites and models").
+models:
+  claude-sonnet-4-6:
+    input_per_million_tokens_usd: 3.00
+    output_per_million_tokens_usd: 15.00
+  claude-haiku-4-5-20251001:
+    input_per_million_tokens_usd: 0.80
+    output_per_million_tokens_usd: 4.00
+# USD -> GHS pesewas conversion for cost storage. A single static rate here
+# is itself a placeholder -- utils/exchange_rates.py already has a live-rate
+# fetch path for user-facing currency conversion; this is a separate, coarser
+# constant for internal cost accounting, not shown to any user.
+usd_to_ghs_rate: 15.5

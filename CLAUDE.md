@@ -89,10 +89,14 @@ equivalent) before rendering its output.
   identified direct-Postgres store alongside `audits.py`'s and `metrics.py`'s anonymous one;
   also carries Laudon Ch.9's *behavioural* segmentation — `build_behavioral_segments()`,
   a parallel, separate function answering "is this account actually using the product," not
-  "what tier does it pay for" — plus MEL-calendar-aware churn), `customer_profiles.py`
+  "what tier does it pay for" — plus MEL-calendar-aware churn and CLTV), `customer_profiles.py`
   (read-only accessor over the `customer_profiles` table — see below; never assembles a
   profile itself), `mel_calendar.py` (`knowledge/mel_calendar.yaml`'s hot-reloadable donor-
-  reporting-season config, a labeled placeholder assumption, not researched fact).
+  reporting-season config, a labeled placeholder assumption, not researched fact),
+  `api_pricing.py` (real Anthropic API token/cost logging + `knowledge/model_pricing.yaml`'s
+  hot-reloadable per-model rates — also a labeled placeholder, not a verified current price
+  list), `lifecycle_triggers.py` (deterministic, individually-disableable Ch.9 C6 triggers),
+  `cross_sell.py` (behaviour-only Ch.9 C7 recommendation logging — never demographic).
 
 ## Billing & auth
 
@@ -291,10 +295,56 @@ skip double-charging) — the strongest signal `embedded` relies on.
 `docs/crm_metrics.md` records baselines for these metrics before/as they ship, per Laudon's
 §9-4 warning that enterprise applications fail when a firm can't measure whether they worked.
 
-Deferred, not yet built: C4 (CLTV — blocked on real per-assessment Anthropic API token-cost
-data, which doesn't exist anywhere in this codebase), C5 (an analytical dashboard — blocked on
-admin RBAC, which also doesn't exist; today's `?admin=1` gate is one shared passphrase), C6
-(lifecycle triggers), C7 (cross-sell recommendation logging).
+**C4 — CLTV.** `api_usage_log` (migration `0026`) captures real token usage/cost at all 5
+Anthropic call sites (`council.py::_call_haiku()` and 4 in `app.py`) via
+`utils/api_pricing.py::log_api_usage()`, priced from `knowledge/model_pricing.yaml` (labeled
+placeholder rates, VERIFY against anthropic.com/pricing before relying on this financially —
+`_call_haiku()`'s callers aren't email-attributed, since threading email through council.py's
+whole call graph wasn't worth the diff for a metric that isn't an `ASSESSMENT_CALL_SITES`
+entry anyway). `utils/crm.py::compute_cltv()` nets a real
+`compute_average_cost_per_assessment()` against explicit, labeled assumptions
+(`knowledge/cltv_assumptions.yaml`) — every result carries a `confidence_note` flagging
+whether real cost data backs it yet. `compute_cltv_by_segment()` feeds C5.
+
+**C5 — Admin RBAC + analytical dashboard.** `users.is_admin` (migration `0027`) is a real,
+DB-backed role — `app.py::_render_admin_view()` now requires BOTH the unchanged
+`ADMIN_PASSPHRASE` AND being logged in as an `is_admin = true` account
+(`app._is_authorized_admin()`). Bootstrap the first admin manually:
+`update users set is_admin = true where email = '...'` — there's no self-service grant UI.
+`_render_admin_crm_behavioral_dashboard()` (segment distribution, transitions, churn + CLTV by
+segment, revenue concentration, cost-to-serve by segment, cohort retention curves, plus C7's
+cross-sell candidates list) is built directly on `customer_profiles`/`customer_segment_history`/
+`payments`/`api_usage_log` — the "star schema" a future Ch.6 pass might introduce doesn't exist
+yet and isn't a prerequisite.
+
+**C6 — Lifecycle triggers.** `lifecycle_triggers_log` (migration `0028`) plus
+`utils/lifecycle_triggers.py`'s `TRIGGERS` config (each individually enabled/disabled, with its
+own cooldown). Four fire live from Python, checked once per page load
+(`app._render_lifecycle_triggers()`, called from `main()`) against the *current* user's own
+`customer_profiles` row: `first_assessment_no_engagement`, `org_emergent_detected` (also pings
+the founder via `notify_founder("org_emergent_lead", ...)` — a founder-led-sales moment, not an
+email sequence), `payment_recovery` (surfaces the grace period that already existed —
+`invoice.payment_failed` sets `subscription_status='attention'` without revoking `is_paid`),
+and `testimonial_ask` (checked separately at the revision-delta-strip call site, since it needs
+the just-computed score delta). The 5th, `at_risk_reengagement`, can't fire from Python at all
+— by definition the affected account isn't currently visiting — so it's the one deliberate
+exception to "assembly logic lives in Python only": the `customer-profile-refresh` Edge
+Function duplicates ONE narrow boolean condition (reporting month + 30+ days quiet + real
+history) and sends a Resend email directly. `REPORTING_MONTHS` in that function must be kept
+in sync by hand with `knowledge/mel_calendar.yaml` if it changes.
+
+**C7 — Cross-sell logging.** `cross_sell_recommendations` (migration `0029`) +
+`utils/cross_sell.py::recommend()` — behaviour-only, never demographic: `embedded` segment with
+real revision activity → `upgrade_to_subscription`; `org_emergent` → `upgrade_to_org_plan`; a
+systemic weak-criterion streak (reuses `utils.assessment_links.detect_systemic_gap_streak()`
+from the Ch.12 work) → `training_or_template_product`, a demand signal for a not-yet-built
+product. `record_outcome_for_plan_label()` is wired into both `tier_change` crm-event call
+sites in `app.py`, so a real upgrade automatically resolves any matching pending
+recommendation as `converted` — "log every recommendation and its outcome so the logic can be
+evaluated rather than believed." Surfaced primarily as a "who to call" list on C5's dashboard,
+matching the build prompt's own note that founder-led sales beats automation at this volume;
+the `upgrade_to_subscription` case additionally reuses the existing `_log_upgrade_prompt_crm`
+event pipeline rather than a new user-facing surface.
 
 ## Personalization layer
 
@@ -341,7 +391,7 @@ docstring.
 
 ## Testing
 
-Nineteen plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
+Twenty-two plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
 (API-calling functions are tested by temporarily swapping `council._call_haiku`, or
 `utils.paystack.requests`/`utils.db._get_client`/`utils.auth._get_client`, for a fake;
 `test_audits.py`/`test_crm.py`/`test_outcomes.py`/`test_verification.py`/
@@ -384,10 +434,17 @@ python test_customer_profiles.py # Ch.9 CRM: customer_profiles read path (get/li
                                  # SQL function, not exercised by this offline suite
 python test_mel_calendar.py     # Ch.9 CRM: knowledge/mel_calendar.yaml loads, reporting-month check,
                                  # graceful degradation on a missing file
+python test_api_pricing.py      # Ch.9 CRM (C4): model_pricing.yaml loads, per-model cost computation,
+                                 # assessment-only usage averaging for CLTV's cost floor
+python test_lifecycle_triggers.py # Ch.9 CRM (C6): trigger eligibility conditions, cooldown/dedup,
+                                 # individually-disableable triggers, fail-open no-engine degradation
+python test_cross_sell.py       # Ch.9 CRM (C7): behaviour-only recommendation selection, dedup,
+                                 # outcome/conversion tracking
 python test_i18n.py             # currency conversion, geoIP routing, ROI copy, Paystack checkout routing
 python test_security.py         # app.py-level regression tests (user_email overwrite guard, portfolio
                                  # heatmap sample gate, Readiness Card crosswalk tags, verify landing page,
-                                 # Agency Dashboard MIS/DSS/ESS views)
+                                 # Agency Dashboard MIS/DSS/ESS views, Ch.9 C5 admin RBAC gate + the
+                                 # behavioural CRM dashboard's render-without-raising)
 ```
 
 All must pass before pushing a change that touches scoring, AI post-processing, metrics,
@@ -398,14 +455,16 @@ stale silently breaks the safety net for the next change.
 ## Deployment
 
 Streamlit Cloud auto-deploys `app.py` on push to `main` — but it cannot host a custom inbound
-HTTP route or a background/scheduled job, so three features live as separate Supabase Edge
+HTTP route or a background/scheduled job, so four features live as separate Supabase Edge
 Functions, deployed independently via the Supabase CLI: two inbound webhooks (WhatsApp, Paystack)
-and one `pg_cron`-scheduled function (the onboarding email drip):
+and two `pg_cron`-scheduled functions (the onboarding email drip; the Ch.9 CRM customer-profile
+refresh, which also sends the `at_risk_reengagement` lifecycle trigger's email):
 
 ```powershell
 supabase functions deploy whatsapp-webhook
 supabase functions deploy paystack-webhook
 supabase functions deploy onboarding-drip
+supabase functions deploy customer-profile-refresh
 ```
 
 Each function has its own secrets, set via `supabase secrets set` — a **separate store** from

@@ -4875,6 +4875,11 @@ def _complete_email_login(email: str) -> None:
                 _crm_log_event(email, "tier_change", metadata={"plan_label": _pr.get("plan"), "days": _pr_days})
             except Exception:
                 pass
+            try:
+                from utils.cross_sell import record_outcome_for_plan_label
+                record_outcome_for_plan_label(email, _pr.get("plan", ""))
+            except Exception:
+                pass
     for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
         st.session_state.pop(_k, None)
     # Restore draft from Supabase if the user is returning after a refresh
@@ -6694,6 +6699,17 @@ def render_screen_1():
                                     if "error" in _irc_api_result:
                                         raise _irc_api_result["error"]
                                     _irc_resp = _irc_api_result["resp"]
+                                    try:
+                                        from utils.api_pricing import log_api_usage
+                                        _irc_usage = getattr(_irc_resp, "usage", None)
+                                        if _irc_usage is not None:
+                                            log_api_usage(
+                                                st.session_state.get("user_email", ""), "claude-sonnet-4-6",
+                                                "irc_extraction", getattr(_irc_usage, "input_tokens", 0),
+                                                getattr(_irc_usage, "output_tokens", 0),
+                                            )
+                                    except Exception:
+                                        pass
                                     import json as _ijson3
                                     _irc_raw = (_irc_resp.content[0].text if _irc_resp.content else "").strip()
                                     if _irc_raw.startswith("```"):
@@ -8138,6 +8154,17 @@ def _render_help_chat(submission: dict, ev: dict, donor: str = "", card_idx: int
                 system=system_prompt,
                 messages=[{"role": m["role"], "content": m["content"]} for m in msgs],
             )
+            try:
+                from utils.api_pricing import log_api_usage
+                _chat_usage = getattr(_resp, "usage", None)
+                if _chat_usage is not None:
+                    log_api_usage(
+                        st.session_state.get("user_email", ""), "claude-haiku-4-5-20251001",
+                        "score_explanation_chat", getattr(_chat_usage, "input_tokens", 0),
+                        getattr(_chat_usage, "output_tokens", 0),
+                    )
+            except Exception:
+                pass
             reply = _resp.content[0].text if _resp.content else "No response received."
             # Laudon Ch.11, C3: explanation-layer grounding -- a distinct
             # failure mode from Fix-It drafting's fabrication guard (which
@@ -9391,6 +9418,39 @@ def render_screen_2():
             _asm_delta = None
         if _asm_delta:
             _render_revision_delta_strip(_asm_delta)
+            # C6 -- Laudon Ch.9, testimonial_ask lifecycle trigger: a
+            # substantial score improvement on a revision is the best
+            # conversion moment for social proof. Checked here (not in the
+            # general _render_lifecycle_triggers()) since it needs the
+            # just-computed delta, which only exists at this call site.
+            try:
+                from utils.lifecycle_triggers import (
+                    is_trigger_enabled, has_fired_recently, record_trigger_fired,
+                    TESTIMONIAL_DELTA_THRESHOLD,
+                )
+                _tt_email = st.session_state.get("user_email", "")
+                _tt_delta = (_asm_delta.get("delta_confidence", 0) or 0) + (_asm_delta.get("delta_clarity", 0) or 0)
+                if (_tt_email and is_trigger_enabled("testimonial_ask")
+                        and _tt_delta >= TESTIMONIAL_DELTA_THRESHOLD
+                        and not has_fired_recently(_tt_email, "testimonial_ask")):
+                    st.success(
+                        f"🎉 Your score improved by {_tt_delta:.1f} points combined on this revision — "
+                        "that's a great result. Would you share a quick testimonial?"
+                    )
+                    import urllib.parse as _tt_urlparse
+                    _tt_wa_text = _tt_urlparse.quote(
+                        f"Hi, I'd like to share a testimonial about ImpactProof. My email: {_tt_email}"
+                    )
+                    st.markdown(
+                        f'<a href="https://wa.me/233503648195?text={_tt_wa_text}" target="_blank" '
+                        'style="display:inline-block;background:#25D366;color:white;padding:8px 16px;'
+                        'border-radius:8px;text-decoration:none;font-weight:700;font-size:0.9rem;">'
+                        '📱 Share a testimonial</a>',
+                        unsafe_allow_html=True,
+                    )
+                    record_trigger_fired(_tt_email, "testimonial_ask")
+            except Exception:
+                pass
 
     for i, (sub, ev) in enumerate(zip(subs, evs)):
         if n > 1:
@@ -10339,7 +10399,7 @@ def _recover_partial_json_results(raw: str) -> list[dict]:
 
 
 def _extract_all_results_from_document(document_text: str, api_key: str,
-                                        max_chars: int = 60000) -> tuple[list[dict], str]:
+                                        max_chars: int = 60000, email: str = "") -> tuple[list[dict], str]:
     """Call Claude with BATCH_EXTRACTION_SYSTEM_PROMPT to extract all results.
 
     Returns (results_list, error_message).  error_message is "" on success.
@@ -10360,6 +10420,14 @@ def _extract_all_results_from_document(document_text: str, api_key: str,
             system=BATCH_EXTRACTION_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": f"Document text:\n\n{text}"}],
         )
+        try:
+            from utils.api_pricing import log_api_usage
+            _batch_usage = getattr(resp, "usage", None)
+            if _batch_usage is not None:
+                log_api_usage(email, "claude-sonnet-4-6", "batch_extraction",
+                               getattr(_batch_usage, "input_tokens", 0), getattr(_batch_usage, "output_tokens", 0))
+        except Exception:
+            pass
         raw = resp.content[0].text.strip() if resp.content else ""
         # Strip markdown fences if present
         if raw.startswith("```"):
@@ -10436,7 +10504,7 @@ def _batch_results_to_portfolio_df(raw_results: list[dict]) -> tuple["pd.DataFra
     return df, statuses
 
 
-def _score_report_from_document(document_text: str, api_key: str) -> tuple[
+def _score_report_from_document(document_text: str, api_key: str, email: str = "") -> tuple[
     "pd.DataFrame", list[dict], list[dict], str
 ]:
     """Full pipeline: document text → scored portfolio DataFrame.
@@ -10444,7 +10512,7 @@ def _score_report_from_document(document_text: str, api_key: str) -> tuple[
     Returns (input_df, evaluations, field_statuses, error_message).
     evaluations[i] is the result of evaluator.evaluate_submission(row_i).
     """
-    raw_results, err = _extract_all_results_from_document(document_text, api_key)
+    raw_results, err = _extract_all_results_from_document(document_text, api_key, email=email)
     if err:
         return None, [], [], err
     if not raw_results:
@@ -11107,6 +11175,17 @@ def _render_portfolio_chat(input_df, evaluations: list, statuses: list) -> None:
                 system=system_prompt,
                 messages=[{"role": m["role"], "content": m["content"]} for m in msgs],
             )
+            try:
+                from utils.api_pricing import log_api_usage
+                _pf_chat_usage = getattr(_resp, "usage", None)
+                if _pf_chat_usage is not None:
+                    log_api_usage(
+                        st.session_state.get("user_email", ""), "claude-haiku-4-5-20251001",
+                        "portfolio_chat", getattr(_pf_chat_usage, "input_tokens", 0),
+                        getattr(_pf_chat_usage, "output_tokens", 0),
+                    )
+            except Exception:
+                pass
             reply = _resp.content[0].text if _resp.content else "No response received."
         except Exception as exc:
             reply = f"Could not reach the assistant right now. ({type(exc).__name__})"
@@ -11222,7 +11301,7 @@ def _render_score_my_report_tab():
 
         def _run_smr():
             try:
-                _smr_result_box["data"] = _score_report_from_document(doc_text, _api_key)
+                _smr_result_box["data"] = _score_report_from_document(doc_text, _api_key, email=_smr_email)
             except Exception as _e:
                 import logging as _logging
                 _logging.error("Score My Report extraction failed", exc_info=True)
@@ -13884,6 +13963,17 @@ def _render_admin_charts(totals: dict, funnel: dict, daily: list):
         st.altair_chart(line, use_container_width=True)
 
 
+def _is_authorized_admin(email: str) -> bool:
+    """Laudon Ch.9, C5: the second (DB-backed role) factor of the admin
+    gate, alongside the unchanged ADMIN_PASSPHRASE check in
+    _render_admin_view(). Factored out as its own function so it's directly
+    testable without simulating the whole passphrase/session-state flow."""
+    if not email:
+        return False
+    user = get_user(email)
+    return bool(user and user.get("is_admin"))
+
+
 def _render_admin_view():
     st.markdown("### Admin — usage metrics")
     st.caption("Anonymous usage counts only — no result text or documents are ever logged.")
@@ -13910,6 +14000,18 @@ def _render_admin_view():
         if _entered:
             _safe_log_access(_admin_gate_key, "admin_passphrase_attempt")
             st.warning("Incorrect passphrase.")
+        return
+
+    # Laudon Ch.9, C5: real, DB-backed RBAC layered on top of the passphrase
+    # (unchanged above) -- something you know PLUS something you are. Before
+    # this, the passphrase alone was sufficient for anyone who had it; now
+    # the visitor must also be logged in as an is_admin=true account.
+    _admin_email = st.session_state.get("user_email", "")
+    if not _is_authorized_admin(_admin_email):
+        st.warning(
+            "Correct passphrase, but this account isn't authorized for admin access. "
+            "Log in (Screen 1) as an account with is_admin = true."
+        )
         return
     _safe_log_access(_admin_gate_key, "admin_view_access")
 
@@ -13942,6 +14044,10 @@ def _render_admin_view():
     st.divider()
     st.markdown("#### Account segments (CRM)")
     _render_admin_crm_segments()
+
+    st.divider()
+    st.markdown("#### Behavioural CRM (Laudon Ch.9)")
+    _render_admin_crm_behavioral_dashboard()
 
     st.divider()
     st.markdown("#### Donor acceptance rate by score band")
@@ -13995,6 +14101,140 @@ def _render_admin_crm_segments() -> None:
             mime="text/csv",
             key="_crm_segment_dl_agency_ready",
         )
+
+
+def _render_admin_crm_behavioral_dashboard() -> None:
+    """Laudon Ch.9, C5: analytical CRM surface -- segment distribution,
+    transitions over time, churn + CLTV by segment, revenue concentration,
+    cost-to-serve by segment, cohort retention curves. Built directly on
+    customer_profiles/customer_segment_history/payments/api_usage_log --
+    the "star schema" the build prompt references doesn't exist anywhere in
+    this repo (confirmed during the Ch.9 audit) and isn't a prerequisite
+    for this dashboard. Behind the same passphrase + is_admin gate as the
+    rest of _render_admin_view()."""
+    try:
+        import pandas as pd
+        from utils.crm import (
+            build_behavioral_segments, compute_behavioral_churn_rate, compute_revenue_churn_rate,
+            compute_cltv_by_segment, list_recent_segment_transitions, compute_cohort_retention_curves,
+        )
+        from utils.customer_profiles import list_customer_profiles
+        from utils.api_pricing import compute_average_cost_per_assessment
+    except Exception as exc:
+        st.warning(f"Could not load the behavioural CRM dashboard. ({type(exc).__name__})")
+        return
+
+    # -- Segment distribution --
+    segments = build_behavioral_segments()
+    st.markdown("**Segment distribution**")
+    _seg_cols = st.columns(4)
+    for i, (seg_name, rows) in enumerate(segments.items()):
+        with _seg_cols[i % 4]:
+            st.metric(seg_name, len(rows))
+
+    # -- Churn rates --
+    st.markdown("**Churn**")
+    _churn_cols = st.columns(2)
+    _behav_churn = compute_behavioral_churn_rate()
+    _rev_churn = compute_revenue_churn_rate()
+    with _churn_cols[0]:
+        st.metric("Behavioural churn rate",
+                  f"{_behav_churn * 100:.1f}%" if _behav_churn is not None else "Insufficient sample")
+    with _churn_cols[1]:
+        st.metric("Revenue churn rate",
+                  f"{_rev_churn * 100:.1f}%" if _rev_churn is not None else "Insufficient sample")
+
+    # -- CLTV by segment --
+    st.markdown("**CLTV by segment**")
+    _cltv_by_seg = compute_cltv_by_segment()
+    if not _cltv_by_seg:
+        st.caption("No CLTV data yet — configure knowledge/cltv_assumptions.yaml and/or wait for more accounts.")
+    else:
+        _cltv_rows = [
+            {"segment": seg, "average_cltv_ghs": round(v["average_cltv_pesewas"] / 100, 2),
+             "sample_size": v["sample_size"]}
+            for seg, v in _cltv_by_seg.items()
+        ]
+        st.dataframe(pd.DataFrame(_cltv_rows), use_container_width=True)
+
+    # -- Revenue concentration --
+    st.markdown("**Revenue concentration**")
+    _profiles = list_customer_profiles()
+    _total_revenue = sum(p.get("lifetime_revenue_pesewas", 0) or 0 for p in _profiles)
+    if _total_revenue <= 0:
+        st.caption("No recorded revenue yet.")
+    else:
+        _top5 = sorted(_profiles, key=lambda p: p.get("lifetime_revenue_pesewas", 0) or 0, reverse=True)[:5]
+        _top5_revenue = sum(p.get("lifetime_revenue_pesewas", 0) or 0 for p in _top5)
+        st.metric("Top-5 accounts' share of total revenue", f"{(_top5_revenue / _total_revenue) * 100:.1f}%")
+        st.dataframe(
+            pd.DataFrame([
+                {"email": p["email"], "lifetime_revenue_ghs": round((p.get("lifetime_revenue_pesewas", 0) or 0) / 100, 2)}
+                for p in _top5
+            ]),
+            use_container_width=True,
+        )
+
+    # -- Cost-to-serve by segment --
+    st.markdown("**Cost-to-serve by segment**")
+    _cost_by_seg: dict[str, list[float]] = {}
+    for seg_name, rows in segments.items():
+        for row in rows:
+            _avg_cost = compute_average_cost_per_assessment(row.get("email"))
+            if _avg_cost is not None:
+                _cost_by_seg.setdefault(seg_name, []).append(_avg_cost)
+    if not _cost_by_seg:
+        st.caption("No API usage data logged yet.")
+    else:
+        st.dataframe(
+            pd.DataFrame([
+                {"segment": seg, "avg_cost_per_assessment_ghs": round((sum(vals) / len(vals)) / 100, 4),
+                 "sample_size": len(vals)}
+                for seg, vals in _cost_by_seg.items()
+            ]),
+            use_container_width=True,
+        )
+
+    # -- Segment transitions over time --
+    st.markdown("**Segment transitions (last 90 days)**")
+    _transitions = list_recent_segment_transitions(days=90)
+    if not _transitions:
+        st.caption("No recorded segment transitions yet.")
+    else:
+        _tdf = pd.DataFrame(_transitions)
+        _tdf["week"] = pd.to_datetime(_tdf["computed_at"]).dt.to_period("W").astype(str)
+        _weekly = _tdf.groupby(["week", "segment"]).size().reset_index(name="count")
+        st.dataframe(_weekly, use_container_width=True)
+
+    # -- Cohort retention curves --
+    st.markdown("**Cohort retention (by signup month)**")
+    _curves = compute_cohort_retention_curves(max_months=6)
+    if not _curves:
+        st.caption("No signup cohort data yet.")
+    else:
+        _curve_rows = []
+        for cohort, curve in sorted(_curves.items()):
+            row = {"signup_month": cohort}
+            for i, val in enumerate(curve, 1):
+                row[f"month_{i}"] = f"{val * 100:.0f}%" if val is not None else "—"
+            _curve_rows.append(row)
+        st.dataframe(pd.DataFrame(_curve_rows), use_container_width=True)
+
+    # -- Cross-sell candidates (Laudon Ch.9, C7) --
+    st.markdown("**Cross-sell candidates (who to call)**")
+    try:
+        from utils.cross_sell import list_pending_recommendations
+        _pending_recs = list_pending_recommendations()
+    except Exception:
+        _pending_recs = []
+    if not _pending_recs:
+        st.caption("No pending cross-sell recommendations.")
+    else:
+        st.caption(
+            "Behaviour-triggered, never demographic — founder-led outreach beats automation "
+            "at this volume. Each row clears itself once a real plan change lands."
+        )
+        st.dataframe(pd.DataFrame(_pending_recs), use_container_width=True)
 
 
 def _render_admin_outcome_stats() -> None:
@@ -14157,6 +14397,99 @@ def _render_profile_capture_banner(email: str) -> None:
                 st.rerun()
 
 
+def _render_lifecycle_triggers(email: str) -> None:
+    """Laudon Ch.9, C6: deterministic lifecycle triggers -- checks the
+    current user's own customer_profiles row + behavioural segment against
+    utils.lifecycle_triggers.eligible_triggers(), and renders whichever of
+    first_assessment_no_engagement / org_emergent_detected / payment_recovery
+    apply (testimonial_ask is handled separately at the revision-delta-strip
+    call site, since it needs a just-computed delta this function doesn't
+    have; at_risk_reengagement never fires from Python at all -- see
+    utils/lifecycle_triggers.py's module docstring). Called once per page
+    load from main(), same pattern as the other banners."""
+    if not email:
+        return
+    try:
+        from utils.customer_profiles import get_customer_profile
+        from utils.crm import compute_behavioral_segment
+        from utils.mel_calendar import load_mel_calendar
+        from utils.lifecycle_triggers import eligible_triggers, record_trigger_fired
+
+        profile = get_customer_profile(email)
+        if not profile:
+            return
+        segment = compute_behavioral_segment(profile, load_mel_calendar())
+        fired = eligible_triggers(email, profile, segment)
+    except Exception:
+        return
+
+    if "first_assessment_no_engagement" in fired:
+        with st.container(border=True):
+            st.markdown("**You've run your first check — want a hand with the suggested fixes?**")
+            st.caption(
+                "Your first result usually has a few quick wins flagged. Head back to Screen 2 "
+                "to review them before you submit."
+            )
+        record_trigger_fired(email, "first_assessment_no_engagement")
+
+    if "org_emergent_detected" in fired:
+        with st.container(border=True):
+            st.markdown("**Looks like your organisation is growing into ImpactProof**")
+            st.caption(
+                "Multiple people or programmes from your organisation are using ImpactProof — "
+                "the Agency plan covers your whole team under one seat plan."
+            )
+            if st.button("See the Agency plan", key="_lifecycle_org_emergent_cta"):
+                st.session_state["_show_pricing"] = True
+                st.rerun()
+        try:
+            from utils.whatsapp import notify_founder
+            notify_founder("org_emergent_lead", user_email=email)
+        except Exception:
+            pass
+        record_trigger_fired(email, "org_emergent_detected")
+
+    if "payment_recovery" in fired:
+        with st.container(border=True):
+            st.markdown("**Your last renewal charge didn't go through**")
+            st.caption(
+                "Your access continues during Paystack's retry window — no need to worry about a "
+                "sudden lockout before a deadline. Update your payment method when you get a chance."
+            )
+            from utils.whatsapp import build_wa_url
+            _pr_wa_url = build_wa_url("payment_support", user_email=email)
+            st.markdown(f"[Message us on WhatsApp for help]({_pr_wa_url})")
+        record_trigger_fired(email, "payment_recovery")
+
+
+def _check_cross_sell_recommendation(email: str) -> None:
+    """Laudon Ch.9, C7: cross-sell logging. recommend() is behaviour-only
+    (see utils/cross_sell.py). This function only ever records a
+    recommendation for later evaluation on the admin dashboard's "who to
+    call" list -- founder-led sales beats automation at this volume, per
+    the build prompt's own out-of-scope note, so this doesn't send anything
+    to the user itself, except reusing the EXISTING upgrade-prompt event
+    pipeline for the one case (upgrade_to_subscription) that already has a
+    live, tested user-facing surface elsewhere in the app."""
+    if not email:
+        return
+    try:
+        from utils.customer_profiles import get_customer_profile
+        from utils.cross_sell import recommend, record_recommendation
+
+        profile = get_customer_profile(email)
+        if not profile:
+            return
+        rec_type = recommend(profile)
+        if not rec_type:
+            return
+        record_recommendation(email, rec_type)
+        if rec_type == "upgrade_to_subscription":
+            _log_upgrade_prompt_crm("upgrade_prompt_shown", "cross_sell_heavy_revision")
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -14229,6 +14562,11 @@ def main():
                     _crm_log_event(_pay_email, "tier_change", metadata={"plan_label": _pay_result.get("plan"), "days": _days})
                 except Exception:
                     pass
+                try:
+                    from utils.cross_sell import record_outcome_for_plan_label
+                    record_outcome_for_plan_label(_pay_email, _pay_result.get("plan", ""))
+                except Exception:
+                    pass
                 st.session_state.pop("_pay_once_url", None)
                 st.session_state.pop("_pay_monthly_url", None)
                 st.session_state.pop("_pay_agency_url", None)
@@ -14297,6 +14635,8 @@ def main():
     if _outcome_email:
         _render_profile_capture_banner(_outcome_email)
         _render_outcome_followup_banner(_outcome_email)
+        _render_lifecycle_triggers(_outcome_email)
+        _check_cross_sell_recommendation(_outcome_email)
     try:
         screen = st.session_state["screen"]
         {0: render_screen_0, 1: render_screen_1, 2: render_screen_2, 3: render_screen_3,

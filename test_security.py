@@ -265,9 +265,148 @@ def run_agency_d4_views():
     print("PASS: Agency Dashboard D4 views (MIS/DSS/ESS) -- render without raising across full/small-N/empty input.")
 
 
+class _FakeAdminUsersResult:
+    def __init__(self, data):
+        self.data = data
+
+
+class _FakeAdminUsersQuery:
+    def __init__(self, rows):
+        self._rows = rows
+        self._filters = {}
+
+    def select(self, *_a, **_kw):
+        return self
+
+    def eq(self, col, val):
+        self._filters[col] = val
+        return self
+
+    def execute(self):
+        matched = [r for r in self._rows if all(r.get(k) == v for k, v in self._filters.items())]
+        return _FakeAdminUsersResult(matched)
+
+
+class _FakeAdminUsersClient:
+    """Just enough of the supabase-py client shape for utils.db.get_user():
+    c.table("users").select(...).eq("email", ...).execute().data."""
+    def __init__(self, rows):
+        self._rows = rows
+
+    def table(self, name):
+        assert name == "users"
+        return _FakeAdminUsersQuery(self._rows)
+
+
+def run_admin_rbac_gate():
+    """Laudon Ch.9, C5: app._is_authorized_admin() -- the DB-backed second
+    factor layered on top of the unchanged ADMIN_PASSPHRASE gate. Before
+    this, the passphrase alone was sufficient for anyone who had it."""
+    failures = []
+    import utils.db as db
+    original_get_client = db._get_client
+    rows = [
+        {"email": "admin@example.com", "is_admin": True},
+        {"email": "regular@example.com", "is_admin": False},
+        {"email": "legacy@example.com"},  # pre-migration-shaped row, no is_admin key at all
+    ]
+    db._get_client = lambda: _FakeAdminUsersClient(rows)
+    try:
+        if not app._is_authorized_admin("admin@example.com"):
+            failures.append("expected an is_admin=true account to be authorized")
+        if app._is_authorized_admin("regular@example.com"):
+            failures.append("expected an is_admin=false account to be rejected")
+        if app._is_authorized_admin("legacy@example.com"):
+            failures.append("expected an account with no is_admin field to be rejected, not treated as admin")
+        if app._is_authorized_admin("nobody@example.com"):
+            failures.append("expected an unknown account to be rejected")
+        if app._is_authorized_admin(""):
+            failures.append("expected an empty email to be rejected, never raise")
+    finally:
+        db._get_client = original_get_client
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: admin RBAC gate -- is_admin=true required; false/missing/unknown/empty accounts all rejected.")
+
+
+def run_admin_crm_behavioral_dashboard():
+    """Laudon Ch.9, C5: the new behavioural CRM dashboard section must
+    render without raising across seeded data and completely empty data."""
+    failures = []
+    import utils.crm as crm
+    import utils.customer_profiles as customer_profiles
+    import utils.api_pricing as api_pricing
+
+    original_crm_engine = crm._get_engine
+    original_cp_engine = customer_profiles._get_engine
+    original_ap_engine = api_pricing._get_engine
+
+    engine = create_engine("sqlite:///:memory:")
+    crm.Base.metadata.create_all(engine)
+    customer_profiles.Base.metadata.create_all(engine)
+    api_pricing.Base.metadata.create_all(engine)
+    crm._get_engine = lambda: engine
+    customer_profiles._get_engine = lambda: engine
+    api_pricing._get_engine = lambda: engine
+
+    try:
+        from sqlalchemy.orm import Session
+        now = datetime.now()
+        with Session(engine) as session:
+            session.add(customer_profiles.CustomerProfile(
+                email="a@example.com", plan="professional", subscription_status="active",
+                signup_at=now - timedelta(days=100), last_active_at=now - timedelta(days=2),
+                total_assessments=6, assessments_last_30d=5, revision_count_last_30d=1,
+                lifetime_payment_count=3, lifetime_revenue_pesewas=15000,
+                domain_user_count=1, distinct_donor_count_30d=1, computed_at=now,
+            ))
+            session.add(crm._PaymentRow(email="a@example.com", plan="monthly", status="success", created_at=now))
+            session.add(api_pricing.ApiUsageLog(
+                email="a@example.com", model="claude-sonnet-4-6", call_site="irc_extraction",
+                input_tokens=1000, output_tokens=500, estimated_cost_pesewas=5.0,
+            ))
+            session.add(crm.CustomerSegmentHistory(email="a@example.com", segment="embedded"))
+            session.commit()
+
+        try:
+            app._render_admin_crm_behavioral_dashboard()
+        except Exception as exc:
+            failures.append(f"full/seeded data raised: {exc}")
+
+        # Empty-data pass -- fresh empty tables.
+        empty_engine = create_engine("sqlite:///:memory:")
+        crm.Base.metadata.create_all(empty_engine)
+        customer_profiles.Base.metadata.create_all(empty_engine)
+        api_pricing.Base.metadata.create_all(empty_engine)
+        crm._get_engine = lambda: empty_engine
+        customer_profiles._get_engine = lambda: empty_engine
+        api_pricing._get_engine = lambda: empty_engine
+        try:
+            app._render_admin_crm_behavioral_dashboard()
+        except Exception as exc:
+            failures.append(f"empty data raised: {exc}")
+    finally:
+        crm._get_engine = original_crm_engine
+        customer_profiles._get_engine = original_cp_engine
+        api_pricing._get_engine = original_ap_engine
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: behavioural CRM dashboard (C5) -- renders without raising across seeded and empty data.")
+
+
 if __name__ == "__main__":
     run_user_email_overwrite_guard()
     run_portfolio_heatmap_sample_gate()
     run_readiness_card_crosswalk_tags()
     run_verify_landing()
     run_agency_d4_views()
+    run_admin_rbac_gate()
+    run_admin_crm_behavioral_dashboard()

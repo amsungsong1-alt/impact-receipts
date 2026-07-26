@@ -30,8 +30,13 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta, timezone
 
+import yaml
 from sqlalchemy import Column, BigInteger, Integer, Text, DateTime, JSON, func
 from sqlalchemy.orm import declarative_base, Session
+
+_CLTV_ASSUMPTIONS_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "knowledge", "cltv_assumptions.yaml"
+)
 
 Base = declarative_base()
 
@@ -495,6 +500,184 @@ def time_to_second_assessment_distribution() -> list[int]:
             result.append((created_at - first_seen[email]).days)
             seen_second.add(email)
     return result
+
+
+# ---------------------------------------------------------------------------
+# CLTV (Laudon Ch.9, C4)
+# ---------------------------------------------------------------------------
+
+def load_cltv_assumptions() -> dict:
+    """Re-reads knowledge/cltv_assumptions.yaml fresh on every call --
+    hot-reloadable, same convention as knowledge/mel_calendar.yaml/
+    knowledge/model_pricing.yaml. Returns {} if the file is missing or
+    malformed rather than raising."""
+    if not os.path.isfile(_CLTV_ASSUMPTIONS_PATH):
+        return {}
+    try:
+        with open(_CLTV_ASSUMPTIONS_PATH, "r", encoding="utf-8") as f:
+            loaded = yaml.safe_load(f)
+        return loaded if isinstance(loaded, dict) else {}
+    except Exception:
+        return {}
+
+
+def compute_cltv(profile: dict, assumptions: dict | None = None) -> dict:
+    """CLTV for one customer_profiles row, built from explicit, labeled
+    assumptions (knowledge/cltv_assumptions.yaml) plus the one real,
+    derived input: average API cost per assessment
+    (utils.api_pricing.compute_average_cost_per_assessment()). A simple
+    blended-customer revenue model (per-use-weighted assessments-at-spot-
+    price + subscription-weighted flat monthly fee), discounted across
+    expected_lifetime_cycles at a quarterly-approximated discount rate,
+    minus a one-off acquisition cost.
+
+    Returns {"cltv_pesewas", "assumptions_used", "avg_cost_per_assessment_pesewas",
+    "confidence_note"}. cltv_pesewas is None if no assumptions are configured
+    -- this is an estimate given current data volume, not a forecast; the
+    confidence_note says so explicitly and flags when there's no real cost
+    data yet behind the number."""
+    a = assumptions if assumptions is not None else load_cltv_assumptions()
+    if not a:
+        return {
+            "cltv_pesewas": None, "assumptions_used": {},
+            "avg_cost_per_assessment_pesewas": None,
+            "confidence_note": "No CLTV assumptions configured (knowledge/cltv_assumptions.yaml missing/empty).",
+        }
+
+    from utils.api_pricing import compute_average_cost_per_assessment
+
+    email = (profile or {}).get("email")
+    avg_cost_pesewas = compute_average_cost_per_assessment(email) if email else None
+    if avg_cost_pesewas is None:
+        avg_cost_pesewas = compute_average_cost_per_assessment()  # fall back to the global average
+    cost_data_available = avg_cost_pesewas is not None
+    avg_cost_pesewas = avg_cost_pesewas or 0.0
+
+    assessments_per_cycle = a.get("expected_assessments_per_cycle", 0) or 0
+    price_mix = a.get("price_mix", {}) or {}
+    price_ghs = a.get("price_ghs", {}) or {}
+    per_use_share = price_mix.get("per_use_share", 0) or 0
+    sub_share = price_mix.get("subscription_share", 0) or 0
+    per_use_price = price_ghs.get("per_use", 0) or 0
+    monthly_price = price_ghs.get("monthly", 0) or 0
+    acquisition_cost = a.get("acquisition_cost_ghs", 0) or 0
+    lifetime_cycles = int(a.get("expected_lifetime_cycles", 0) or 0)
+    discount_annual = a.get("discount_rate_annual", 0) or 0
+    discount_per_cycle = discount_annual / 4  # cycles approximated as quarterly
+
+    blended_revenue_per_cycle_ghs = (
+        per_use_share * (assessments_per_cycle * per_use_price) + sub_share * monthly_price
+    )
+    cost_per_cycle_ghs = assessments_per_cycle * (avg_cost_pesewas / 100)
+    margin_per_cycle_ghs = blended_revenue_per_cycle_ghs - cost_per_cycle_ghs
+
+    cltv_ghs = -acquisition_cost
+    for cycle in range(1, lifetime_cycles + 1):
+        cltv_ghs += margin_per_cycle_ghs / ((1 + discount_per_cycle) ** cycle)
+
+    confidence_note = (
+        "Estimate given current data volume, not a forecast -- revenue/lifetime/discount "
+        "assumptions are configurable placeholders (knowledge/cltv_assumptions.yaml)."
+        if cost_data_available else
+        "No real API-cost data in api_usage_log yet -- this figure uses a $0 cost floor "
+        "and should be treated as illustrative until there's real usage volume."
+    )
+
+    return {
+        "cltv_pesewas": round(cltv_ghs * 100, 2),
+        "assumptions_used": a,
+        "avg_cost_per_assessment_pesewas": round(avg_cost_pesewas, 2),
+        "confidence_note": confidence_note,
+    }
+
+
+def compute_cltv_by_segment() -> dict:
+    """Average CLTV per behavioural segment, for the C5 dashboard. Returns
+    {segment: {"average_cltv_pesewas", "sample_size"}} -- only over profiles
+    where compute_cltv() produced a real number (assumptions configured)."""
+    from utils.customer_profiles import list_customer_profiles
+    from utils.mel_calendar import load_mel_calendar
+
+    calendar = load_mel_calendar()
+    assumptions = load_cltv_assumptions()
+    now = datetime.now(timezone.utc)
+    by_segment: dict[str, list[float]] = {}
+    for profile in list_customer_profiles():
+        segment = compute_behavioral_segment(profile, calendar, now)
+        result = compute_cltv(profile, assumptions)
+        if result["cltv_pesewas"] is not None:
+            by_segment.setdefault(segment, []).append(result["cltv_pesewas"])
+    return {
+        seg: {"average_cltv_pesewas": round(sum(vals) / len(vals), 2), "sample_size": len(vals)}
+        for seg, vals in by_segment.items()
+    }
+
+
+# ---------------------------------------------------------------------------
+# C5 dashboard support -- transitions over time, cohort retention
+# ---------------------------------------------------------------------------
+
+def list_recent_segment_transitions(days: int = 90) -> list[dict]:
+    """Every customer_segment_history row across ALL accounts within the
+    window -- for the admin dashboard's "transitions over time" chart.
+    Distinct from list_segment_history(), which is scoped to one account.
+    Returns [] on any DB failure."""
+    engine = _get_engine()
+    if not engine:
+        return []
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    try:
+        with Session(engine) as session:
+            rows = (session.query(CustomerSegmentHistory)
+                    .filter(CustomerSegmentHistory.computed_at >= cutoff)
+                    .order_by(CustomerSegmentHistory.computed_at.asc())
+                    .all())
+            return [{"email": r.email, "segment": r.segment, "computed_at": r.computed_at} for r in rows]
+    except Exception:
+        return []
+
+
+def compute_cohort_retention_curves(max_months: int = 6) -> dict[str, list]:
+    """For each signup cohort (grouped by signup_at's YYYY-MM), the fraction
+    of that cohort still showing last_active_at at least N months after
+    their own signup, for N in 1..max_months. A cohort that hasn't existed
+    long enough for month N yet gets None at that position rather than a
+    misleading 0.0 or an omitted entry -- retention_at_month_N is only ever
+    a real fraction or "not old enough yet," never a guess."""
+    from utils.customer_profiles import list_customer_profiles
+
+    cohorts: dict[str, list[dict]] = {}
+    for profile in list_customer_profiles():
+        signup_at = profile.get("signup_at")
+        if not signup_at:
+            continue
+        key = signup_at.strftime("%Y-%m")
+        cohorts.setdefault(key, []).append(profile)
+
+    now = datetime.now(timezone.utc)
+    curves: dict[str, list] = {}
+    for cohort_key, profiles in cohorts.items():
+        curve = []
+        for n in range(1, max_months + 1):
+            still_active = 0
+            eligible = 0
+            for p in profiles:
+                signup_at = p["signup_at"]
+                if signup_at.tzinfo is None:
+                    signup_at = signup_at.replace(tzinfo=timezone.utc)
+                milestone = signup_at + timedelta(days=30 * n)
+                if milestone > now:
+                    continue  # this cohort hasn't reached month n yet
+                eligible += 1
+                last_active = p.get("last_active_at")
+                if last_active is not None:
+                    if last_active.tzinfo is None:
+                        last_active = last_active.replace(tzinfo=timezone.utc)
+                    if last_active >= milestone:
+                        still_active += 1
+            curve.append(round(still_active / eligible, 4) if eligible else None)
+        curves[cohort_key] = curve
+    return curves
 
 
 # ---------------------------------------------------------------------------

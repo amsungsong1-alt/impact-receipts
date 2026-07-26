@@ -402,6 +402,19 @@ def _call_haiku(system_prompt: str, user_msg: str, api_key: str, max_tokens: int
             system=system_prompt,
             messages=[{"role": "user", "content": user_msg}],
         )
+        # Laudon Ch.9, C4: log real token usage for CLTV's cost floor. Unattributed
+        # (no email) -- this helper is shared across Council Assessment/debate/
+        # logframe-match, none of which are ASSESSMENT_CALL_SITES for CLTV, and
+        # threading email through council.py's whole call graph for a metric
+        # that doesn't feed the core CLTV computation isn't worth the diff size.
+        try:
+            from utils.api_pricing import log_api_usage
+            usage = getattr(resp, "usage", None)
+            if usage is not None:
+                log_api_usage("", model, "council_haiku",
+                               getattr(usage, "input_tokens", 0), getattr(usage, "output_tokens", 0))
+        except Exception:
+            pass
         return resp.content[0].text if resp.content else ""
     except Exception as exc:
         return f"[Council member unavailable: {type(exc).__name__}]"

@@ -533,6 +533,91 @@ def run_time_to_second_assessment():
           "beyond the 2nd, None for accounts with fewer than 2 runs.")
 
 
+# ---------------------------------------------------------------------------
+# Laudon Ch.9, C4 -- CLTV
+# ---------------------------------------------------------------------------
+
+_TEST_CLTV_ASSUMPTIONS = {
+    "expected_assessments_per_cycle": 3,
+    "price_mix": {"per_use_share": 0.6, "subscription_share": 0.4},
+    "price_ghs": {"per_use": 5, "monthly": 50},
+    "acquisition_cost_ghs": 20,
+    "expected_lifetime_cycles": 6,
+    "discount_rate_annual": 0.15,
+}
+
+
+def run_compute_cltv():
+    failures = []
+    original_get_engine = None
+    import utils.api_pricing as api_pricing
+    original_get_engine = api_pricing._get_engine
+    api_pricing._get_engine = lambda: None  # no real usage data -- forces the $0-cost-floor path
+    try:
+        result = crm.compute_cltv({"email": "a@example.com"}, _TEST_CLTV_ASSUMPTIONS)
+        if result["cltv_pesewas"] is None:
+            failures.append("expected a real cltv_pesewas value with assumptions configured")
+        if result["assumptions_used"] != _TEST_CLTV_ASSUMPTIONS:
+            failures.append("expected assumptions_used to echo back the assumptions passed in")
+        if "no real" not in result["confidence_note"].lower():
+            failures.append(f"expected the $0-cost-floor caveat in confidence_note, got: {result['confidence_note']!r}")
+
+        empty_result = crm.compute_cltv({"email": "a@example.com"}, {})
+        if empty_result["cltv_pesewas"] is not None:
+            failures.append("expected cltv_pesewas=None when no assumptions are configured")
+    finally:
+        api_pricing._get_engine = original_get_engine
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: compute_cltv — real value with assumptions configured, echoes assumptions_used, "
+          "flags the $0-cost-floor caveat, None with no assumptions.")
+
+
+def run_compute_cltv_by_segment():
+    failures = []
+    import utils.customer_profiles as customer_profiles
+    import utils.api_pricing as api_pricing
+    original_list = customer_profiles.list_customer_profiles
+    original_get_engine = api_pricing._get_engine
+    api_pricing._get_engine = lambda: None
+
+    # compute_cltv_by_segment() calls compute_behavioral_segment() with the
+    # REAL current time (no override), so last_active_at must be recent
+    # relative to actual wall-clock "now" -- not the test's fixed _UTC_NOW --
+    # to land reliably in the intended segment regardless of what day this
+    # test runs.
+    _real_now = datetime.now(timezone.utc)
+    profiles = [
+        _profile(email="embedded1@example.com", total_assessments=6, revision_count_last_30d=1,
+                 last_active_at=_real_now - timedelta(days=2), signup_at=_real_now - timedelta(days=200)),
+        _profile(email="embedded2@example.com", total_assessments=8, revision_count_last_30d=1,
+                 last_active_at=_real_now - timedelta(days=2), signup_at=_real_now - timedelta(days=200)),
+        _profile(email="trial1@example.com", total_assessments=1,
+                 last_active_at=_real_now - timedelta(days=2), signup_at=_real_now - timedelta(days=200)),
+    ]
+    customer_profiles.list_customer_profiles = lambda: profiles
+    try:
+        by_segment = crm.compute_cltv_by_segment()
+        if "embedded" not in by_segment or by_segment["embedded"]["sample_size"] != 2:
+            failures.append(f"expected 2 embedded profiles in compute_cltv_by_segment(), got {by_segment}")
+        if "trial" not in by_segment or by_segment["trial"]["sample_size"] != 1:
+            failures.append(f"expected 1 trial profile in compute_cltv_by_segment(), got {by_segment}")
+    finally:
+        customer_profiles.list_customer_profiles = original_list
+        api_pricing._get_engine = original_get_engine
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: compute_cltv_by_segment — correctly buckets and averages CLTV per behavioural segment.")
+
+
 if __name__ == "__main__":
     run_log_event()
     run_agency_ready()
@@ -544,3 +629,5 @@ if __name__ == "__main__":
     run_compute_behavioral_churn_rate()
     run_compute_revenue_churn_rate()
     run_time_to_second_assessment()
+    run_compute_cltv()
+    run_compute_cltv_by_segment()

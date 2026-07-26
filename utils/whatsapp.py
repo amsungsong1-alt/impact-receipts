@@ -99,6 +99,19 @@ WA_CONTEXTS: dict[str, dict[str, str]] = {
             "My email: {email}"
         ),
     },
+    "org_emergent_lead": {
+        # Laudon Ch.9, C6: fired server-side by utils.lifecycle_triggers.py
+        # when an account is detected as org_emergent -- not a user-clicked
+        # CTA (no wa.me link uses this context), so user_ack/wa_message_tpl
+        # exist here only for consistency with every other entry and in case
+        # a future user-facing CTA reuses this context id.
+        "notify_label": "Org-emergent lead (multi-user/multi-programme signal)",
+        "user_ack":     "Thanks — we'll follow up about team plans shortly.",
+        "wa_message_tpl": (
+            "Hi, my organisation is using ImpactProof across multiple people/programmes. "
+            "My email: {email}"
+        ),
+    },
 }
 
 # Generic auto-reply fallback when context keyword matching fails

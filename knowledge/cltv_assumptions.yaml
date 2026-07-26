@@ -1,0 +1,32 @@
+# knowledge/cltv_assumptions.yaml — Laudon Ch.9 CRM, C4: explicit CLTV
+# assumptions.
+#
+# THESE ARE LABELED PLACEHOLDER ASSUMPTIONS, NOT RESEARCHED FACT -- adjust
+# to your actual customer base before relying on this financially. Only
+# avg_cost_per_assessment_pesewas is ever computed from real data (see
+# utils/api_pricing.py::compute_average_cost_per_assessment()) when
+# utils/crm.py::compute_cltv() is called without an explicit override --
+# everything else here is a business assumption someone has to set.
+# Hot-reloadable, same convention as knowledge/mel_calendar.yaml/
+# knowledge/model_pricing.yaml.
+version: "2026.07.1"
+# Expected number of scored assessments a customer runs per MEL reporting
+# cycle (see knowledge/mel_calendar.yaml for what a "cycle" means here).
+expected_assessments_per_cycle: 3
+# Fraction of revenue from pay-per-use (GHS 5) vs. the monthly plan (GHS 50) --
+# must sum to 1.0. A genuinely different mix per segment is a real
+# improvement to make once there's enough data to estimate it per segment.
+price_mix:
+  per_use_share: 0.6
+  subscription_share: 0.4
+price_ghs:
+  per_use: 5
+  monthly: 50
+# One-off cost to acquire a customer (ads, founder time, etc.) -- a rough
+# placeholder, not derived from real marketing spend data.
+acquisition_cost_ghs: 20
+# Expected customer lifetime, in MEL reporting cycles (not calendar months) --
+# a placeholder assumption, most in need of real data as usage history grows.
+expected_lifetime_cycles: 6
+# Annual discount rate applied to future cycles' cash flow.
+discount_rate_annual: 0.15

@@ -1,0 +1,18 @@
+-- 0027_users_is_admin.sql
+-- Laudon Ch.9 CRM, C5: real, DB-backed admin RBAC. Before this, the hidden
+-- ?admin=1 dashboard's only gate was one shared ADMIN_PASSPHRASE -- no
+-- per-account identity was checked at all (confirmed in the Ch.9 Phase 1
+-- audit: no role column, no admin-email allowlist anywhere in the repo).
+--
+-- This adds a real role concept: the admin view now requires BOTH the
+-- existing passphrase AND being logged in as an account with is_admin =
+-- true (see app.py::_render_admin_view()) -- something you know plus
+-- something you are, reusing the existing login/session system rather than
+-- inventing a second one.
+--
+-- Bootstrapping the first admin account is a one-off manual step -- there is
+-- no self-service "grant admin" UI (matches this codebase's convention for
+-- other one-off setup, e.g. Paystack plan codes): run, once, in the SQL
+-- editor:
+--   update users set is_admin = true where email = 'your-account@example.com';
+alter table users add column if not exists is_admin boolean not null default false;
