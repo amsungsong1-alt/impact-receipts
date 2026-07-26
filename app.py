@@ -7462,6 +7462,16 @@ def render_screen_1():
                         log_audit_run(_email_now, st.session_state.get("donor_selected", ""))
                     except Exception:
                         pass
+                elif _email_now and _is_rescore:
+                    # Laudon Ch.9, C1: a revision run isn't charged (see the
+                    # guard above), but it's a real touch point -- the
+                    # strongest retention signal the "embedded" behavioural
+                    # segment relies on. Never double-fires with audit_run.
+                    try:
+                        from utils.crm import log_event
+                        log_event(_email_now, "revision_run")
+                    except Exception:
+                        pass
                 # Clear saved draft — user has submitted, fresh start next time
                 if _email_now:
                     try:

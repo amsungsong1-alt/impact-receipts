@@ -250,8 +250,297 @@ def run_purge():
     print("PASS: purge_account_crm_events — deletes only the target account's rows, safe to repeat.")
 
 
+# ---------------------------------------------------------------------------
+# Laudon Ch.9, C2/C3 -- behavioural segmentation and churn
+# ---------------------------------------------------------------------------
+
+_UTC_NOW = datetime(2026, 6, 15, tzinfo=timezone.utc)
+_TEST_CALENDAR = {"reporting_months": [6]}  # only June counts as a reporting window
+
+
+def _profile(**overrides) -> dict:
+    base = {
+        "email": "x@example.com",
+        "plan": "free",
+        "subscription_status": None,
+        "signup_at": _UTC_NOW - timedelta(days=200),
+        "last_active_at": _UTC_NOW - timedelta(days=2),
+        "total_assessments": 1,
+        "assessments_last_30d": 1,
+        "revision_count_last_30d": 0,
+        "lifetime_payment_count": 0,
+        "lifetime_revenue_pesewas": 0,
+        "last_payment_status": None,
+        "last_payment_at": None,
+        "wa_conversation_count": 0,
+        "last_wa_at": None,
+        "email_domain": "example.com",
+        "domain_user_count": 1,
+        "distinct_donor_count_30d": 0,
+        "active_in_equivalent_window_last_cycle": False,
+        "computed_at": _UTC_NOW,
+    }
+    base.update(overrides)
+    return base
+
+
+def run_compute_behavioral_segment():
+    failures = []
+
+    def _check(name, profile, expected, now=_UTC_NOW):
+        got = crm.compute_behavioral_segment(profile, _TEST_CALENDAR, now)
+        if got != expected:
+            failures.append(f"{name}: expected {expected!r}, got {got!r}")
+
+    _check("lapsed (>=365 days, trumps everything)", _profile(
+        last_active_at=_UTC_NOW - timedelta(days=400), total_assessments=5), "lapsed")
+
+    _check("at_risk (reporting month, quiet 45d, has history)", _profile(
+        last_active_at=_UTC_NOW - timedelta(days=45), total_assessments=5), "at_risk")
+
+    # currently_reporting is judged by `now`'s month, not the touch date's --
+    # use a March "now" (not in _TEST_CALENDAR's reporting_months=[6]).
+    _march_now = datetime(2026, 3, 15, tzinfo=timezone.utc)
+    _check("dormant_seasonal (off-season, quiet 45d, active same slot last cycle)", _profile(
+        last_active_at=_march_now - timedelta(days=45),
+        total_assessments=5, active_in_equivalent_window_last_cycle=True),
+        "dormant_seasonal", now=_march_now)
+
+    _check("org_emergent (2+ domain users)", _profile(
+        last_active_at=_UTC_NOW - timedelta(days=5), total_assessments=1, domain_user_count=3),
+        "org_emergent")
+
+    _check("org_emergent (3+ distinct donors in 30d)", _profile(
+        last_active_at=_UTC_NOW - timedelta(days=5), total_assessments=1, distinct_donor_count_30d=3),
+        "org_emergent")
+
+    _check("embedded (4+ assessments in 30d)", _profile(
+        last_active_at=_UTC_NOW - timedelta(days=5), total_assessments=6, assessments_last_30d=5),
+        "embedded")
+
+    _check("embedded (a single revision is the strongest signal on its own)", _profile(
+        last_active_at=_UTC_NOW - timedelta(days=5), total_assessments=3, revision_count_last_30d=1),
+        "embedded")
+
+    _check("episodic (2+ assessments, active recently, no other signal)", _profile(
+        last_active_at=_UTC_NOW - timedelta(days=10), total_assessments=3, assessments_last_30d=1),
+        "episodic")
+
+    _check("trial (fewer than 2 assessments)", _profile(
+        last_active_at=_UTC_NOW - timedelta(days=2), total_assessments=1), "trial")
+
+    _check("trial (no touch data at all degrades safely)", _profile(
+        last_active_at=None, signup_at=None), "trial")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: compute_behavioral_segment — all 7 segments plus the dormant_seasonal/at_risk "
+          "boundary and no-touch-data degradation verified.")
+
+
+def run_build_behavioral_segments():
+    failures = []
+    import utils.customer_profiles as customer_profiles
+    original_list = customer_profiles.list_customer_profiles
+    profiles = [
+        _profile(email="lapsed@example.com", last_active_at=_UTC_NOW - timedelta(days=400), total_assessments=5),
+        _profile(email="trial@example.com", last_active_at=_UTC_NOW - timedelta(days=1), total_assessments=1),
+        _profile(email="embedded@example.com", last_active_at=_UTC_NOW - timedelta(days=1),
+                 total_assessments=6, revision_count_last_30d=1),
+    ]
+    customer_profiles.list_customer_profiles = lambda: profiles
+    try:
+        segments = crm.build_behavioral_segments()
+        emails = {seg: {p["email"] for p in rows} for seg, rows in segments.items()}
+        if "lapsed@example.com" not in emails.get("lapsed", set()):
+            failures.append("build_behavioral_segments: lapsed account missing from 'lapsed' bucket")
+        if "trial@example.com" not in emails.get("trial", set()):
+            failures.append("build_behavioral_segments: trial account missing from 'trial' bucket")
+        if "embedded@example.com" not in emails.get("embedded", set()):
+            failures.append("build_behavioral_segments: embedded account missing from 'embedded' bucket")
+    finally:
+        customer_profiles.list_customer_profiles = original_list
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: build_behavioral_segments — buckets every materialized profile correctly.")
+
+
+def run_record_segment_transition():
+    failures = []
+    original_get_engine = crm._get_engine
+    engine = _fresh_engine()
+    crm._get_engine = lambda: engine
+    email = "transitions@example.com"
+    try:
+        crm.record_segment_transition(email, "trial")
+        crm.record_segment_transition(email, "trial")  # same segment -- must NOT insert a second row
+        crm.record_segment_transition(email, "embedded")  # real transition -- must insert
+
+        history = crm.list_segment_history(email)
+        if len(history) != 2:
+            failures.append(f"expected exactly 2 history rows (1 dedup skip), got {len(history)}: {history}")
+        else:
+            if history[0]["segment"] != "embedded" or history[1]["segment"] != "trial":
+                failures.append(f"expected newest-first [embedded, trial], got {[h['segment'] for h in history]}")
+
+        # Never raises without an engine.
+        crm._get_engine = lambda: None
+        crm.record_segment_transition(email, "lapsed")
+        if crm.list_segment_history(email) != []:
+            failures.append("list_segment_history should degrade to [] with no engine configured")
+    finally:
+        crm._get_engine = original_get_engine
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: record_segment_transition/list_segment_history — dedup on repeat segment, "
+          "newest-first ordering, no-engine degradation verified.")
+
+
+def run_compute_behavioral_churn_rate():
+    failures = []
+    import utils.customer_profiles as customer_profiles
+    original_list = customer_profiles.list_customer_profiles
+    # 3 lapsed (churned) + 7 healthy/recent (not churned) = 10, clears MIN_CHURN_SAMPLE.
+    profiles = [
+        _profile(email=f"lapsed{i}@example.com", last_active_at=_UTC_NOW - timedelta(days=400),
+                 total_assessments=5)
+        for i in range(3)
+    ] + [
+        _profile(email=f"healthy{i}@example.com", last_active_at=_UTC_NOW - timedelta(days=5),
+                 total_assessments=5, assessments_last_30d=1)
+        for i in range(7)
+    ]
+    customer_profiles.list_customer_profiles = lambda: profiles
+    try:
+        rate = crm.compute_behavioral_churn_rate()
+        if rate != 0.3:
+            failures.append(f"expected a 3/10 = 0.3 churn rate, got {rate}")
+
+        # Below MIN_CHURN_SAMPLE -> None, not a rate from a near-empty cohort.
+        customer_profiles.list_customer_profiles = lambda: profiles[:5]
+        if crm.compute_behavioral_churn_rate() is not None:
+            failures.append("expected None below MIN_CHURN_SAMPLE, got a rate")
+    finally:
+        customer_profiles.list_customer_profiles = original_list
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: compute_behavioral_churn_rate — correct rate at full sample, "
+          "None below MIN_CHURN_SAMPLE.")
+
+
+def run_compute_revenue_churn_rate():
+    failures = []
+    original_get_engine = crm._get_engine
+    engine = _fresh_engine()
+    crm._get_engine = lambda: engine
+    try:
+        with Session(engine) as session:
+            # 4 downgraded: subscribed once, most recent successful payment is per_use.
+            for i in range(4):
+                email = f"downgraded{i}@example.com"
+                session.add(crm._PaymentRow(email=email, plan="monthly", status="success",
+                                             created_at=_UTC_NOW - timedelta(days=100)))
+                session.add(crm._PaymentRow(email=email, plan="per_use", status="success",
+                                             created_at=_UTC_NOW - timedelta(days=5)))
+            # 6 still subscribed: most recent successful payment is a subscription tier.
+            for i in range(6):
+                email = f"retained{i}@example.com"
+                session.add(crm._PaymentRow(email=email, plan="monthly", status="success",
+                                             created_at=_UTC_NOW - timedelta(days=100)))
+                session.add(crm._PaymentRow(email=email, plan="monthly", status="success",
+                                             created_at=_UTC_NOW - timedelta(days=5)))
+            # A failed payment must not count as "most recent successful."
+            session.add(crm._PaymentRow(email="retained0@example.com", plan="per_use", status="failed",
+                                         created_at=_UTC_NOW - timedelta(days=1)))
+            session.commit()
+
+        rate = crm.compute_revenue_churn_rate()
+        if rate != 0.4:
+            failures.append(f"expected 4/10 = 0.4 revenue churn rate, got {rate}")
+
+        # Never-subscribed accounts (pay-per-use only) must not enter the denominator.
+        with Session(engine) as session:
+            session.add(crm._PaymentRow(email="peruseonly@example.com", plan="per_use", status="success",
+                                         created_at=_UTC_NOW))
+            session.commit()
+        rate2 = crm.compute_revenue_churn_rate()
+        if rate2 != 0.4:
+            failures.append(f"a pay-per-use-only account should not affect the rate, got {rate2}")
+    finally:
+        crm._get_engine = original_get_engine
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: compute_revenue_churn_rate — derived entirely from payments history, "
+          "correct rate, pay-per-use-only accounts excluded from the denominator.")
+
+
+def run_time_to_second_assessment():
+    failures = []
+    original_get_engine = crm._get_engine
+    engine = _fresh_engine()
+    crm._get_engine = lambda: engine
+    try:
+        with Session(engine) as session:
+            session.add(crm.CrmEvent(email="a@example.com", event_type="audit_run",
+                                      created_at=_UTC_NOW - timedelta(days=10)))
+            session.add(crm.CrmEvent(email="a@example.com", event_type="audit_run",
+                                      created_at=_UTC_NOW - timedelta(days=4)))
+            session.add(crm.CrmEvent(email="a@example.com", event_type="audit_run",
+                                      created_at=_UTC_NOW))  # a 3rd run must not affect the result
+            session.add(crm.CrmEvent(email="onerun@example.com", event_type="audit_run",
+                                      created_at=_UTC_NOW))
+            session.commit()
+
+        days = crm.time_to_second_assessment("a@example.com")
+        if days != 6:
+            failures.append(f"expected 6 days between 1st and 2nd audit_run, got {days}")
+        if crm.time_to_second_assessment("onerun@example.com") is not None:
+            failures.append("expected None for an account with only 1 audit_run")
+        if crm.time_to_second_assessment("nobody@example.com") is not None:
+            failures.append("expected None for an account with 0 audit_run events")
+
+        dist = crm.time_to_second_assessment_distribution()
+        if dist != [6]:
+            failures.append(f"expected the bulk distribution to be [6] (only 'a' qualifies), got {dist}")
+    finally:
+        crm._get_engine = original_get_engine
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: time_to_second_assessment/_distribution — correct day counts, ignores runs "
+          "beyond the 2nd, None for accounts with fewer than 2 runs.")
+
+
 if __name__ == "__main__":
     run_log_event()
     run_agency_ready()
     run_build_segments()
     run_purge()
+    run_compute_behavioral_segment()
+    run_build_behavioral_segments()
+    run_record_segment_transition()
+    run_compute_behavioral_churn_rate()
+    run_compute_revenue_churn_rate()
+    run_time_to_second_assessment()

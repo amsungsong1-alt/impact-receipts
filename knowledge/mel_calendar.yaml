@@ -1,0 +1,21 @@
+# knowledge/mel_calendar.yaml — Laudon Ch.9 CRM, C3: the MEL donor-reporting
+# calendar, used to distinguish an expected seasonal lull (dormant_seasonal)
+# from a genuine at-risk signal (at_risk) in utils/crm.py's behavioural
+# segmentation and churn functions.
+#
+# THESE MONTHS ARE A PLACEHOLDER, NOT RESEARCHED FACT. Donor reporting
+# calendars are genuinely donor- and country-specific -- adjust
+# reporting_months below to match your actual customer base before relying
+# on dormant_seasonal/at_risk labels operationally. Hot-reloadable, same
+# convention as knowledge/rules/ and knowledge/taxonomy.yaml -- edit this
+# file and the next request picks it up, no redeploy needed.
+version: "2026.07.1"
+# Calendar months (1-12) during which an NGO/MEL team is typically compiling
+# a donor report -- quarterly reports (assumed end-of-quarter) plus the
+# common annual/fiscal-year-end reporting push.
+reporting_months:
+  - 3   # end of Q1
+  - 6   # end of Q2 / mid-year review
+  - 9   # end of Q3
+  - 12  # end of Q4 / annual report
+  - 1   # annual report often finalized into the new year

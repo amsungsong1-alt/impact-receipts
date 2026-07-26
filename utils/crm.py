@@ -43,12 +43,30 @@ _PK = BigInteger().with_variant(Integer, "sqlite")
 ALLOWED_EVENT_TYPES = {
     "signup", "audit_run", "framework_used", "tier_change",
     "upgrade_prompt_shown", "upgrade_prompt_clicked", "whatsapp_click",
+    "revision_run",
 }  # closed set, mirrors metrics.py's EVENT_TYPES allowlist pattern -- a
    # typo'd event_type is silently dropped rather than polluting the
    # dashboard with an unrecognized bucket.
+   # "revision_run" (Laudon Ch.9, C1/C2): fired when a user re-scores the
+   # same result_statement in-session (app.py's existing _is_rescore flag,
+   # previously only used to skip double-charging) -- the strongest
+   # retention signal the "embedded" behavioural segment relies on.
 
 CHURN_WINDOW_DAYS = 30
 AGENCY_READY_WINDOW_DAYS = 30
+
+# Laudon Ch.9, C2/C3 -- behavioural segmentation and churn thresholds,
+# config not constants sprinkled through logic, so they can be tuned without
+# hunting through compute_behavioral_segment()'s body.
+BEHAVIORAL_SEGMENT_THRESHOLDS = {
+    "trial_max_assessments": 2,
+    "embedded_min_assessments_30d": 4,
+    "org_emergent_min_domain_users": 2,
+    "org_emergent_min_donors_30d": 3,
+    "lapsed_days": 365,
+}
+MIN_CHURN_SAMPLE = 10  # same near-empty-sample safeguard as MIN_BENCHMARK_SAMPLE/MIN_BAND_SAMPLE elsewhere
+_REVENUE_PLAN_TIERS = {"monthly", "annual", "agency", "professional"}
 
 
 class CrmEvent(Base):
@@ -61,6 +79,28 @@ class CrmEvent(Base):
     # Map the Python attribute to the real `metadata` SQL column explicitly.
     metadata_json = Column("metadata", JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class CustomerSegmentHistory(Base):
+    __tablename__ = "customer_segment_history"
+    id = Column(_PK, primary_key=True)
+    email = Column(Text, nullable=False)
+    segment = Column(Text, nullable=False)
+    computed_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class _PaymentRow(Base):
+    """Read-only, partial mapping of the `payments` table (utils/db.py's
+    get_payment_history() reads the same table via the Supabase REST client
+    for the billing page -- this is a separate, minimal SQLAlchemy overlay
+    for compute_revenue_churn_rate()'s aggregate query, not a second write
+    path). Only the columns this module actually queries are declared."""
+    __tablename__ = "payments"
+    id = Column(_PK, primary_key=True)
+    email = Column(Text, nullable=False)
+    plan = Column(Text)
+    status = Column(Text)
+    created_at = Column(DateTime(timezone=True))
 
 
 _engine = None
@@ -217,6 +257,244 @@ def build_segments() -> dict[str, list[dict]]:
         else:
             segments["Active-Free"].append(row)
     return segments
+
+
+# ---------------------------------------------------------------------------
+# Behavioural segmentation (Laudon Ch.9, C2)
+#
+# Deliberately a SEPARATE function from build_segments() above, not a
+# replacement -- build_segments() answers "what tier does this account pay
+# for" (used today by _render_admin_crm_segments()); this answers "is this
+# account actually using the product, and is that use healthy." The two
+# share no algorithm, so this isn't duplicated segmentation logic, just a
+# different question asked of the same underlying accounts.
+# ---------------------------------------------------------------------------
+
+def compute_behavioral_segment(profile: dict, mel_calendar: dict | None = None, now: datetime | None = None) -> str:
+    """Pure function: one customer_profiles row in, one segment name out.
+    Precedence (a profile can only ever match its first qualifying check,
+    top to bottom -- adjust here if the ordering should change):
+      lapsed > at_risk > dormant_seasonal > org_emergent > embedded > episodic > trial
+
+    dormant_seasonal vs. at_risk (the two hardest to tell apart): dormant_seasonal
+    is currently OUTSIDE an expected reporting window and was active in this
+    same off-season slot last cycle (an expected, non-urgent lull); at_risk is
+    currently INSIDE an expected reporting window and quiet despite having
+    history -- the donor deadline is now and they're not here."""
+    from utils.mel_calendar import is_reporting_month
+
+    now = now or datetime.now(timezone.utc)
+    t = BEHAVIORAL_SEGMENT_THRESHOLDS
+
+    touch = profile.get("last_active_at") or profile.get("signup_at")
+    if touch is not None and touch.tzinfo is None:
+        touch = touch.replace(tzinfo=timezone.utc)
+    if touch is None:
+        return "trial"
+    days_since_touch = (now - touch).days
+
+    total_assessments = profile.get("total_assessments") or 0
+    assessments_30d = profile.get("assessments_last_30d") or 0
+    revisions_30d = profile.get("revision_count_last_30d") or 0
+    domain_users = profile.get("domain_user_count") or 1
+    donors_30d = profile.get("distinct_donor_count_30d") or 0
+    active_last_cycle = bool(profile.get("active_in_equivalent_window_last_cycle"))
+
+    if days_since_touch >= t["lapsed_days"]:
+        return "lapsed"
+
+    currently_reporting = is_reporting_month(now.month, mel_calendar)
+    if currently_reporting and days_since_touch > CHURN_WINDOW_DAYS and total_assessments >= 2:
+        return "at_risk"
+
+    if not currently_reporting and days_since_touch > CHURN_WINDOW_DAYS and active_last_cycle:
+        return "dormant_seasonal"
+
+    if domain_users >= t["org_emergent_min_domain_users"] or donors_30d >= t["org_emergent_min_donors_30d"]:
+        return "org_emergent"
+
+    if assessments_30d >= t["embedded_min_assessments_30d"] or revisions_30d >= 1:
+        return "embedded"
+
+    if total_assessments < t["trial_max_assessments"]:
+        return "trial"
+
+    return "episodic"
+
+
+def build_behavioral_segments() -> dict[str, list[dict]]:
+    """Returns {"trial": [...], "episodic": [...], "embedded": [...],
+    "org_emergent": [...], "dormant_seasonal": [...], "at_risk": [...],
+    "lapsed": [...]} -- mutually exclusive buckets over every materialized
+    customer_profiles row (utils.customer_profiles.list_customer_profiles(),
+    itself just a read over the table refresh_customer_profiles() maintains
+    -- this function never re-derives touch-point data itself)."""
+    from utils.customer_profiles import list_customer_profiles
+    from utils.mel_calendar import load_mel_calendar
+
+    calendar = load_mel_calendar()
+    now = datetime.now(timezone.utc)
+    segments: dict[str, list[dict]] = {
+        "trial": [], "episodic": [], "embedded": [], "org_emergent": [],
+        "dormant_seasonal": [], "at_risk": [], "lapsed": [],
+    }
+    for profile in list_customer_profiles():
+        segment = compute_behavioral_segment(profile, calendar, now)
+        segments.setdefault(segment, []).append(profile)
+    return segments
+
+
+def record_segment_transition(email: str, segment: str) -> None:
+    """Inserts a customer_segment_history row only when `segment` differs
+    from that account's most recently recorded segment -- a transition log,
+    not a per-computation log (the prompt: "the transition matrix is more
+    informative than the snapshot"). Never raises."""
+    if not email or not segment:
+        return
+    engine = _get_engine()
+    if not engine:
+        return
+    try:
+        with Session(engine) as session:
+            # Tiebreak on id (insertion order) -- SQLite's CURRENT_TIMESTAMP
+            # (what func.now() compiles to there) only has second resolution,
+            # so two rapid inserts can share a computed_at value.
+            last = (session.query(CustomerSegmentHistory)
+                    .filter(CustomerSegmentHistory.email == email)
+                    .order_by(CustomerSegmentHistory.computed_at.desc(), CustomerSegmentHistory.id.desc())
+                    .first())
+            if last is not None and last.segment == segment:
+                return
+            session.add(CustomerSegmentHistory(email=email, segment=segment))
+            session.commit()
+    except Exception:
+        pass
+
+
+def list_segment_history(email: str) -> list[dict]:
+    if not email:
+        return []
+    engine = _get_engine()
+    if not engine:
+        return []
+    try:
+        with Session(engine) as session:
+            rows = (session.query(CustomerSegmentHistory)
+                    .filter(CustomerSegmentHistory.email == email)
+                    .order_by(CustomerSegmentHistory.computed_at.desc(), CustomerSegmentHistory.id.desc())
+                    .all())
+            return [{"email": r.email, "segment": r.segment, "computed_at": r.computed_at} for r in rows]
+    except Exception:
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Churn, MEL-calendar aware (Laudon Ch.9, C3)
+# ---------------------------------------------------------------------------
+
+def compute_behavioral_churn_rate(cohort_month: int | None = None) -> float | None:
+    """Numerator: profiles currently at_risk or lapsed. Denominator: profiles
+    with any real history (total_assessments > 0) -- a brand-new trial isn't
+    part of the churn cohort at all. Optionally restricted to accounts whose
+    last touch (or signup, if never active) fell in `cohort_month` (1-12),
+    across any year. Returns None below MIN_CHURN_SAMPLE rather than a rate
+    computed from a near-empty cohort."""
+    from utils.customer_profiles import list_customer_profiles
+    from utils.mel_calendar import load_mel_calendar
+
+    calendar = load_mel_calendar()
+    now = datetime.now(timezone.utc)
+    profiles = [p for p in list_customer_profiles() if (p.get("total_assessments") or 0) > 0]
+    if cohort_month is not None:
+        def _in_cohort(p):
+            t = p.get("last_active_at") or p.get("signup_at")
+            return bool(t) and t.month == cohort_month
+        profiles = [p for p in profiles if _in_cohort(p)]
+    if len(profiles) < MIN_CHURN_SAMPLE:
+        return None
+    churned = sum(1 for p in profiles if compute_behavioral_segment(p, calendar, now) in ("at_risk", "lapsed"))
+    return round(churned / len(profiles), 4)
+
+
+def compute_revenue_churn_rate() -> float | None:
+    """A customer downgrading from a subscription (monthly/annual/agency) to
+    occasional pay-per-use is revenue churn without necessarily being
+    customer churn -- derived entirely from existing `payments` history
+    (no new instrumentation): for every account that ever had a successful
+    subscription-tier payment, is their MOST RECENT successful payment's
+    plan still a subscription tier? Returns None below MIN_CHURN_SAMPLE."""
+    engine = _get_engine()
+    if not engine:
+        return None
+    try:
+        with Session(engine) as session:
+            rows = (session.query(_PaymentRow.email, _PaymentRow.plan)
+                    .filter(_PaymentRow.status == "success")
+                    .order_by(_PaymentRow.email, _PaymentRow.created_at.asc())
+                    .all())
+    except Exception:
+        return None
+    ever_subscribed: set[str] = set()
+    most_recent_plan: dict[str, str] = {}
+    for email, plan in rows:
+        plan_l = (plan or "").lower()
+        if plan_l in _REVENUE_PLAN_TIERS:
+            ever_subscribed.add(email)
+        most_recent_plan[email] = plan_l
+    if len(ever_subscribed) < MIN_CHURN_SAMPLE:
+        return None
+    downgraded = sum(1 for e in ever_subscribed if most_recent_plan.get(e) not in _REVENUE_PLAN_TIERS)
+    return round(downgraded / len(ever_subscribed), 4)
+
+
+def time_to_second_assessment(email: str) -> int | None:
+    """Days between an account's first and second audit_run event -- the
+    leading retention indicator this early (it will predict retention
+    better than anything else measurable at this data volume). None if the
+    account has fewer than 2 audit_run events, or on any DB failure."""
+    if not email:
+        return None
+    engine = _get_engine()
+    if not engine:
+        return None
+    try:
+        with Session(engine) as session:
+            rows = (session.query(CrmEvent.created_at)
+                    .filter(CrmEvent.email == email, CrmEvent.event_type == "audit_run")
+                    .order_by(CrmEvent.created_at.asc())
+                    .limit(2)
+                    .all())
+    except Exception:
+        return None
+    if len(rows) < 2:
+        return None
+    return (rows[1][0] - rows[0][0]).days
+
+
+def time_to_second_assessment_distribution() -> list[int]:
+    """Bulk version of time_to_second_assessment() across every account with
+    2+ audit_run events -- one query, not N+1."""
+    engine = _get_engine()
+    if not engine:
+        return []
+    try:
+        with Session(engine) as session:
+            rows = (session.query(CrmEvent.email, CrmEvent.created_at)
+                    .filter(CrmEvent.event_type == "audit_run")
+                    .order_by(CrmEvent.email, CrmEvent.created_at.asc())
+                    .all())
+    except Exception:
+        return []
+    first_seen: dict[str, datetime] = {}
+    seen_second: set = set()
+    result: list[int] = []
+    for email, created_at in rows:
+        if email not in first_seen:
+            first_seen[email] = created_at
+        elif email not in seen_second:
+            result.append((created_at - first_seen[email]).days)
+            seen_second.add(email)
+    return result
 
 
 # ---------------------------------------------------------------------------

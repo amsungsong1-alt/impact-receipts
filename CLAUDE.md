@@ -84,9 +84,15 @@ equivalent) before rendering its output.
   direct-Postgres access path into the same Supabase database, alongside `db.py`'s REST-based
   one), `crypto.py` (Fernet field-level encryption for stored audit content), `whatsapp.py`
   (WhatsApp Cloud API notifications/deep-links), `email_otp.py`, `anonymize.py`, `crm.py`
-  (per-account CRM events + Trial/Active-Free/Professional/Agency/Churn-risk segmentation for
-  the admin dashboard — a third, deliberately separate, plaintext-account-identified
-  direct-Postgres store alongside `audits.py`'s and `metrics.py`'s anonymous one).
+  (per-account CRM events + Trial/Active-Free/Professional/Agency/Churn-risk plan-tier
+  segmentation for the admin dashboard — a third, deliberately separate, plaintext-account-
+  identified direct-Postgres store alongside `audits.py`'s and `metrics.py`'s anonymous one;
+  also carries Laudon Ch.9's *behavioural* segmentation — `build_behavioral_segments()`,
+  a parallel, separate function answering "is this account actually using the product," not
+  "what tier does it pay for" — plus MEL-calendar-aware churn), `customer_profiles.py`
+  (read-only accessor over the `customer_profiles` table — see below; never assembles a
+  profile itself), `mel_calendar.py` (`knowledge/mel_calendar.yaml`'s hot-reloadable donor-
+  reporting-season config, a labeled placeholder assumption, not researched fact).
 
 ## Billing & auth
 
@@ -237,6 +243,59 @@ benchmark feature's `MIN_BENCHMARK_SAMPLE`. This table is intentionally **not** 
 `purge_account_audit_content()`/`purge_account_crm_events()` — there's no plaintext email to
 purge, and the hash alone was never reversible to an account in the first place.
 
+## CRM behavioural segmentation & customer profiles (Laudon Ch.9)
+
+`customer_profiles` (`supabase/migrations/0024`) consolidates every touch point this app
+actually has — `crm_events`, `payments`, `wa_conversations`, `users` — into one materialized
+row per account. The single assembly path is `refresh_customer_profiles()`, a Postgres
+function created by that same migration, invoked hourly by the `customer-profile-refresh`
+Edge Function (`supabase/functions/customer-profile-refresh/`, scheduled via `0025`, same
+`pg_cron`/`pg_net` pattern as `onboarding-drip`). The Edge Function is deliberately thin — it
+only checks `CRON_SECRET` and calls the RPC — so the join/aggregation logic exists in exactly
+one place, not duplicated in hand-written TypeScript the way `onboarding-drip`'s HTML templates
+are. `utils/customer_profiles.py` is a read-only accessor over the table; it never recomputes
+anything.
+
+`utils/crm.py::build_behavioral_segments()` buckets every profile into `trial` / `episodic` /
+`embedded` / `org_emergent` / `dormant_seasonal` / `at_risk` / `lapsed`, via
+`compute_behavioral_segment()` (pure function, config in `BEHAVIORAL_SEGMENT_THRESHOLDS`) —
+deliberately a *separate* function from the existing plan-tier `build_segments()`
+(Trial/Active-Free/Professional/Agency/Churn-risk), since the two answer genuinely different
+questions and share no algorithm: plan tier is "what does this account pay for," behavioural
+segment is "is this account actually using the product." `dormant_seasonal` (currently outside
+an expected reporting window, but was active in this same off-season slot last cycle — an
+expected, non-urgent lull) and `at_risk` (currently inside an expected reporting window and
+quiet despite having history — a genuine warning) are the two easiest to conflate; see
+`compute_behavioral_segment()`'s docstring for the exact disambiguation. `reporting window` is
+read from `knowledge/mel_calendar.yaml`/`utils/mel_calendar.py` (hot-reloadable, same
+convention as `knowledge/rules/`/`knowledge/taxonomy.yaml`) — **the configured months are a
+labeled placeholder assumption, not researched fact**; adjust them to your actual customer
+base. `record_segment_transition()`/`list_segment_history()` (`customer_segment_history`,
+append-only) log only actual transitions, not every computation — "the transition matrix is
+more informative than the snapshot."
+
+Churn is behavioural and MEL-calendar-aware, not subscription-cancellation-based (a pay-per-use
+customer who stops using never cancels anything, so billing status alone can't see it):
+`compute_behavioral_churn_rate()` (currently `at_risk`/`lapsed` over the historically-active
+cohort) and `compute_revenue_churn_rate()` (derived entirely from existing `payments` history —
+ever had a subscription-tier payment, but the most recent successful payment is pay-per-use —
+no new instrumentation needed) both withhold a rate (return `None`) below `MIN_CHURN_SAMPLE`
+(10), same near-empty-sample safeguard as the benchmark/outcome-acceptance features.
+`time_to_second_assessment()`/`_distribution()` (days between an account's 1st and 2nd
+`audit_run` event) is the leading retention indicator called out in the Ch.9 build prompt.
+
+A new `"revision_run"` `crm_events` type (distinct from `audit_run`) fires when a user re-scores
+the same result in-session (`app.py`'s existing `_is_rescore` flag, previously used only to
+skip double-charging) — the strongest signal `embedded` relies on.
+
+`docs/crm_metrics.md` records baselines for these metrics before/as they ship, per Laudon's
+§9-4 warning that enterprise applications fail when a firm can't measure whether they worked.
+
+Deferred, not yet built: C4 (CLTV — blocked on real per-assessment Anthropic API token-cost
+data, which doesn't exist anywhere in this codebase), C5 (an analytical dashboard — blocked on
+admin RBAC, which also doesn't exist; today's `?admin=1` gate is one shared passphrase), C6
+(lifecycle triggers), C7 (cross-sell recommendation logging).
+
 ## Personalization layer
 
 A lightweight profile (`account_sector`, `primary_donors`, `country`, `profile_completed_at`,
@@ -282,13 +341,14 @@ docstring.
 
 ## Testing
 
-Seventeen plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
+Nineteen plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
 (API-calling functions are tested by temporarily swapping `council._call_haiku`, or
 `utils.paystack.requests`/`utils.db._get_client`/`utils.auth._get_client`, for a fake;
 `test_audits.py`/`test_crm.py`/`test_outcomes.py`/`test_verification.py`/
-`test_assessment_links.py`/`test_rule_disputes.py` swap `utils.audits._get_engine`/
-`utils.crm._get_engine`/`utils.outcomes._get_engine`/`utils.verification._get_engine`/
-`utils.assessment_links._get_engine`/`utils.rule_disputes._get_engine` for an in-memory
+`test_assessment_links.py`/`test_rule_disputes.py`/`test_customer_profiles.py` swap
+`utils.audits._get_engine`/`utils.crm._get_engine`/`utils.outcomes._get_engine`/
+`utils.verification._get_engine`/`utils.assessment_links._get_engine`/
+`utils.rule_disputes._get_engine`/`utils.customer_profiles._get_engine` for an in-memory
 SQLite engine instead, since the same
 SQLAlchemy models work unchanged against either dialect — note SQLite doesn't enforce foreign
 keys by default unlike Postgres, so that fixture explicitly enables `PRAGMA foreign_keys=ON`
@@ -303,7 +363,9 @@ python test_council.py          # fabrication guard + logframe match
 python test_metrics.py          # metrics event logging/summarization
 python test_billing.py          # auth token lifecycle, metering, Paystack subscriptions/webhook sig
 python test_audits.py           # saved audits, logframe library, benchmark, access log, encryption, deletion
-python test_crm.py              # crm events, agency-ready detection, account segmentation, purge
+python test_crm.py              # crm events, agency-ready detection, account segmentation, purge;
+                                 # Ch.9 behavioural segmentation (all 7 segments), MEL-calendar-aware
+                                 # churn (behavioural + revenue), time-to-second-assessment
 python test_outcomes.py         # outcome feedback scheduling, hash-based ownership, acceptance-rate stats
 python test_verification.py     # export reference-ID hashing, recording, and ?verify= lookup
 python test_assessment_links.py # Ch.12 revision-linking: record/list/delta, hash isolation, no-DB degradation
@@ -317,6 +379,11 @@ python test_taxonomy.py         # Ch.11 MEL taxonomy: knowledge/taxonomy.yaml lo
 python test_interrogator.py     # Ch.11 Donor Interrogator: question selection over
                                  # knowledge/donor_questions.yaml, graceful decline for uncovered pairs and
                                  # uncertain fields, never raises on an unknown donor
+python test_customer_profiles.py # Ch.9 CRM: customer_profiles read path (get/list), no-engine
+                                 # degradation -- refresh_customer_profiles() itself is a Postgres-only
+                                 # SQL function, not exercised by this offline suite
+python test_mel_calendar.py     # Ch.9 CRM: knowledge/mel_calendar.yaml loads, reporting-month check,
+                                 # graceful degradation on a missing file
 python test_i18n.py             # currency conversion, geoIP routing, ROI copy, Paystack checkout routing
 python test_security.py         # app.py-level regression tests (user_email overwrite guard, portfolio
                                  # heatmap sample gate, Readiness Card crosswalk tags, verify landing page,
