@@ -1906,6 +1906,13 @@ def evaluate_submission(submission: dict) -> dict:
     fixes = get_what_to_fix(confidence_components, clarity_components,
                              account_sector=submission.get("account_sector", ""))
 
+    # Laudon Ch.12 -- Intelligence stage + sensitivity analysis, both pure
+    # computation over the scores already derived above, no AI call.
+    weakest_link = get_weakest_link(confidence_score, clarity_score,
+                                     confidence_components, clarity_components)
+    criterion_sensitivity = compute_criterion_sensitivity(
+        confidence_score, clarity_score, confidence_components, clarity_components)
+
     label_rationale = (
         f"Confidence: {confidence_score}/5.0 ({confidence_label}) — {confidence_meaning} "
         f"Clarity: {clarity_score}/5.0 ({clarity_label}) — {clarity_meaning} "
@@ -1939,6 +1946,8 @@ def evaluate_submission(submission: dict) -> dict:
         "beneficiary_voice_bonus": bv_bonus,
         "verdict":               verdict,
         "fixes":                 fixes,
+        "weakest_link":          weakest_link,
+        "criterion_sensitivity": criterion_sensitivity,
         "threshold_used":        _threshold,
         "track_label":           _track_label,
         # backward-compat keys
@@ -2007,6 +2016,130 @@ DIMENSION_MAP: dict = {
     "Scope":        ("clarity_components",    "scope_score",       0.75),
     "Governance":   ("clarity_components",    "governance_score",  0.75),
 }
+
+
+def get_weakest_link(confidence_score: float, clarity_score: float,
+                      confidence_components: dict, clarity_components: dict) -> dict:
+    """Laudon Ch.12 pp.463-464 -- Intelligence stage ("which of my claims is
+    weakest, and why?"). Pure computation over the already-scored component
+    dicts -- no AI call, no new inputs, no persistence.
+
+    Finds the single lowest-scoring of the 8 DIMENSION_MAP criteria (as a %
+    of its own max, same normalization compute_systemic_gaps() uses below)
+    and characterizes the gap between the two axis totals, which are scored
+    independently and can disagree sharply: a high-Clarity/low-Confidence
+    result is confidently written but poorly evidenced -- the most dangerous
+    combination in donor reporting, since it reads as certain when it isn't.
+    The reverse (high-Confidence/low-Clarity) is real evidence buried in bad
+    writing -- recoverable with an edit pass, not a data problem.
+
+    Returns {"weakest_dimension", "weakest_pct" (0-100), "gap_size",
+    "gap_direction", "gap_rationale"}.
+    """
+    _sources = {"confidence_components": confidence_components, "clarity_components": clarity_components}
+    weakest_dim = None
+    weakest_pct = None
+    for dim_name, (comp_key, score_key, max_val) in DIMENSION_MAP.items():
+        comp = _sources.get(comp_key) or {}
+        if score_key not in comp or not max_val:
+            continue
+        pct = (comp.get(score_key) or 0) / max_val
+        if weakest_pct is None or pct < weakest_pct:
+            weakest_pct = pct
+            weakest_dim = dim_name
+
+    gap_size = round(abs((confidence_score or 0) - (clarity_score or 0)), 2)
+    # A gap under 0.5 isn't a meaningful mismatch -- both axes reading roughly
+    # the same value is the common case and shouldn't be flagged as a dangerous
+    # combination just because one is fractionally higher than the other.
+    if gap_size < 0.5:
+        gap_direction = "balanced"
+    elif (clarity_score or 0) > (confidence_score or 0):
+        gap_direction = "high_clarity_low_confidence"
+    else:
+        gap_direction = "high_confidence_low_clarity"
+
+    _gap_rationale = {
+        "high_clarity_low_confidence": (
+            "This result is written clearly and confidently, but the evidence behind it is "
+            "comparatively weak -- the most dangerous combination in donor reporting, since it "
+            "reads as certain when it isn't."
+        ),
+        "high_confidence_low_clarity": (
+            "The evidence behind this result is comparatively strong, but the writing doesn't "
+            "yet make that case clearly -- real evidence buried in unclear writing, recoverable "
+            "with an edit pass rather than new data collection."
+        ),
+        "balanced": (
+            "Confidence and Clarity are evenly matched -- there's no dangerous mismatch between "
+            "how certain this reads and how well-evidenced it actually is."
+        ),
+    }[gap_direction]
+
+    return {
+        "weakest_dimension": weakest_dim,
+        "weakest_pct":       round(weakest_pct * 100, 1) if weakest_pct is not None else None,
+        "gap_size":          gap_size,
+        "gap_direction":     gap_direction,
+        "gap_rationale":     _gap_rationale,
+    }
+
+
+# Laudon Ch.12 pp.477-478 -- sensitivity analysis. Per-criterion "band size"
+# below is max_val divided by that criterion's natural granularity (5
+# discrete levels for Directness/Verification/Recency; N yes/no checklist
+# items for Definition/Governance; 3 as a reasonable approximation for
+# Scope/Integrity, which are built from tiered/categorical checks rather
+# than a single count). Measurement's band count varies (3 for qualitative
+# evidence, 4 for quantitative) -- read from clarity_components
+# ["measurement_denominator"] at call time rather than hardcoded here. This
+# estimates "one step of visible improvement," not a literal simulation of
+# which specific checklist item a user would change -- compute_confidence()/
+# compute_clarity()'s real formulas are never touched; this is read-only
+# over already-computed scores.
+_SENSITIVITY_BAND_COUNTS: dict = {
+    "Directness": 5, "Verification": 5, "Recency": 5,
+    "Definition": 3, "Governance": 3, "Scope": 3, "Integrity": 3,
+}
+
+
+def compute_criterion_sensitivity(confidence_score: float, clarity_score: float,
+                                   confidence_components: dict, clarity_components: dict) -> list:
+    """"What would move the needle?" -- for each of the 8 DIMENSION_MAP
+    criteria, the change in its OWN axis total if that one criterion
+    improved by one band, holding every other sub-score constant and
+    capped at the existing 5.0 axis ceiling. Deterministic, no AI call.
+
+    Returns [{"dimension", "axis", "current_score", "max_score",
+    "projected_axis_total", "delta"}, ...] sorted by delta descending.
+    """
+    _sources = {"confidence_components": confidence_components, "clarity_components": clarity_components}
+    _axis_totals = {"confidence_components": confidence_score or 0, "clarity_components": clarity_score or 0}
+    results = []
+    for dim_name, (comp_key, score_key, max_val) in DIMENSION_MAP.items():
+        comp = _sources.get(comp_key) or {}
+        if score_key not in comp or not max_val:
+            continue
+        current = comp.get(score_key) or 0
+        band_count = (
+            clarity_components.get("measurement_denominator", 3) if dim_name == "Measurement"
+            else _SENSITIVITY_BAND_COUNTS.get(dim_name, 3)
+        )
+        band_size = max_val / band_count if band_count else 0
+        criterion_projected = min(max_val, round(current + band_size, 3))
+        criterion_delta = round(criterion_projected - current, 3)
+        axis_total = _axis_totals[comp_key]
+        projected_axis_total = round(min(5.0, axis_total + criterion_delta), 2)
+        results.append({
+            "dimension":             dim_name,
+            "axis":                  "confidence" if comp_key == "confidence_components" else "clarity",
+            "current_score":         round(current, 2),
+            "max_score":             max_val,
+            "projected_axis_total":  projected_axis_total,
+            "delta":                 round(projected_axis_total - axis_total, 2),
+        })
+    results.sort(key=lambda r: r["delta"], reverse=True)
+    return results
 
 
 def compute_systemic_gaps(evaluations: list, threshold_pct: float = 0.6) -> list:

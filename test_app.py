@@ -1519,6 +1519,112 @@ def run_truthfulness_disclaimer():
     print("PASS: truthfulness disclaimer — present in the readiness banner HTML.")
 
 
+def run_weakest_link():
+    """evaluator.get_weakest_link() -- Laudon Ch.12 Intelligence-stage panel (D1).
+    Confirms both gap directions, the balanced case (<0.5 gap), weakest-dimension
+    identification, and that evaluate_submission() actually wires the result in."""
+    failures = []
+
+    conf_comp = {"direct_score": 1.0, "verify_score": 2.0, "recency_score": 1.0}
+    clar_comp = {
+        "definition_score": 1.25, "measurement_score": 1.25,
+        "integrity_score": 1.0, "scope_score": 0.75, "governance_score": 0.75,
+    }
+
+    # High-Clarity/low-Confidence: gap 2.5, clarity higher -- "confidently
+    # written but poorly evidenced," the dangerous combination.
+    hc = evaluator.get_weakest_link(2.0, 4.5, conf_comp, clar_comp)
+    if hc["gap_direction"] != "high_clarity_low_confidence":
+        failures.append(f"expected high_clarity_low_confidence, got {hc['gap_direction']}")
+    if "clearly and confidently" not in hc["gap_rationale"]:
+        failures.append(f"expected the 'confidently written' rationale text, got {hc['gap_rationale']!r}")
+    if hc["gap_size"] != 2.5:
+        failures.append(f"expected gap_size 2.5, got {hc['gap_size']}")
+
+    # High-Confidence/low-Clarity: reverse gap -- "evidence buried in bad writing."
+    hg = evaluator.get_weakest_link(4.5, 2.0, conf_comp, clar_comp)
+    if hg["gap_direction"] != "high_confidence_low_clarity":
+        failures.append(f"expected high_confidence_low_clarity, got {hg['gap_direction']}")
+    if "buried in unclear writing" not in hg["gap_rationale"]:
+        failures.append(f"expected the 'buried in unclear writing' rationale text, got {hg['gap_rationale']!r}")
+
+    # Balanced: gap under 0.5 must not be flagged as a dangerous mismatch
+    # even though clarity is technically higher.
+    bal = evaluator.get_weakest_link(4.0, 4.3, conf_comp, clar_comp)
+    if bal["gap_direction"] != "balanced":
+        failures.append(f"expected balanced for a 0.3 gap, got {bal['gap_direction']}")
+
+    # Weakest dimension: direct_score=1.0/2.0=50% is the lowest pct-of-max
+    # across every criterion in this fixture.
+    if bal["weakest_dimension"] != "Directness":
+        failures.append(f"expected Directness as the weakest dimension, got {bal['weakest_dimension']}")
+    if bal["weakest_pct"] != 50.0:
+        failures.append(f"expected weakest_pct 50.0, got {bal['weakest_pct']}")
+
+    # Wiring: evaluate_submission() must actually populate weakest_link.
+    ev = evaluator.evaluate_submission(CASES["strong"])
+    if "weakest_link" not in ev or "weakest_dimension" not in ev["weakest_link"]:
+        failures.append("evaluate_submission() did not populate 'weakest_link'")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: weakest link — both gap directions, balanced threshold, weakest-dimension "
+          "identification, and evaluate_submission() wiring verified.")
+
+
+def run_criterion_sensitivity():
+    """evaluator.compute_criterion_sensitivity() -- Laudon Ch.12 pp.477-478
+    sensitivity analysis (D2). Confirms descending sort, a maxed-out criterion
+    shows zero delta, the 5.0 axis ceiling caps the projected total correctly,
+    and Measurement reads measurement_denominator rather than hardcoding 3."""
+    failures = []
+
+    # Confidence axis at 4.7/5.0: Verification and Recency are already maxed
+    # (no room to improve), Directness (1.2/2.0) is the only one with headroom,
+    # but the total is capped at 5.0 -- so its delta (0.3) is smaller than its
+    # own uncapped band size (0.4) would suggest. This is intentional: the
+    # function answers "how much does the OVERALL total move," not "how much
+    # does this one criterion's own score move."
+    conf_comp = {"direct_score": 1.2, "verify_score": 2.0, "recency_score": 1.5}
+    clar_comp = {
+        "definition_score": 1.25, "measurement_score": 1.25, "measurement_denominator": 4,
+        "integrity_score": 1.0, "scope_score": 0.75, "governance_score": 0.75,
+    }
+    results = evaluator.compute_criterion_sensitivity(4.7, 5.0, conf_comp, clar_comp)
+
+    deltas = [r["delta"] for r in results]
+    if deltas != sorted(deltas, reverse=True):
+        failures.append(f"results must be sorted by delta descending, got {deltas}")
+
+    verify_row = next(r for r in results if r["dimension"] == "Verification")
+    if verify_row["delta"] != 0.0:
+        failures.append(f"Verification is already at its 2.0 max -- expected delta 0.0, got {verify_row['delta']}")
+
+    direct_row = next(r for r in results if r["dimension"] == "Directness")
+    if direct_row["projected_axis_total"] != 5.0:
+        failures.append(f"expected the projected total to cap at 5.0, got {direct_row['projected_axis_total']}")
+    if direct_row["delta"] != 0.3:
+        failures.append(f"expected Directness's ceiling-capped delta to be 0.3 (5.0 - 4.7), got {direct_row['delta']}")
+
+    # Clarity axis already at the 5.0 ceiling -- every clarity criterion must
+    # show delta 0.0 regardless of its own current_score, since there's no
+    # room left on the axis total.
+    integrity_row = next(r for r in results if r["dimension"] == "Integrity")
+    if integrity_row["delta"] != 0.0:
+        failures.append(f"clarity_score is already 5.0 -- expected Integrity's delta to be 0.0, got {integrity_row['delta']}")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: criterion sensitivity — descending sort, maxed-criterion zero delta, "
+          "5.0 axis ceiling capping, and measurement_denominator wiring verified.")
+
+
 if __name__ == "__main__":
     run()
     run_systemic_gaps()
@@ -1533,3 +1639,5 @@ if __name__ == "__main__":
     run_truthfulness_disclaimer()
     run_disaggregation_bonus_wiring()
     run_nesta_directness_mapping()
+    run_weakest_link()
+    run_criterion_sensitivity()

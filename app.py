@@ -5224,6 +5224,43 @@ def render_scoreboard(confidence=None, clarity=None, verified=False):
     """, unsafe_allow_html=True)
 
 
+def _render_revision_delta_strip(delta: dict) -> None:
+    """D3 -- Laudon Ch.12, Implementation stage: before/after strip for a
+    scoring run explicitly linked as a revision of a prior one. Reuses the
+    MATCH DAY scoreboard visual language (.md-sb/.md-stat/.md-div classes,
+    same as render_scoreboard() above) -- this is a second-leg result,
+    presented as one."""
+    _dc = delta.get("delta_confidence", 0) or 0
+    _dl = delta.get("delta_clarity", 0) or 0
+    _conf_arrow = "▲" if _dc > 0 else ("▼" if _dc < 0 else "▬")
+    _clar_arrow = "▲" if _dl > 0 else ("▼" if _dl < 0 else "▬")
+    _conf_color = "#1B5E20" if _dc > 0 else ("#B71C1C" if _dc < 0 else "#616161")
+    _clar_color = "#1B5E20" if _dl > 0 else ("#B71C1C" if _dl < 0 else "#616161")
+    _elapsed = delta.get("time_elapsed")
+    _elapsed_txt = ""
+    if _elapsed is not None:
+        _days = _elapsed.days
+        _elapsed_txt = f" · {_days} day{'s' if _days != 1 else ''} since your first attempt" if _days > 0 else " · same day"
+    st.markdown(
+        f"""
+        <div class="md-sb">
+          <div class="md-sb-head"><span>Second-leg result{_elapsed_txt}</span>
+            <span class="md-sb-live" style="color:#A5D6A7">● revision</span></div>
+          <div class="md-sb-body">
+            <div class="md-stat"><div class="name">Confidence</div>
+              <div class="sub">{delta.get('parent_confidence_score', '—')}/5.0 &rarr; {delta.get('confidence_score', '—')}/5.0</div>
+              <div class="val" style="color:{_conf_color};">{_conf_arrow} {abs(_dc)}</div></div>
+            <div class="md-div"></div>
+            <div class="md-stat"><div class="name">Clarity</div>
+              <div class="sub">{delta.get('parent_clarity_score', '—')}/5.0 &rarr; {delta.get('clarity_score', '—')}/5.0</div>
+              <div class="val" style="color:{_clar_color};">{_clar_arrow} {abs(_dl)}</div></div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_var_review():
     """Dark VAR panel shown while the confidence check is running."""
     st.markdown(
@@ -8073,6 +8110,50 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             unsafe_allow_html=True,
         )
 
+    # D1 -- Laudon Ch.12 pp.463-464, Intelligence stage: "which of my claims is
+    # weakest, and why?" Pure computation over already-scored components, no AI
+    # call. Shown above the scoreboard per the source brief.
+    _weakest = ev.get("weakest_link", {})
+    if _weakest.get("weakest_dimension"):
+        st.markdown(
+            f"<div style='background:#F3F8FE;border-left:4px solid #1565C0;border-radius:8px;"
+            f"padding:10px 14px;margin:8px 0;font-size:0.9rem;{_pca}'>"
+            f"🔍 <strong>Weakest link: {_weakest['weakest_dimension']}</strong> "
+            f"({_weakest.get('weakest_pct', 0):.0f}% of target)<br>"
+            f"<span style='font-size:0.85rem;color:#424242;'>{_weakest.get('gap_rationale', '')}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+    # D2 -- Laudon Ch.12 pp.477-478, sensitivity analysis: "what would move
+    # the needle?" Deterministic, no AI call -- see evaluator.compute_criterion_sensitivity().
+    _sensitivity = ev.get("criterion_sensitivity", [])
+    _sens_positive = [r for r in _sensitivity if r["delta"] > 0]
+    with st.expander("📊 What would move the needle?", expanded=False):
+        st.caption(
+            "If each criterion improved by one step, holding everything else constant — "
+            "sorted by impact on your overall score."
+        )
+        if not _sens_positive:
+            st.caption("Every criterion is already at or near its ceiling — no single change would move either total.")
+        else:
+            import plotly.graph_objects as go
+            _dims    = [r["dimension"] for r in _sens_positive]
+            _deltas  = [r["delta"] for r in _sens_positive]
+            _colors  = ["#1B5E20" if r["axis"] == "confidence" else "#8A6500" for r in _sens_positive]
+            _sens_fig = go.Figure(go.Bar(
+                x=_deltas, y=_dims, orientation="h",
+                marker_color=_colors,
+                text=[f"+{d}" for d in _deltas], textposition="outside",
+            ))
+            _sens_fig.update_layout(
+                height=max(200, 40 * len(_dims)),
+                margin=dict(l=10, r=10, t=10, b=10),
+                xaxis_title="Points gained on that criterion's axis total",
+                yaxis=dict(autorange="reversed"),
+            )
+            st.plotly_chart(_sens_fig, use_container_width=True, key=f"sensitivity_chart_{card_idx}")
+
     # Scores follow immediately — no ticker or redundant banners
     render_scoreboard(
         confidence=round(conf_score * 20),
@@ -8749,14 +8830,37 @@ def render_screen_2():
         try:
             render_var_review()
             with st.spinner("Running diagnostic…"):
+                _asm_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                _asm_ids = []
                 for slot in range(1, active + 1):
                     sub = _build_submission_from_session(slot)
                     ev  = _evaluator.evaluate_submission(sub)
                     save_all_files(sub, ev, email=st.session_state.get("user_email", ""))
                     subs.append(sub)
                     evs.append(ev)
+                    # D3 -- Laudon Ch.12, Implementation stage: record every
+                    # scoring run unconditionally (works for every user, not
+                    # just opted-in ones) so a later run can link back to it
+                    # as a revision. No raw submission content stored -- see
+                    # utils/assessment_links.py's module docstring.
+                    _asm_id = f"ASM-{_asm_timestamp}-{slot}"
+                    _asm_ids.append(_asm_id)
+                    try:
+                        from utils.assessment_links import record_assessment
+                        record_assessment(
+                            _asm_id, st.session_state.get("user_email", ""),
+                            confidence_score=ev.get("confidence_score"),
+                            clarity_score=ev.get("clarity_score"),
+                            weakest_dimension=ev.get("weakest_link", {}).get("weakest_dimension", ""),
+                            parent_assessment_id=(
+                                st.session_state.get("_revision_of_assessment_id") if slot == 1 else None
+                            ),
+                        )
+                    except Exception:
+                        pass
             st.session_state["evaluations"]        = evs
             st.session_state["submissions_snapshot"] = subs
+            st.session_state["_assessment_ids"]      = _asm_ids
             st.rerun()
         except Exception as exc:
             import logging as _logging
@@ -9096,6 +9200,21 @@ def render_screen_2():
         st.caption("Opens WhatsApp with your score, verdict, and top action. Works on phone and desktop.")
         st.divider()
 
+    # D3 -- Laudon Ch.12, Implementation stage: if the primary result was
+    # explicitly linked as a revision of an earlier scoring run, show the
+    # before/after delta -- reusing the MATCH DAY scoreboard visual language,
+    # since this is a second-leg result. Scoped to the primary result only,
+    # matching the "Optional reporting flags" expander below.
+    _asm_current_ids = st.session_state.get("_assessment_ids") or []
+    if _asm_current_ids:
+        try:
+            from utils.assessment_links import get_delta
+            _asm_delta = get_delta(_asm_current_ids[0])
+        except Exception:
+            _asm_delta = None
+        if _asm_delta:
+            _render_revision_delta_strip(_asm_delta)
+
     for i, (sub, ev) in enumerate(zip(subs, evs)):
         if n > 1:
             st.markdown(f"### Result {i + 1}")
@@ -9137,6 +9256,46 @@ def render_screen_2():
                           if hasattr(_evaluator, "compute_disaggregation_bonus") else 0.0)
         if _disagg_bonus > 0:
             st.caption(f"✓ Disaggregation bonus: **+{_disagg_bonus}/0.15** applied to your Clarity score.")
+
+        # D3 -- Laudon Ch.12, Implementation stage: link this run to an earlier
+        # one as a revision, to see a before/after delta once re-scored.
+        _asm_email = st.session_state.get("user_email", "")
+        _asm_recent = []
+        if _asm_email:
+            try:
+                from utils.assessment_links import list_recent_assessments
+                _asm_current_id = (st.session_state.get("_assessment_ids") or [None])[0]
+                _asm_recent = [r for r in list_recent_assessments(_asm_email) if r["assessment_id"] != _asm_current_id]
+            except Exception:
+                _asm_recent = []
+        if _asm_recent:
+            def _on_revision_change():
+                # Must set _revision_of_assessment_id INSIDE the callback, not
+                # the render flow below -- callbacks run before the rerun's
+                # top-to-bottom script execution, and the eval block near the
+                # top of render_screen_2() reads this key, which otherwise
+                # sits far below it in source order (same lesson as
+                # _on_disaggregation_change above).
+                _choice = st.session_state.get(f"revision_of_choice{_s2_slot_suffix}", "Not a revision")
+                st.session_state["_revision_of_assessment_id"] = (
+                    _choice.split(" — ")[0] if _choice != "Not a revision" and " — " in _choice else None
+                )
+                st.session_state["evaluations"] = None
+                st.session_state["submissions_snapshot"] = None
+
+            _asm_options = ["Not a revision"] + [
+                f"{r['assessment_id']} — {r['confidence_score']}/5.0 Conf · {r['clarity_score']}/5.0 Clar "
+                f"({r['created_at'].strftime('%b %d') if r['created_at'] else ''})"
+                for r in _asm_recent
+            ]
+            st.selectbox(
+                "Is this a revision of an earlier result you scored?",
+                options=_asm_options,
+                key=f"revision_of_choice{_s2_slot_suffix}",
+                on_change=_on_revision_change,
+                help="Link this run to a prior one to see a before/after comparison once scored.",
+            )
+
         st.text_area(
             "What did you learn from this result, and how did your program adapt?",
             key=f"learning_notes{_s2_slot_suffix}",
@@ -11923,6 +12082,16 @@ def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str,
     diag_state = evaluation.get("diagnostic_state", "")
     ev_stmt    = _generate_evidence_statement(submission) if callable(globals().get("_generate_evidence_statement")) else ""
 
+    # D1 -- Laudon Ch.12 pp.463-464, Intelligence stage panel, printed on the
+    # exported card too, not just shown on screen.
+    _weakest = evaluation.get("weakest_link", {})
+    _weakest_link_html = (
+        f"""<p style="font-size:10px;color:#374151;background:#F3F8FE;border-left:3px solid #1565C0;"""
+        f"""padding:5px 8px;margin:0 0 10px;{P}">"""
+        f"""&#128269; <strong>Weakest link: {_weakest['weakest_dimension']}</strong> """
+        f"""({_weakest.get('weakest_pct', 0):.0f}% of target) &mdash; {_weakest.get('gap_rationale', '')}</p>"""
+    ) if _weakest.get("weakest_dimension") else ""
+
     # "How you compare" — same anonymized benchmark shown on-screen in
     # _render_result_card(), included here so it appears on the exported
     # Readiness Card PDF too, not just the live view.
@@ -12213,6 +12382,7 @@ Evidence standard: <strong>{_card_track_label}</strong> &middot; threshold {_car
 {verdict or diag_state}
 </td></tr></table>
 
+{_weakest_link_html}
 <!-- Score boxes (fixed-px widths to avoid xhtml2pdf negative-width bug) -->
 <table border="0" cellspacing="8" cellpadding="0" style="margin-bottom:12px;{P}"><tr>
 <td width="240" bgcolor="{cbg}" style="padding:14px;text-align:center;{P}">
