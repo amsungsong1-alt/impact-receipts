@@ -1,0 +1,56 @@
+# knowledge/taxonomy.yaml — Laudon Ch.11, C7: MEL taxonomy for tagging assessments
+# (sector, donor, evaluation type, OECD-DAC criterion, result level in the logframe
+# hierarchy). Versioned reference, hot-reloadable via utils/taxonomy.py -- the
+# substrate for the benchmark/systemic-gaps features and an eventual "organisations
+# like yours score X on Verification" comparison. Actually wiring this into the
+# existing benchmark bucketing (utils/audits.py's audit_aggregate_stats) is a
+# further, separate step, deliberately not attempted alongside this file.
+version: "2026.07.1"
+
+# Mirrors app.py's SECTOR_OPTIONS (the live source of truth for the submission-level
+# dropdown) -- duplicated here as a stable reference rather than re-derived at
+# runtime, since this file's job is to document the taxonomy, not replace the
+# actual UI option list.
+sectors:
+  - "(No sector selected)"
+  - "WASH"
+  - "Health & Nutrition"
+  - "Education & Skills"
+  - "Agriculture & Livelihoods"
+  - "Youth Employment & TVET"
+  - "Climate Resilience"
+  - "Governance & Accountability"
+  - "Digital Economy & Technology"
+  - "Energy & Clean Energy"
+  - "Gender & Social Inclusion"
+  - "Nutrition & Food Security"
+  - "Private Sector Development"
+  - "Other"
+
+# New taxonomy dimension -- no evaluation_type field existed anywhere before C7.
+evaluation_types:
+  - "Baseline"
+  - "Midline"
+  - "Endline"
+  - "Process evaluation"
+  - "Impact evaluation"
+  - "Routine monitoring"
+
+# New taxonomy dimension -- standard logframe results hierarchy. No result_level
+# field existed anywhere before C7.
+result_levels:
+  - "Output"
+  - "Outcome"
+  - "Impact"
+
+# Transcribed from framework_crosswalk.FRAMEWORKS["OECD-DAC"] -- that module only
+# cites 4 of the 8 DIMENSION_MAP criteria under OECD-DAC 2019 (verified: no OECD-DAC
+# citation exists anywhere in this codebase for Verification/Recency/Measurement/
+# Integrity). Deliberately incomplete rather than force-mapped -- a criterion absent
+# here means "not directly assessed by OECD-DAC 2019," same convention
+# framework_crosswalk.py itself already uses.
+oecd_dac_mapping:
+  Directness: "Effectiveness"
+  Definition: "Relevance"
+  Scope: "Coherence"
+  Governance: "Sustainability"

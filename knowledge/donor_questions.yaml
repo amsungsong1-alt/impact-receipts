@@ -1,0 +1,181 @@
+# knowledge/donor_questions.yaml — Laudon Ch.11, C4: Donor Interrogator question bank.
+#
+# One entry per (donor, criterion) pair that has real grounding in
+# donor_templates.DONOR_DIAGNOSTICS[donor][criterion]["low"] -- every question
+# below is a direct transcription of that existing donor-specific diagnostic
+# text into a question a skeptical reviewer from that donor would actually
+# ask. No entry exists for a (donor, criterion) pair donor_templates.py has no
+# content for -- utils/interrogator.py declines gracefully in that case rather
+# than inventing generic filler.
+#
+# Only criteria that utils/inference.py's rule base can actually fire against
+# (Directness, Verification, Recency) are listed -- donor_templates.py also
+# has real "BeneficiaryVoice" content for some donors, but BeneficiaryVoice is
+# a separate bonus (compute_beneficiary_voice_bonus), not one of the 8
+# knowledge/rules/ criteria, so a fired rule can never carry that criterion
+# name; including those entries here would be dead data no code path reads.
+version: "2026.07.1"
+questions:
+  USAID:
+    Directness:
+      question: >-
+        Can you walk me through the mechanism connecting your programme
+        activities to this result? Has a USAID DQA (Data Quality Assessment)
+        form been completed and signed by someone outside the programme
+        team, and does your evidence description reference your theory of
+        change?
+      source: "USAID ADS 201.3.5.7 — Validity"
+    Verification:
+      question: >-
+        Who verified this data, and were they independent of programme
+        implementation? An internal-only review scores 2/5 under USAID's
+        Independence criterion.
+      source: "USAID ADS 201.3.5.7 — Independence"
+    Recency:
+      question: >-
+        When was this data collected relative to the current reporting
+        period? Evidence older than 12 months scores below 3/5 under USAID's
+        Timeliness criterion — if it's older, can you explain why it still
+        validly represents this result?
+      source: "USAID ADS 201.3.5.7 — Timeliness"
+  FCDO:
+    Directness:
+      question: >-
+        Can you provide a brief contribution narrative (2–3 sentences)
+        explaining how your programme caused this result, referencing your
+        theory of change, as FCDO's Evaluation Policy requires?
+      source: "FCDO Evaluation Policy (January 2025)"
+    Verification:
+      question: >-
+        Has this result been independently verified — through an external
+        spot-check or an independent evaluation — as FCDO's EQuALS 2 quality
+        standards require for Annual Review reporting?
+      source: "FCDO EQuALS 2"
+  GIZ:
+    Directness:
+      question: >-
+        Which specific output number from your GIZ Results Matrix does this
+        result correspond to, and can you attach the supporting output
+        documentation?
+      source: "GIZ Results-Based Monitoring"
+    Verification:
+      question: >-
+        Is this data verifiable by a third party? Do you have signed
+        attendance sheets, certificates, or a third-party spot-check report —
+        internal records alone fall below GIZ's monitoring standard.
+      source: "GIZ third-party verifiability standard"
+  World Bank:
+    Directness:
+      question: >-
+        What evidence do you have of causal contribution rather than
+        correlation? Does your evidence description reference your Project
+        Appraisal Document's theory of change and include both baseline and
+        endline data?
+      source: "World Bank IEG RAP standards"
+  RVO:
+    Directness:
+      question: >-
+        Which output number in your approved RVO Results Matrix does this
+        result trace to, and what supporting documentation (training
+        records, delivery receipts, site visit reports) can you attach?
+      source: "RVO Results Matrix standards"
+    Verification:
+      question: >-
+        Has this result been independently verified — an external audit
+        report or an independent spot-check signed by a non-programme
+        verifier? RVO's final report standards treat internal records alone
+        as insufficient for closeout reporting.
+      source: "RVO final report standards"
+  AfDB:
+    Directness:
+      question: >-
+        Does your evidence description reference your Project Completion
+        Report's results chain, and does it include both output and outcome
+        data, to demonstrate the causal link AfDB's Results Reporting
+        Framework requires?
+      source: "AfDB Results Reporting Framework"
+    Verification:
+      question: >-
+        Can you reference an AfDB supervision mission report or an
+        independent evaluation that verifies this outcome? Self-reported
+        data alone scores below threshold for PCR submission.
+      source: "AfDB fiduciary standards"
+  EU / EuropeAid:
+    Directness:
+      question: >-
+        Which specific Result or Output in your logframe does this evidence
+        trace to, and can you attach the supporting output documentation, as
+        the EU LFA results chain requires?
+      source: "EU DG INTPA — Logical Framework Approach"
+    Verification:
+      question: >-
+        Can you attach an external audit or a partner verification letter
+        signed by a non-programme representative? EU grant reporting
+        standards treat internal records alone as insufficient.
+      source: "EU grant management standards"
+  Mastercard Foundation:
+    Directness:
+      question: >-
+        Do you have 6-month employment status data for at least 60% of
+        participants from a structured tracer survey? Young Africa Works
+        requires employment outcomes, not just training completion — does
+        your result statement reference the employment outcome indicator
+        rather than the training output indicator?
+      source: "Mastercard Foundation — Young Africa Works"
+    Verification:
+      question: >-
+        Can you provide employer verification letters or payroll records for
+        a sample of placed participants, collected by an enumerator
+        independent of the delivery team? MCF treats self-reported placement
+        data as insufficient.
+      source: "Mastercard Foundation — Young Africa Works"
+    Recency:
+      question: >-
+        Which interval — 6-month or 12-month — does this tracer survey
+        correspond to, and was it completed within the last 12 months? MCF
+        treats these as separate reporting milestones.
+      source: "Mastercard Foundation — Young Africa Works"
+  KOICA:
+    Directness:
+      question: >-
+        Do you have adoption-rate evidence for the transferred technology or
+        practice — such as the percentage of farmers applying improved
+        techniques, or a yield comparison against a control group — measured
+        at least one full season after training? KOICA requires adoption
+        evidence, not just training or input delivery.
+      source: "KOICA completion report standards"
+    Verification:
+      question: >-
+        Can you reference an independent field verification by a Korean or
+        local evaluation firm, or a government line ministry inspection
+        report, confirming adoption and functionality? KOICA's final
+        evaluation standards require third-party verification.
+      source: "KOICA final evaluation standards"
+  SIDA:
+    Directness:
+      question: >-
+        Can you reframe this result to describe the change experienced by
+        the primary rights-holder group, and link your evidence to that
+        change rather than to activities alone, as Sida's rights-based
+        approach requires?
+      source: "Sida results reporting approach"
+    Verification:
+      question: >-
+        Can you reference an independent outcome assessment or a
+        third-party evaluation covering this result? Sida's Results Strategy
+        treats internal monitoring data alone as insufficient.
+      source: "Sida Results Strategy"
+  SDC:
+    Directness:
+      question: >-
+        Do you have evidence of outcome-level change, not just output
+        delivery, and does it reference the specific SDC outcome indicator
+        from your Programme Agreement, as SDC's Results Measurement
+        Framework requires?
+      source: "SDC Results Measurement Framework"
+    Verification:
+      question: >-
+        Can you reference an independent review, external evaluation, or
+        Swiss Embassy field visit report validating this outcome? SDC's
+        evaluation quality standards require independent verification.
+      source: "SDC evaluation quality standards"

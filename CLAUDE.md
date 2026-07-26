@@ -40,6 +40,17 @@ equivalent) before rendering its output.
   keys) for auditability. Conditions are evaluated by a tiny closed-form comparison parser
   (`utils/inference.py::evaluate_condition()`), never an `eval()` — a real trust boundary since
   the YAML is meant to be hand-edited by MEL specialists.
+- **`knowledge/taxonomy.yaml`** (`utils/taxonomy.py`) — versioned MEL taxonomy: evaluation
+  types, logframe result levels (Output/Outcome/Impact), and the real OECD-DAC criterion
+  mapping (only 4 of 8 criteria — `framework_crosswalk.py` has no OECD-DAC citation for the
+  other 4, and this module says so rather than force-mapping a guess). Same hot-reload
+  convention as `knowledge/rules/`.
+- **`knowledge/donor_questions.yaml`** (`utils/interrogator.py::select_questions()`) — Laudon
+  Ch.11 Donor Interrogator: a bounded question-selection agent, not a free-generation one — it
+  only ever picks or declines a pre-authored question transcribed from
+  `donor_templates.DONOR_DIAGNOSTICS[donor][criterion]["low"]`, keyed to a *fired* rule from
+  `utils/inference.py`'s trace. Declines gracefully (never invents filler) for an uncovered
+  (donor, criterion) pair or an uncertain extracted field. Session-only — no persistence yet.
 - **`diagnostics.py`** — readiness-band and diagnostic-state classification (7-state badge:
   STRONG / NEEDS REFINEMENT / MISLEADING / UNDEREVIDENCED / FUNDAMENTALLY WEAK / INCOMPLETE /
   INVALID INPUT, collapsed into a 3-state readiness band). Also UI-free.
@@ -271,7 +282,7 @@ docstring.
 
 ## Testing
 
-Fifteen plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
+Seventeen plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
 (API-calling functions are tested by temporarily swapping `council._call_haiku`, or
 `utils.paystack.requests`/`utils.db._get_client`/`utils.auth._get_client`, for a fake;
 `test_audits.py`/`test_crm.py`/`test_outcomes.py`/`test_verification.py`/
@@ -301,13 +312,18 @@ python test_inference.py        # Ch.11 expert-system rule base: YAML loads, con
 python test_extraction_schema.py # Ch.11 extraction schema validation + per-field uncertainty flagging
 python test_fabrication_guard.py # Ch.11 red-team fixtures + council.py's retry-then-degrade flow
 python test_rule_disputes.py    # Ch.11 dispute logging: record/count round-trip, hash isolation, no-DB degradation
+python test_taxonomy.py         # Ch.11 MEL taxonomy: knowledge/taxonomy.yaml loads, OECD-DAC criterion mapping,
+                                 # graceful degradation on a missing file
+python test_interrogator.py     # Ch.11 Donor Interrogator: question selection over
+                                 # knowledge/donor_questions.yaml, graceful decline for uncovered pairs and
+                                 # uncertain fields, never raises on an unknown donor
 python test_i18n.py             # currency conversion, geoIP routing, ROI copy, Paystack checkout routing
 python test_security.py         # app.py-level regression tests (user_email overwrite guard, portfolio
                                  # heatmap sample gate, Readiness Card crosswalk tags, verify landing page,
                                  # Agency Dashboard MIS/DSS/ESS views)
 ```
 
-All ten must pass before pushing a change that touches scoring, AI post-processing, metrics,
+All must pass before pushing a change that touches scoring, AI post-processing, metrics,
 billing/auth, or audit persistence. When you intentionally change scoring behavior, re-baseline
 `test_app.py`'s golden values in the same commit — a scoring change that leaves the golden values
 stale silently breaks the safety net for the next change.

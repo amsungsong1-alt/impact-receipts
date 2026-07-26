@@ -228,8 +228,59 @@ def run_retry_succeeds_on_second_attempt():
     print("PASS: retry succeeds on second attempt — a draft that becomes clean on retry is accepted, not discarded.")
 
 
+def run_check_score_grounding():
+    """Laudon Ch.11, C3: check_score_grounding() catches a MISSTATED existing
+    score, distinct from check_fabrication()'s INVENTED-number check. Must
+    NOT flag legitimate threshold/rubric references near a criterion name --
+    the false-positive risk the narrow "is/was/scored/:" pattern exists to
+    avoid."""
+    failures = []
+    ev = {
+        "confidence_components": {"direct_score": 1.2, "verify_score": 2.0, "recency_score": 1.0},
+        "clarity_components": {
+            "definition_score": 1.0, "measurement_score": 1.25, "integrity_score": 0.75,
+            "scope_score": 0.5, "governance_score": 0.75,
+        },
+    }
+
+    cases = [
+        ("correct_is_claim", "Your Directness score is 1.2, which is why you need a primary record.", True, []),
+        ("misstated_is_claim", "Your Directness score is 1.8, which is fairly strong.", False,
+         ["Directness: stated 1.8, actual 1.2"]),
+        ("threshold_reference_not_flagged", "You need Directness to reach 1.2 to clear the threshold.", True, []),
+        ("correct_colon_claim", "Verification: 2.0 out of 2.0, fully verified.", True, []),
+        ("misstated_colon_claim", "Verification: 1.5, needs an external reviewer.", False,
+         ["Verification: stated 1.5, actual 2.0"]),
+        ("no_criterion_mentioned", "Nothing to see here.", True, []),
+        ("empty_text", "", True, []),
+    ]
+    for label, text, expect_grounded, expect_mismatches in cases:
+        is_grounded, mismatches = fg.check_score_grounding(text, ev)
+        if is_grounded != expect_grounded:
+            failures.append(f"[{label}] expected is_grounded={expect_grounded}, got {is_grounded} (mismatches={mismatches})")
+        elif mismatches != expect_mismatches:
+            failures.append(f"[{label}] expected mismatches={expect_mismatches}, got {mismatches}")
+
+    # Never raises on a malformed/empty ev.
+    try:
+        is_grounded, mismatches = fg.check_score_grounding("Directness is 1.2.", {})
+        if not is_grounded or mismatches:
+            failures.append(f"an empty ev dict should find nothing to compare against (no false mismatch), got {mismatches}")
+    except Exception as exc:
+        failures.append(f"check_score_grounding raised on an empty ev dict: {exc}")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: check_score_grounding — misstated scores caught, threshold/rubric references "
+          "correctly NOT flagged, never raises on malformed input.")
+
+
 if __name__ == "__main__":
     run_red_team_fixtures()
     run_structural_fallback_message()
     run_retry_then_degrade()
     run_retry_succeeds_on_second_attempt()
+    run_check_score_grounding()

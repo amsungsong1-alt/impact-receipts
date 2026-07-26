@@ -83,6 +83,12 @@ class Audit(Base):
     # column existed have no recorded version (honestly unknown, distinct
     # from "unversioned" -- see migration 0021's comment).
     rule_base_version = Column(Text, nullable=True)
+    # Laudon Ch.11 MEL taxonomy (C7, knowledge/taxonomy.yaml) -- genuinely new
+    # taxonomy dimensions, unlike donor/sector/org_type which already existed.
+    # Nullable: advisory/score-neutral, optional fields (same pattern as
+    # attribution_contribution, not disaggregation_status which scores).
+    evaluation_type = Column(Text, nullable=True)
+    result_level = Column(Text, nullable=True)
 
 
 class LogframeLibrary(Base):
@@ -206,6 +212,8 @@ def save_audit(email: str, submissions: list, evaluations: list, ref_id: str) ->
                 primary_clarity_score=first_ev.get("clarity_score"),
                 primary_verdict=first_ev.get("verdict"),
                 rule_base_version=first_ev.get("rule_base_version"),
+                evaluation_type=first_sub.get("evaluation_type") or None,
+                result_level=first_sub.get("result_level") or None,
             )
             session.add(row)
             session.commit()
@@ -245,6 +253,7 @@ def list_audits(email: str, limit: int = 50) -> list[dict]:
                 "primary_verdict": r.primary_verdict,
                 "active_slots": r.active_slots,
                 "rule_base_version": r.rule_base_version,
+                "evaluation_type": r.evaluation_type, "result_level": r.result_level,
             } for r in rows]
     except Exception:
         return []
@@ -566,6 +575,7 @@ def list_audits_with_client(email: str, limit: int = 200) -> list[dict]:
                 "active_slots": r.active_slots,
                 "client_id": r.client_id, "client_name": client_name,
                 "rule_base_version": r.rule_base_version,
+                "evaluation_type": r.evaluation_type, "result_level": r.result_level,
             } for r, client_name in rows]
     except Exception:
         return []

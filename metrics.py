@@ -29,6 +29,7 @@ EVENT_TYPES = {
     "check_completed",
     "ai_questions_generated",
     "draft_withheld_fabrication",
+    "chat_score_mismatch",
     "payment_initiated",
     "payment_completed",
     "score_uplift",

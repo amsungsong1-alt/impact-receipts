@@ -3209,6 +3209,8 @@ def _build_submission_from_session(slot: int = 1) -> dict:
         },
         "attribution_contribution": st.session_state.get(f"attribution_contribution{s}", "Not specified"),
         "disaggregation_status":     st.session_state.get(f"disaggregation_status{s}", "Not specified"),
+        "evaluation_type":   st.session_state.get(f"evaluation_type{s}", "Not specified"),
+        "result_level":      st.session_state.get(f"result_level{s}", "Not specified"),
         "review_status":     st.session_state.get(f"review_status{s}", _SUBMISSION_STATUS_OPTIONS[0]),
         "reviewer_name":     st.session_state.get(f"reviewer_name{s}", ""),
         "reviewer_role":     st.session_state.get(f"reviewer_role{s}", ""),
@@ -8127,6 +8129,21 @@ def _render_help_chat(submission: dict, ev: dict, donor: str = "", card_idx: int
                 messages=[{"role": m["role"], "content": m["content"]} for m in msgs],
             )
             reply = _resp.content[0].text if _resp.content else "No response received."
+            # Laudon Ch.11, C3: explanation-layer grounding -- a distinct
+            # failure mode from Fix-It drafting's fabrication guard (which
+            # catches an INVENTED number). Here the model correctly avoids
+            # inventing a new number but MISSTATES an existing score. Append
+            # a correcting caption rather than silently trusting the reply.
+            try:
+                from utils.fabrication_guard import check_score_grounding
+                _grounded, _mismatches = check_score_grounding(reply, ev)
+                if not _grounded:
+                    reply += (
+                        "\n\n*Correction: " + "; ".join(_mismatches) + ".*"
+                    )
+                    metrics.log_event("chat_score_mismatch", _metrics_session_id())
+            except Exception:
+                pass
         except Exception as exc:
             reply = f"Could not reach the scoring assistant right now. ({type(exc).__name__})"
 
@@ -8273,6 +8290,36 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
                                     st.success("Dispute recorded — a MEL specialist will review this rule.")
                                 except Exception:
                                     st.warning("Could not record the dispute right now.")
+
+    # C4 -- Laudon Ch.11, Donor Interrogator: a bounded question-selection
+    # agent that only ever selects or declines pre-authored, donor-grounded
+    # questions from knowledge/donor_questions.yaml -- it never generates
+    # text, so there's nothing here for the fabrication guard to catch.
+    # Session-only in this phase (see utils/interrogator.py's docstring).
+    _donor_for_interrogator = submission.get("donor", "")
+    if _donor_for_interrogator and _rule_trace:
+        try:
+            from utils.interrogator import select_questions
+            _interrogator_items = select_questions(_rule_trace, _donor_for_interrogator, submission)
+        except Exception:
+            _interrogator_items = []
+        if _interrogator_items:
+            # Same ranking as the "What would move the needle?" panel above --
+            # weakest/highest-opportunity fired criteria surface first.
+            _sens_order = {r["dimension"]: i for i, r in enumerate(_sensitivity)}
+            _interrogator_items.sort(key=lambda item: _sens_order.get(item["criterion"], 999))
+            with st.expander(f"🎤 Donor Interrogator — questions {_donor_for_interrogator} would ask", expanded=False):
+                st.caption(
+                    "Pre-authored, donor-grounded questions for your weakest fired criteria — "
+                    "never AI-generated, so there's nothing here to fabricate."
+                )
+                for _item in _interrogator_items[:3]:
+                    if _item.get("declined"):
+                        st.caption(f"**{_item['criterion']}:** _{_item['reason']}_")
+                    else:
+                        st.markdown(f"**{_item['criterion']}:** {_item['question']}")
+                        if _item.get("source"):
+                            st.caption(f"*Source: {_item['source']}*")
 
     # Scores follow immediately — no ticker or redundant banners
     render_scoreboard(
@@ -9353,6 +9400,23 @@ def render_screen_2():
             options=["Not specified", "Yes", "No", "Not sure"],
             key=f"attribution_contribution{_s2_slot_suffix}",
             help="Attribution claims your program caused the change on its own. Contribution acknowledges multiple factors.",
+        )
+
+        # Laudon Ch.11, C7 -- MEL taxonomy (knowledge/taxonomy.yaml). Advisory/
+        # score-neutral, same pattern as attribution_contribution above (not
+        # disaggregation_status below, which carries a real Clarity bonus).
+        from utils.taxonomy import get_evaluation_types, get_result_levels
+        st.selectbox(
+            "What type of evaluation produced this result?",
+            options=["Not specified"] + get_evaluation_types(),
+            key=f"evaluation_type{_s2_slot_suffix}",
+            help="Tags this result for the MEL taxonomy — baseline/midline/endline vs. a full evaluation vs. routine monitoring.",
+        )
+        st.selectbox(
+            "Where does this result sit in your logframe hierarchy?",
+            options=["Not specified"] + get_result_levels(),
+            key=f"result_level{_s2_slot_suffix}",
+            help="Output (activities delivered), Outcome (behaviour/condition change), or Impact (longer-term, higher-level change).",
         )
 
         def _on_disaggregation_change():
@@ -10908,6 +10972,8 @@ def _csv_row_to_submission(row: dict, column_map: dict, profile_name: str) -> di
         },
         "attribution_contribution": "",
         "disaggregation_status": "",
+        "evaluation_type": "",
+        "result_level": "",
         "review_status":     _SUBMISSION_STATUS_OPTIONS[0],
         "reviewer_name":     "",
         "reviewer_role":     "",
@@ -13703,6 +13769,7 @@ _ADMIN_EVENT_LABELS = [
     ("check_completed", "Checks completed"),
     ("ai_questions_generated", "AI reviews run"),
     ("draft_withheld_fabrication", "Drafts withheld"),
+    ("chat_score_mismatch", "Chat score corrections"),
     ("payment_initiated", "Payments started"),
     ("payment_completed", "Payments completed"),
 ]

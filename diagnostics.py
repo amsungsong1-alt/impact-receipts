@@ -745,6 +745,20 @@ External review: {submission.get('external_review', 'not specified')}
 Donor selected: {donor or 'not specified'}
 """.strip()
 
+    # --- Firing trace block (Laudon Ch.11, C3: explanation grounding) ---
+    # The expert-system rule base's fired rules for THIS submission -- gives
+    # the model a citable basis (rule id + named standard) for "why" answers,
+    # not just the raw numbers above. Only fired rules are listed; an unfired
+    # rule isn't relevant context for explaining what's wrong.
+    _rule_trace = ev.get("rule_trace", [])
+    _fired = [t for t in _rule_trace if t.get("fired")]
+    trace_block = ""
+    if _fired:
+        trace_lines = ["FIRED RULES (cite these rule ids/sources when explaining a gap)"]
+        for t in _fired:
+            trace_lines.append(f"- [{t['rule_id']}] {t['criterion']}: {t['rationale']} (Source: {t['source']})")
+        trace_block = "\n".join(trace_lines)
+
     # --- Scoring rubric block (concise version of _SCORING_GUIDE) ---
     rubric_lines = ["SCORING RUBRIC (answer ONLY from this)"]
     for key, g in _SCORING_GUIDE.items():
@@ -775,6 +789,8 @@ RULES — strictly enforced:
 5. When asked "what if I change X?", describe the likely score impact using the rubric logic.
 
 {score_block}
+
+{trace_block}
 
 {rubric_block}
 {donor_block}"""
