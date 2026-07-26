@@ -8000,9 +8000,24 @@ def _render_council_assessment(submission: dict, ev: dict, card_idx: int, api_ke
     ev_withheld = withheld.get("upgraded_evidence_statement", False)
     if upg_rs or upg_ev or rs_withheld or ev_withheld:
         with st.expander("📝 Upgraded statements (council draft — review before use)", expanded=False):
+            # Laudon Ch.11, C5: name the actual offending tokens rather than a
+            # generic "content not in your evidence" -- this is the "live
+            # fabrication attempt that gets blocked" moment the pitch note
+            # wants demo-ready. upg_rs already carries a structural-suggestion
+            # fallback (not a blank string) after every retry attempt fails.
+            _rs_offending = withheld.get("offending_tokens", {}).get("upgraded_result_statement", [])
+            _ev_offending = withheld.get("offending_tokens", {}).get("upgraded_evidence_statement", [])
             if rs_withheld:
                 st.markdown("**Upgraded result statement:**")
-                st.warning("AI draft withheld — it introduced content not in your evidence.")
+                if _rs_offending:
+                    st.warning(
+                        f"AI draft withheld — it introduced {', '.join(repr(t) for t in _rs_offending)}, "
+                        "which don't appear in your evidence."
+                    )
+                else:
+                    st.warning("AI draft withheld — it introduced content not in your evidence.")
+                if upg_rs:
+                    st.caption(upg_rs)
             elif upg_rs:
                 st.markdown("**Upgraded result statement:**")
                 st.markdown(
@@ -8013,7 +8028,15 @@ def _render_council_assessment(submission: dict, ev: dict, card_idx: int, api_ke
                 )
             if ev_withheld:
                 st.markdown("**Upgraded evidence statement:**")
-                st.warning("AI draft withheld — it introduced content not in your evidence.")
+                if _ev_offending:
+                    st.warning(
+                        f"AI draft withheld — it introduced {', '.join(repr(t) for t in _ev_offending)}, "
+                        "which don't appear in your evidence."
+                    )
+                else:
+                    st.warning("AI draft withheld — it introduced content not in your evidence.")
+                if upg_ev:
+                    st.caption(upg_ev)
             elif upg_ev:
                 st.markdown("**Upgraded evidence statement:**")
                 st.markdown(
@@ -8214,6 +8237,42 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
                 yaxis=dict(autorange="reversed"),
             )
             st.plotly_chart(_sens_fig, use_container_width=True, key=f"sensitivity_chart_{card_idx}")
+
+    # Laudon Ch.11 -- expert-system firing trace (C1's rule_trace/rule_base_version)
+    # rendered for the first time: pure display of already-computed data, plus
+    # C6's dispute affordance on each fired rule.
+    _rule_trace = ev.get("rule_trace", [])
+    with st.expander("🔍 Full rule trace", expanded=False):
+        if not _rule_trace:
+            st.caption("Rule trace unavailable for this result.")
+        else:
+            st.caption(f"Rule base version: {ev.get('rule_base_version', 'unversioned')}")
+            for _t in _rule_trace:
+                _mark = "✅" if _t["fired"] else "—"
+                st.markdown(f"{_mark} **{_t['rule_id']}** ({_t['criterion']})")
+                if _t["fired"]:
+                    st.caption(f"{_t['rationale']}  \n*Source: {_t['source']}*")
+                    # Streamlit disallows nesting an expander inside another
+                    # expander -- a checkbox-gated reveal is the substitute.
+                    if st.checkbox("Dispute this rule's firing", key=f"dispute_toggle_{card_idx}_{_t['rule_id']}"):
+                        _dispute_reason = st.text_area(
+                            "Why do you think this shouldn't have fired?",
+                            key=f"dispute_reason_{card_idx}_{_t['rule_id']}",
+                        )
+                        if st.button("Submit dispute", key=f"dispute_submit_{card_idx}_{_t['rule_id']}"):
+                            _dispute_email = st.session_state.get("user_email", "")
+                            if not _dispute_email:
+                                st.warning("Enter your email (Screen 1) before disputing a rule.")
+                            else:
+                                try:
+                                    from utils.rule_disputes import record_dispute
+                                    record_dispute(
+                                        _t["rule_id"], _dispute_email, reason=_dispute_reason,
+                                        rule_base_version=ev.get("rule_base_version", ""),
+                                    )
+                                    st.success("Dispute recorded — a MEL specialist will review this rule.")
+                                except Exception:
+                                    st.warning("Could not record the dispute right now.")
 
     # Scores follow immediately — no ticker or redundant banners
     render_scoreboard(
@@ -13811,6 +13870,10 @@ def _render_admin_view():
     st.markdown("#### Donor acceptance rate by score band")
     _render_admin_outcome_stats()
 
+    st.divider()
+    st.markdown("#### Rule dispute counts (expert-system rule base)")
+    _render_admin_rule_dispute_stats()
+
 
 def _render_admin_crm_segments() -> None:
     """Trial/Active-Free/Professional/Agency/Churn-risk segments plus a
@@ -13890,6 +13953,41 @@ def _render_admin_outcome_stats() -> None:
         file_name="impactproof_acceptance_by_band.csv",
         mime="text/csv",
         key="_outcome_stats_dl",
+    )
+
+
+def _render_admin_rule_dispute_stats() -> None:
+    """Laudon Ch.11, C6: raw dispute count per expert-system rule (knowledge/rules/*.yaml),
+    from utils.rule_disputes.get_dispute_counts() -- anonymized (hash-keyed), no plaintext
+    emails, same privacy model as _render_admin_outcome_stats() above. Deliberately a count,
+    not a rate: there is no lightweight firing-count denominator yet (see
+    utils/rule_disputes.py's module docstring) -- ranks candidates for a MEL specialist to
+    review, never auto-flags or auto-disables a rule."""
+    try:
+        import pandas as pd
+        from utils.rule_disputes import get_dispute_counts
+        counts = get_dispute_counts()
+    except Exception as exc:
+        st.warning(f"Could not load rule dispute stats. ({type(exc).__name__})")
+        return
+
+    if not counts:
+        st.caption("No rule disputes recorded yet.")
+        return
+
+    st.caption(
+        "Raw dispute count per rule — not a rate (no firing-count denominator exists yet). "
+        "This ranks candidates for a MEL specialist to review and hand-edit in "
+        "knowledge/rules/*.yaml; nothing here auto-tunes a rule."
+    )
+    df = pd.DataFrame(counts)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.download_button(
+        "Download rule dispute counts (CSV)",
+        data=df.to_csv(index=False).encode("utf-8"),
+        file_name="impactproof_rule_dispute_counts.csv",
+        mime="text/csv",
+        key="_rule_dispute_stats_dl",
     )
 
 

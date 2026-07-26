@@ -21,6 +21,18 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
+# Laudon Ch.11, C5: the fabrication guard lives in utils/fabrication_guard.py
+# (its own inspectable, independently testable module, with red-team fixtures
+# in test_fabrication_guard.py) -- re-imported here so council.check_fabrication(...)
+# keeps working unchanged for every existing caller (test_council.py in
+# particular). See that module's docstring for the guard's full rationale.
+from utils.fabrication_guard import (
+    check_fabrication,
+    structural_fallback_message,
+    _extract_numeric_tokens,
+    _submission_fact_text,
+)
+
 # ---------------------------------------------------------------------------
 # Council member definitions
 # ---------------------------------------------------------------------------
@@ -368,77 +380,10 @@ def _calculate_projected_scores(ev: dict) -> tuple[float, float]:
 
 
 # ---------------------------------------------------------------------------
-# Fabrication guard — deterministic, no AI involvement
-#
-# The synthesis prompt instructs the model not to invent numbers, but that is
-# a soft instruction only. This is the machine-checked backstop: every
-# numeral/year/percentage in an AI-drafted statement must appear somewhere in
-# the user's own submission, or the statement is withheld rather than shown.
+# Fabrication guard — deterministic, no AI involvement. See utils/fabrication_guard.py
+# (imported at module top) for check_fabrication()/structural_fallback_message()'s
+# full implementation and rationale.
 # ---------------------------------------------------------------------------
-
-_NUMERIC_TOKEN_RE = re.compile(r"\d[\d,]*\.?\d*%?")
-
-
-def _extract_numeric_tokens(text: str) -> set[str]:
-    """Extract normalized numeric tokens (ints, decimals, percentages) from text.
-
-    Strips thousands-separator commas, a trailing '%', and a trailing '.' —
-    the last of which handles a sentence-ending period glued onto a match
-    (e.g. "...in 2025." must normalize to match a bare "2025" elsewhere)
-    without touching a genuine decimal like "3.5".
-    """
-    if not text:
-        return set()
-    tokens = set()
-    for raw in _NUMERIC_TOKEN_RE.findall(text):
-        norm = raw.replace(",", "").rstrip("%").rstrip(".")
-        if norm:
-            tokens.add(norm)
-    return tokens
-
-
-def _submission_fact_text(submission: dict) -> str:
-    """Concatenate the raw, untruncated user-supplied fields that count as
-    'the source input' for fabrication checking. Deliberately does NOT reuse
-    _build_shared_context's output, which is truncated and also contains
-    score-display numbers (e.g. "Confidence: 4.2/5.0") that are not project
-    facts — checking against it risks both false negatives (truncated-away
-    real facts) and false positives (a hallucinated number matching a score
-    readout instead of an actual fact).
-    """
-    parts = []
-    for key in (
-        "result_statement", "target_group", "timeframe", "geographic_scope",
-        "additional_context", "logframe_indicator", "logframe_target",
-        "logframe_achievement", "beneficiary_voice", "bv_method_detail",
-        "internal_review", "external_review",
-    ):
-        val = submission.get(key)
-        if val:
-            parts.append(str(val))
-
-    for item in submission.get("evidence", []) or []:
-        for key in ("type", "description", "recency", "verified_by"):
-            val = item.get(key)
-            if val:
-                parts.append(str(val))
-
-    for val in (submission.get("provenance_checklist") or {}).values():
-        if isinstance(val, str) and val:
-            parts.append(val)
-
-    return "\n".join(parts)
-
-
-def check_fabrication(draft: str, submission: dict) -> tuple[bool, list[str]]:
-    """Check that every numeral/year/percentage in `draft` appears somewhere
-    in the submission's own fields. Returns (is_clean, offending_tokens)."""
-    if not draft:
-        return True, []
-    draft_tokens  = _extract_numeric_tokens(draft)
-    allowed_tokens = _extract_numeric_tokens(_submission_fact_text(submission))
-    offending = sorted(draft_tokens - allowed_tokens)
-    return (len(offending) == 0), offending
 
 
 # ---------------------------------------------------------------------------
@@ -522,43 +467,66 @@ def run_council_assessment(submission: dict, ev: dict, api_key: str) -> dict:
         for m in COUNCIL_MEMBERS
     }
 
-    # --- Step 2: Synthesis call ---
+    # --- Step 2: Synthesis call, with fabrication-guard retry (Laudon Ch.11, C5) ---
+    # Re-runs the WHOLE synthesis call (not a narrower per-field regeneration --
+    # lower implementation risk; reporting_team_brief regenerating alongside a
+    # retried draft is an acceptable side effect since it's already instructed
+    # to stay factual) up to MAX_FABRICATION_RETRIES times if either drafted
+    # field is dirty. "Unmatched tokens are a hard fail" -- the draft is
+    # rejected and regenerated, not silently shown.
+    MAX_FABRICATION_RETRIES = 2
     synthesis_prompt = _build_synthesis_prompt(submission, ev, verdicts)
-    raw_synthesis    = _call_haiku(synthesis_prompt, "Produce the JSON output now.", api_key, max_tokens=700)
 
     upgraded_result    = ""
     upgraded_evidence  = ""
     reporting_brief: dict[str, Any] = {}
+    result_clean = evidence_clean = False
+    result_offending: list[str] = []
+    evidence_offending: list[str] = []
 
-    # Strip any accidental markdown fences before parsing
-    clean = re.sub(r"```(?:json)?|```", "", raw_synthesis).strip()
-    try:
-        parsed             = json.loads(clean)
-        upgraded_result    = parsed.get("upgraded_result_statement", "")
-        upgraded_evidence  = parsed.get("upgraded_evidence_statement", "")
-        reporting_brief    = parsed.get("reporting_team_brief", {})
-    except (json.JSONDecodeError, ValueError):
-        # Graceful fallback — show raw text in the brief
-        reporting_brief = {
-            "what_score_means": raw_synthesis[:300] if raw_synthesis else "Synthesis unavailable.",
-            "what_to_change":   [],
-            "how_long":         "",
-            "projected_status": "",
-        }
+    for _attempt in range(1, MAX_FABRICATION_RETRIES + 1):
+        raw_synthesis = _call_haiku(synthesis_prompt, "Produce the JSON output now.", api_key, max_tokens=700)
+
+        # Strip any accidental markdown fences before parsing
+        clean = re.sub(r"```(?:json)?|```", "", raw_synthesis).strip()
+        try:
+            parsed             = json.loads(clean)
+            upgraded_result    = parsed.get("upgraded_result_statement", "")
+            upgraded_evidence  = parsed.get("upgraded_evidence_statement", "")
+            reporting_brief    = parsed.get("reporting_team_brief", {})
+        except (json.JSONDecodeError, ValueError):
+            # Graceful fallback — show raw text in the brief
+            upgraded_result   = ""
+            upgraded_evidence = ""
+            reporting_brief = {
+                "what_score_means": raw_synthesis[:300] if raw_synthesis else "Synthesis unavailable.",
+                "what_to_change":   [],
+                "how_long":         "",
+                "projected_status": "",
+            }
+
+        # Fabrication guard — every numeral/year/percentage in a drafted
+        # statement must appear somewhere in the user's own submission.
+        # No-fabrication is a non-negotiable product rule; this is the
+        # machine-checked backstop behind the synthesis prompt's instruction.
+        result_clean, result_offending = check_fabrication(upgraded_result, submission)
+        evidence_clean, evidence_offending = check_fabrication(upgraded_evidence, submission)
+        if result_clean and evidence_clean:
+            break
 
     # --- Step 3: Deterministic projected scores ---
     proj_conf, proj_clar = _calculate_projected_scores(ev)
 
-    # --- Step 4: Fabrication guard — withhold any drafted statement that
-    # introduces a numeral/year/percentage not present in the user's own
-    # submission. No-fabrication is a non-negotiable product rule; this is
-    # the machine-checked backstop behind the synthesis prompt's instruction.
-    result_clean, _ = check_fabrication(upgraded_result, submission)
-    evidence_clean, _ = check_fabrication(upgraded_evidence, submission)
+    # --- Step 4: still dirty after every retry attempt -- degrade to a
+    # structural suggestion (never a fabricated rewrite, never a bare "").
+    # "withheld" stays True either way (metrics.log_event("draft_withheld_
+    # fabrication", ...) at the call site still needs to see a rejection
+    # happened, even though the field itself now carries helpful text
+    # instead of an empty string).
     if not result_clean:
-        upgraded_result = ""
+        upgraded_result = structural_fallback_message("upgraded_result_statement")
     if not evidence_clean:
-        upgraded_evidence = ""
+        upgraded_evidence = structural_fallback_message("upgraded_evidence_statement")
 
     return {
         "verdicts":                   ordered_verdicts,
@@ -571,6 +539,10 @@ def run_council_assessment(submission: dict, ev: dict, api_key: str) -> dict:
         "withheld": {
             "upgraded_result_statement":   not result_clean,
             "upgraded_evidence_statement": not evidence_clean,
+            "offending_tokens": {
+                "upgraded_result_statement":   result_offending if not result_clean else [],
+                "upgraded_evidence_statement": evidence_offending if not evidence_clean else [],
+            },
         },
     }
 

@@ -262,15 +262,23 @@ Report) and `claude-haiku-4-5-20251001` (Council Assessment, evidence-type debat
 match, score-explanation chat). These are pinned, dated snapshots — check the current
 recommended aliases before introducing a new call site.
 
+Council Assessment's synthesis call (`upgraded_result_statement`/`upgraded_evidence_statement`)
+retries up to `MAX_FABRICATION_RETRIES` (2) times if `utils/fabrication_guard.check_fabrication()`
+catches a fabricated numeral/date/percentage — only on an actual guard hit, not on every
+request. Still dirty after the final attempt degrades to a structural suggestion (never a
+fabricated rewrite, never a bare empty string) — see `utils/fabrication_guard.py`'s module
+docstring.
+
 ## Testing
 
-Thirteen plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
+Fifteen plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
 (API-calling functions are tested by temporarily swapping `council._call_haiku`, or
 `utils.paystack.requests`/`utils.db._get_client`/`utils.auth._get_client`, for a fake;
 `test_audits.py`/`test_crm.py`/`test_outcomes.py`/`test_verification.py`/
-`test_assessment_links.py` swap `utils.audits._get_engine`/`utils.crm._get_engine`/
-`utils.outcomes._get_engine`/`utils.verification._get_engine`/
-`utils.assessment_links._get_engine` for an in-memory SQLite engine instead, since the same
+`test_assessment_links.py`/`test_rule_disputes.py` swap `utils.audits._get_engine`/
+`utils.crm._get_engine`/`utils.outcomes._get_engine`/`utils.verification._get_engine`/
+`utils.assessment_links._get_engine`/`utils.rule_disputes._get_engine` for an in-memory
+SQLite engine instead, since the same
 SQLAlchemy models work unchanged against either dialect — note SQLite doesn't enforce foreign
 keys by default unlike Postgres, so that fixture explicitly enables `PRAGMA foreign_keys=ON`
 to exercise cascade-delete behavior correctly; `test_i18n.py` swaps
@@ -291,6 +299,8 @@ python test_assessment_links.py # Ch.12 revision-linking: record/list/delta, has
 python test_inference.py        # Ch.11 expert-system rule base: YAML loads, condition parser, firing-trace
                                  # agreement with get_what_to_fix(), deterministic wiring, graceful degradation
 python test_extraction_schema.py # Ch.11 extraction schema validation + per-field uncertainty flagging
+python test_fabrication_guard.py # Ch.11 red-team fixtures + council.py's retry-then-degrade flow
+python test_rule_disputes.py    # Ch.11 dispute logging: record/count round-trip, hash isolation, no-DB degradation
 python test_i18n.py             # currency conversion, geoIP routing, ROI copy, Paystack checkout routing
 python test_security.py         # app.py-level regression tests (user_email overwrite guard, portfolio
                                  # heatmap sample gate, Readiness Card crosswalk tags, verify landing page,
