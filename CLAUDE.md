@@ -389,7 +389,7 @@ request. Still dirty after the final attempt degrades to a structural suggestion
 fabricated rewrite, never a bare empty string) — see `utils/fabrication_guard.py`'s module
 docstring.
 
-## Data foundations & quality (Laudon Ch.6) — schema written, NOT applied to production
+## Data foundations & quality (Laudon Ch.6) — schema + write path built, NOT applied to production
 
 Audited the full schema (all 30 migrations, `evaluator.py`'s actual scoring output shape) and
 found the data that matters most — per-criterion scores, fired rules, evidence claims,
@@ -408,6 +408,21 @@ warehouse built on these tables satisfies "no PII in the warehouse" by construct
 scrubbing step. Each migration file carries a `-- DOWN` rollback block as a comment (this repo
 has no down-migration tooling — migrations are numbered files pasted into the SQL editor, not
 an Alembic-style framework) — run those by hand if a rollback is ever needed.
+
+`utils/assessment_facts.py::record_assessment_facts(email, submission, ev, ref_id)` is the
+write path that actually populates these tables — wired into the exact same call site as
+`utils.assessment_links.record_assessment()` (`app.py::render_screen_2()`'s per-slot scoring
+loop), reusing the same synthetic `_asm_id` as a soft cross-reference between the two feature's
+tables. Clarity-axis criteria (Definition/Measurement/Integrity/Scope/Governance) legitimately
+get a null `criterion_scores.level` — they're computed from yes/no checklist counts, not a
+single 0–5 level scale the way the 3 confidence-axis criteria are. `indicators.baseline_date`/
+`endline_date` are left null on every insert today — the submission dict's logframe fields are
+free-text *values* ("50 households"), not dates, and there's no separate "when was this
+measured" field to parse a real date from; mapping an unrelated field into a date column would
+violate the no-fabrication rule, so they stay null until a real source field exists. Verified
+end-to-end against an in-memory SQLite engine (`test_assessment_facts.py`) — **never run
+against a real Postgres database**, same caveat as the migrations themselves; this call is a
+safe no-op in production today since `0030`–`0037` aren't applied yet.
 
 `scripts/generate_data_dictionary.py` regenerates `docs/data_dictionary.md` from a live
 schema's `information_schema` introspection merged with `knowledge/
@@ -430,7 +445,7 @@ stewardship register + draft information policy generator for the customer), C8
 
 ## Testing
 
-Twenty-two plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
+Twenty-three plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
 (API-calling functions are tested by temporarily swapping `council._call_haiku`, or
 `utils.paystack.requests`/`utils.db._get_client`/`utils.auth._get_client`, for a fake;
 `test_audits.py`/`test_crm.py`/`test_outcomes.py`/`test_verification.py`/
@@ -479,6 +494,9 @@ python test_lifecycle_triggers.py # Ch.9 CRM (C6): trigger eligibility condition
                                  # individually-disableable triggers, fail-open no-engine degradation
 python test_cross_sell.py       # Ch.9 CRM (C7): behaviour-only recommendation selection, dedup,
                                  # outcome/conversion tracking
+python test_assessment_facts.py # Ch.6 C1 write path: assessments/criterion_scores/rules_fired/
+                                 # evidence_claims/indicators content, no free-text columns,
+                                 # date parsing, no-op degradation with no engine/empty email
 python test_i18n.py             # currency conversion, geoIP routing, ROI copy, Paystack checkout routing
 python test_security.py         # app.py-level regression tests (user_email overwrite guard, portfolio
                                  # heatmap sample gate, Readiness Card crosswalk tags, verify landing page,

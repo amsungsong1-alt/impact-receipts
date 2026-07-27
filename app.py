@@ -9062,6 +9062,20 @@ def render_screen_2():
                         )
                     except Exception:
                         pass
+                    # Laudon Ch.6, C1 write path: the normalized
+                    # assessments/criterion_scores/rules_fired/evidence_claims/
+                    # indicators tables (migrations 0030-0037, not yet applied
+                    # to any database -- this call safely no-ops until they
+                    # are). Same call site/scope as assessment_links above,
+                    # reusing the same _asm_id as a soft cross-reference
+                    # between the two tables.
+                    try:
+                        from utils.assessment_facts import record_assessment_facts
+                        record_assessment_facts(
+                            st.session_state.get("user_email", ""), sub, ev, ref_id=_asm_id,
+                        )
+                    except Exception:
+                        pass
             st.session_state["evaluations"]        = evs
             st.session_state["submissions_snapshot"] = subs
             st.session_state["_assessment_ids"]      = _asm_ids
