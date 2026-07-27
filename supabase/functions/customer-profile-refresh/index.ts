@@ -155,18 +155,6 @@ serve(async (req: Request) => {
   // requiring the secret to be re-entered with surgical precision.
   const cronSecret = (Deno.env.get("CRON_SECRET") ?? "").trim();
   const auth = (req.headers.get("Authorization") ?? "").trim();
-  // TEMPORARY DIAGNOSTIC -- never logs either actual value, only lengths and
-  // a boolean match result, so this is safe to leave in Dashboard logs.
-  // Remove once the CRON_SECRET mismatch is root-caused.
-  console.log(JSON.stringify({
-    diagnostic: "auth_check",
-    cron_secret_configured: cronSecret.length > 0,
-    cron_secret_length: cronSecret.length,
-    auth_header_present: auth.length > 0,
-    auth_header_length: auth.length,
-    auth_header_starts_with_bearer: auth.startsWith("Bearer "),
-    matched: auth === `Bearer ${cronSecret}`,
-  }));
   if (!cronSecret || auth !== `Bearer ${cronSecret}`) {
     return new Response("Forbidden", { status: 401 });
   }
