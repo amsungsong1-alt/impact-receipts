@@ -1,0 +1,211 @@
+# knowledge/data_dictionary_annotations.yaml — Laudon Ch.6, C2: hand-maintained
+# semantic annotations merged with a live schema introspection by
+# scripts/generate_data_dictionary.py to produce docs/data_dictionary.md.
+#
+# Descriptions here are transcribed from each table's own migration file
+# comment (supabase/migrations/*.sql), not invented — every claim traces to
+# a real design decision documented at the point that table was created.
+# A table/column with no entry here renders as "TODO: needs annotation" in
+# the generated dictionary, never a guessed description. This file will
+# always lag new tables/columns slightly — that's expected; the generator's
+# TODO markers are what keeps the gap visible instead of silently papered
+# over.
+version: "2026.07.1"
+tables:
+  # ---------------------------------------------------------------------
+  # Laudon Ch.6 (new, 2026-07) -- the normalized assessment-fact entities
+  # ---------------------------------------------------------------------
+  organisations:
+    description: >-
+      One row per real-world organisation, inferred from 2+ user accounts
+      sharing an email domain (excluding known free-mail providers). Resolves
+      a many-to-many relationship (users belong to organisations) that
+      previously existed only as an ad hoc domain-string comparison at query
+      time, never a resolved foreign key.
+    owner: "Engineering (schema); no single business owner yet — see docs/data_dictionary.md's own TODO markers for what still needs a named owner."
+    columns:
+      id: {definition: "Surrogate primary key.", source: "bigserial"}
+      domain: {definition: "The shared email domain (e.g. 'ngo-example.org') identifying this organisation.", allowed_values: "any valid domain string, unique", source: "derived from users.email at backfill/insert time"}
+      name: {definition: "Human-readable organisation name, if ever supplied.", allowed_values: "free text, nullable — nothing currently populates this", source: "not yet wired to any UI"}
+      created_at: {definition: "When this organisation row was first created.", source: "default now()"}
+  assessments:
+    description: >-
+      One row per scored assessment, hash-keyed (not email) and populated
+      for EVERY scored assessment — not just the opted-in subset audits.py
+      saves. The anchor row every other Ch.6 fact table (criterion_scores,
+      rules_fired, evidence_claims, indicators, documents) references.
+    owner: "Engineering"
+    columns:
+      id: {definition: "Surrogate primary key.", source: "bigserial"}
+      user_hash: {definition: "One-way hash of the account email (metrics.session_hash()) — never reversible to a real account.", source: "utils.metering.session_hash()"}
+      ref_id: {definition: "Soft cross-reference to audits.ref_id, only populated for the subset that also opted into saving full history. Never joined against in product code.", allowed_values: "nullable free text"}
+      donor: {definition: "The submission's actual donor identity (USAID/FCDO/GIZ/etc.), for benchmark bucketing.", source: "app.py donor_selected field"}
+      sector: {definition: "The submission's sector, for benchmark bucketing.", source: "app.py SECTOR_OPTIONS"}
+      org_type: {definition: "CBO/Government, National NGO, or International NGO (INGO) — changes the actual pass/fail score threshold used.", allowed_values: "CBO/Government | National NGO | International NGO (INGO)"}
+      evaluation_type: {definition: "Baseline/Midline/Endline/Process evaluation/Impact evaluation/Routine monitoring.", source: "knowledge/taxonomy.yaml"}
+      result_level: {definition: "Where this result sits in the logframe hierarchy.", allowed_values: "Output | Outcome | Impact"}
+      confidence_score: {definition: "The overall Confidence axis score for this assessment.", allowed_values: "0.0-5.0", source: "evaluator.compute_confidence()"}
+      clarity_score: {definition: "The overall Clarity axis score for this assessment.", allowed_values: "0.0-5.0", source: "evaluator.compute_clarity()"}
+      verdict: {definition: "The diagnostic-state verdict for this assessment.", source: "diagnostics.py's diagnostic-state classifier"}
+      created_at: {definition: "When this assessment was scored.", source: "default now()"}
+  criterion_scores:
+    description: >-
+      One row per (assessment, criterion) — the fix for the "8 columns"
+      denormalization Ch.6's C1 explicitly calls out. Before this table,
+      per-criterion scores existed only as dict keys inside an encrypted
+      JSON blob, not even columns. Adding a 9th criterion is an INSERT
+      pattern change now, never a schema migration.
+    owner: "Engineering"
+    columns:
+      id: {definition: "Surrogate primary key.", source: "bigserial"}
+      assessment_id: {definition: "The assessment this score belongs to.", source: "FK -> assessments(id) ON DELETE CASCADE"}
+      criterion: {definition: "Which of the 8 DIMENSION_MAP criteria this row scores.", allowed_values: "Directness | Verification | Recency | Definition | Measurement | Integrity | Scope | Governance"}
+      level: {definition: "The raw 0-5 rubric level for this criterion, before conversion to its axis-weighted score.", source: "evaluator.py's get_*_level() functions"}
+      score: {definition: "The axis-weighted score contribution for this criterion.", source: "evaluator.py's DIMENSION_MAP weighting"}
+  rules_fired:
+    description: >-
+      One row per fired expert-system rule per assessment — the fix for
+      rule_disputes.rule_id previously having nothing real to reference.
+      Only fired rules are stored (not the full checked-but-not-fired
+      trace, which stays a live, recomputed-per-request view).
+    owner: "Engineering"
+    columns:
+      id: {definition: "Surrogate primary key.", source: "bigserial"}
+      assessment_id: {definition: "The assessment this rule fired against.", source: "FK -> assessments(id) ON DELETE CASCADE"}
+      rule_id: {definition: "The YAML rule's own id.", source: "knowledge/rules/*.yaml"}
+      criterion: {definition: "Which criterion this rule belongs to.", allowed_values: "Directness | Verification | Recency | Definition | Measurement | Integrity | Scope | Governance"}
+      rule_base_version: {definition: "Which version of the rule base fired this rule — lets a 6-month-old row cite the rules as they were, even after the YAML has since changed.", source: "knowledge/rules/*.yaml's version field"}
+      created_at: {definition: "When this rule fired.", source: "default now()"}
+  evidence_claims:
+    description: >-
+      Structural (never free-text) evidence metadata per assessment — the
+      evidence half of the "no queryable indicator/evidence entity" gap.
+      The free-text evidence description stays exactly where it is today:
+      encrypted, inside audits.submissions_json, opt-in only.
+    owner: "Engineering"
+    columns:
+      id: {definition: "Surrogate primary key.", source: "bigserial"}
+      assessment_id: {definition: "The assessment this evidence claim belongs to.", source: "FK -> assessments(id) ON DELETE CASCADE"}
+      evidence_type: {definition: "The category of evidence supplied.", source: "app.py's evidence type dropdown"}
+      verified: {definition: "Whether this evidence was independently verified.", allowed_values: "true | false | null (unknown)"}
+      recency_date: {definition: "When this evidence was collected, if known.", allowed_values: "nullable date"}
+  indicators:
+    description: >-
+      One row per logframe indicator cited in an assessment — deliberately
+      NOT merged with logframe_library_items (0007), which serves a
+      different purpose (a reusable, user-curated list independent of any
+      one assessment). Carries the CHECK constraint enforcing "no endline
+      before baseline," impossible to enforce before these fields were
+      typed as real date columns.
+    owner: "Engineering"
+    columns:
+      id: {definition: "Surrogate primary key.", source: "bigserial"}
+      assessment_id: {definition: "The assessment this indicator was cited in.", source: "FK -> assessments(id) ON DELETE CASCADE"}
+      indicator_name: {definition: "The indicator's name/label as extracted or entered."}
+      logframe_target: {definition: "The indicator's stated target value."}
+      logframe_baseline: {definition: "The indicator's stated baseline value."}
+      logframe_achievement: {definition: "The indicator's stated achieved-to-date value."}
+      baseline_date: {definition: "When the baseline was measured, if known.", allowed_values: "nullable date"}
+      endline_date: {definition: "When the endline/achievement was measured, if known.", allowed_values: "nullable date, must be >= baseline_date"}
+      data_forthcoming: {definition: "Whether the user flagged this indicator's data as still pending.", allowed_values: "true | false"}
+  documents:
+    description: >-
+      Metadata-only record of an uploaded document — filename and a content
+      hash, never the document's actual content. Uploaded files are
+      processed in-memory and never persisted, by deliberate minimization
+      design; this table gives traceability without reversing that.
+    owner: "Engineering"
+    columns:
+      id: {definition: "Surrogate primary key.", source: "bigserial"}
+      assessment_id: {definition: "The assessment this document produced, if any.", source: "FK -> assessments(id) ON DELETE SET NULL"}
+      filename: {definition: "The uploaded file's original filename.", allowed_values: "free text, not validated"}
+      content_hash: {definition: "SHA-256 digest of the extracted text — lets a future feature detect a repeat upload without keeping the document.", source: "same technique as export_verifications.content_hash"}
+      uploaded_at: {definition: "When this document was uploaded.", source: "default now()"}
+  quality_audits:
+    description: >-
+      One row per data-quality finding per audit run (scripts/quality_audit.py),
+      covering 5 of Laudon's 7 quality dimensions — accuracy and
+      accessibility are documented as not automatable given what ImpactProof
+      has today, not silently skipped.
+    owner: "Engineering"
+    columns:
+      id: {definition: "Surrogate primary key.", source: "bigserial"}
+      run_at: {definition: "When this audit run happened.", source: "default now()"}
+      dimension: {definition: "Which quality dimension this finding is about.", allowed_values: "completeness | consistency | uniqueness | validity | timeliness"}
+      table_name: {definition: "Which table this finding concerns."}
+      column_name: {definition: "Which column this finding concerns, if column-specific.", allowed_values: "nullable"}
+      finding: {definition: "Plain-English description of what was found."}
+      severity: {definition: "How serious this finding is.", allowed_values: "info | warning | critical"}
+      sample_count: {definition: "How many rows this finding applies to, if applicable.", allowed_values: "nullable int"}
+
+  # ---------------------------------------------------------------------
+  # Existing tables — table-level description transcribed from each
+  # migration's own header comment; per-column detail intentionally left
+  # to accrue over time rather than fabricated in bulk in this pass.
+  # ---------------------------------------------------------------------
+  users:
+    description: "One row per registered account. Spans identity, billing/subscription state (Paystack), marketing-consent, and lightweight personalization-profile columns — every column is genuinely functionally dependent on email (the key), so this width is a cohesion judgment call, not a normalization violation."
+    owner: "Engineering"
+  login_tokens:
+    description: "Single-use, short-lived magic-link login tokens — proves 'you clicked the link we emailed you' once, then exchanged for a session token."
+    owner: "Engineering"
+  sessions:
+    description: "Long-lived, bookmarkable session tokens (?session=...) so a returning user is silently re-authenticated. A table, not columns on users, because one account can have multiple concurrent, independently-revocable sessions."
+    owner: "Engineering"
+  payments:
+    description: "Durable invoice/payment history, populated from both the redirect-verify flow and the paystack-webhook Edge Function (upserted on paystack_reference, since either path may see a transaction first)."
+    owner: "Engineering"
+  audits:
+    description: "Opt-in, per-account saved audit history — one row per submission-run. submissions_json/evaluations_json are Fernet-encrypted ciphertext (stored as text, not jsonb, since ciphertext isn't valid JSON); donor/sector/org_type/scores are denormalized alongside, unencrypted by design, since they're constrained dropdown values, not free text."
+    owner: "Engineering"
+  logframe_libraries:
+    description: "A user-named, reusable list of logframe indicators, saved once and loaded into future audits."
+    owner: "Engineering"
+  logframe_library_items:
+    description: "One saved indicator within a logframe_libraries list. Not linked to any assessment that may have used it — a deliberately separate concept from the Ch.6 indicators table."
+    owner: "Engineering"
+  audit_aggregate_stats:
+    description: "Anonymized aggregate score distributions (raw arrays, not rows) powering the 'How you compare' benchmark, keyed by (donor, sector, org_type). Recomputed synchronously after each opt-in audit save."
+    owner: "Engineering"
+  access_log:
+    description: "Append-only audit trail for utils/audits.py reads/writes, enforced append-only by GRANT scope (select+insert only), not RLS. email has no FOREIGN KEY — the admin-gate rate-limiter logs against a non-user sentinel string here, which a FK would break."
+    owner: "Engineering / Security"
+  crm_events:
+    description: "Per-account CRM/growth analytics events (signup, audit_run, framework_used, tier_change, upgrade_prompt shown/clicked, whatsapp_click, revision_run) — plaintext-account-identified by design, purgeable on an erase-my-history request."
+    owner: "Engineering / Growth"
+  clients:
+    description: "Agency-tier concept: a named grouping an agency user creates to organize their own saved audits."
+    owner: "Engineering"
+  outcome_feedback:
+    description: "Hash-keyed (never email), works for every export regardless of opt-in — tracks whether a downloaded Readiness Card/Excel workbook was accepted by the donor, captured at export time."
+    owner: "Engineering"
+  assessment_links:
+    description: "Hash-keyed revision-linking — connects a scoring run to the prior run it's an explicit revision of, so a before/after delta can be shown. Works for every user regardless of opt-in."
+    owner: "Engineering"
+  rule_disputes:
+    description: "Hash-keyed dispute log for expert-system rule firings — a MEL specialist can review disputed rules and edit the YAML rule base by hand."
+    owner: "Engineering"
+  export_verifications:
+    description: "Reference-ID verification lookup for exported documents — an immutable proof record, no email/user_hash, works for anyone holding the printed ref_id."
+    owner: "Engineering"
+  customer_profiles:
+    description: "Materialized, one-row-per-account consolidation of every touch point (crm_events/payments/wa_conversations/users), refreshed hourly by the customer-profile-refresh Edge Function via the single refresh_customer_profiles() SQL function. Python only ever reads this table, never writes it."
+    owner: "Engineering / Growth"
+  customer_segment_history:
+    description: "Append-only log of behavioural-segment TRANSITIONS (not every computation) — trial/episodic/embedded/org_emergent/dormant_seasonal/at_risk/lapsed."
+    owner: "Engineering / Growth"
+  api_usage_log:
+    description: "Real Anthropic API token usage/cost per call, tagged by call_site — feeds CLTV's real cost-per-assessment floor."
+    owner: "Engineering"
+  lifecycle_triggers_log:
+    description: "Dedup/cooldown ledger for the 5 deterministic lifecycle triggers (first_assessment_no_engagement, org_emergent_detected, payment_recovery, testimonial_ask, at_risk_reengagement) — written from both the Python app and the customer-profile-refresh Edge Function."
+    owner: "Engineering / Growth"
+  cross_sell_recommendations:
+    description: "Behaviour-only (never demographic) cross-sell recommendation log, with outcome tracking so recommendation logic can be evaluated, not just believed."
+    owner: "Engineering / Growth"
+  examples:
+    description: "Field-level example values shown in the UI, keyed by (field_name, sector)."
+    owner: "Engineering"
+  wa_conversations:
+    description: "WhatsApp Cloud API conversation log (outbound founder-notify + inbound auto-reply). user_email is a plain column with no FOREIGN KEY, and inbound auto-reply rows log an empty email — this table is intentionally not fully user-identified."
+    owner: "Engineering"

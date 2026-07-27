@@ -389,6 +389,45 @@ request. Still dirty after the final attempt degrades to a structural suggestion
 fabricated rewrite, never a bare empty string) — see `utils/fabrication_guard.py`'s module
 docstring.
 
+## Data foundations & quality (Laudon Ch.6) — schema written, NOT applied to production
+
+Audited the full schema (all 30 migrations, `evaluator.py`'s actual scoring output shape) and
+found the data that matters most — per-criterion scores, fired rules, evidence claims,
+indicators — has never been a relational entity: it lives as dict keys inside a single
+encrypted blob (`audits.evaluations_json`), and only for the minority of users who opt into
+saving history. Migrations `0030`–`0037` (`organisations`, `assessments`, `criterion_scores`,
+`rules_fired`, `evidence_claims`, `indicators`, `documents`, `quality_audits`) normalize this —
+**written and reviewed only, not applied to any database, per this pass's explicit scope**.
+
+The new tables are **hash-keyed** (`user_hash`, `metrics.session_hash()`), not email-keyed —
+same pattern as `assessment_links`/`outcome_feedback`/`rule_disputes` — and populated for
+*every* scored assessment, not just opted-in saves. Only scores, enums, dates, and booleans are
+ever stored; free text (result statements, evidence descriptions) stays exactly where it is
+today: encrypted, inside `audits`, opt-in only. This is a deliberate choice so a future data
+warehouse built on these tables satisfies "no PII in the warehouse" by construction, not a later
+scrubbing step. Each migration file carries a `-- DOWN` rollback block as a comment (this repo
+has no down-migration tooling — migrations are numbered files pasted into the SQL editor, not
+an Alembic-style framework) — run those by hand if a rollback is ever needed.
+
+`scripts/generate_data_dictionary.py` regenerates `docs/data_dictionary.md` from a live
+schema's `information_schema` introspection merged with `knowledge/
+data_dictionary_annotations.yaml` (plain-English definitions, transcribed from each table's own
+migration-file comment, not invented) — a table/column with no annotation entry renders as
+`TODO: needs annotation`, never a guessed description. `scripts/quality_audit.py` runs 5 of
+Laudon's 7 data-quality dimensions (completeness/consistency/uniqueness/validity/timeliness)
+against live tables and writes findings to `quality_audits`; the remaining two (accuracy,
+accessibility) are documented as not automatable — no ground truth or end-user survey exists to
+check against — rather than silently skipped. **Both scripts require a real Postgres
+connection** (`SUPABASE_DB_URL`) — `information_schema` doesn't exist in SQLite, so neither can
+run against this repo's usual in-memory test fixtures; their internal logic (rendering,
+`Finding` construction) was smoke-tested with fake data instead, not run against a live schema.
+
+Deferred, not built this pass: C4 (evidence data warehouse — `fact_assessment` + dimension
+tables, genuinely cheap to build once `criterion_scores` exists to source it from), C5 (OLAP
+slice/dice surface), C6 (text mining for hedge-word/house-style risk patterns), C7 (indicator
+stewardship register + draft information policy generator for the customer), C8
+(cleansing-on-ingest, flag-never-correct).
+
 ## Testing
 
 Twenty-two plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
