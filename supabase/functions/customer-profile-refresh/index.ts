@@ -149,8 +149,12 @@ serve(async (req: Request) => {
     return new Response("Method Not Allowed", { status: 405 });
   }
 
-  const cronSecret = Deno.env.get("CRON_SECRET") ?? "";
-  const auth = req.headers.get("Authorization") ?? "";
+  // .trim() -- the Dashboard's secret Value field is a multi-line textarea,
+  // which can silently pick up a trailing newline/space on paste; trimming
+  // both sides of the comparison makes this resilient to that without
+  // requiring the secret to be re-entered with surgical precision.
+  const cronSecret = (Deno.env.get("CRON_SECRET") ?? "").trim();
+  const auth = (req.headers.get("Authorization") ?? "").trim();
   if (!cronSecret || auth !== `Bearer ${cronSecret}`) {
     return new Response("Forbidden", { status: 401 });
   }
