@@ -484,8 +484,10 @@ class _FakeRequests:
     def __init__(self):
         self.post_response = None
         self.raise_on_post = False
+        self.last_post_json = None
 
     def post(self, url, json=None, headers=None, timeout=None):
+        self.last_post_json = json
         if self.raise_on_post:
             raise ConnectionError("network down")
         return self.post_response
@@ -510,6 +512,18 @@ def run_paystack_subscriptions():
         url = paystack.initialize_subscription_payment("user@example.com", 5000, "PLN_test123", "monthly")
         if url != "https://paystack.test/pay/abc":
             failures.append(f"initialize_subscription_payment success: unexpected url {url!r}")
+
+        # 1b. Laudon Ch.10, C4: mobile money must be first in the channels
+        # list Paystack receives, for both the one-off and subscription paths.
+        sent_channels = (fake_requests.last_post_json or {}).get("channels")
+        if sent_channels != ["mobile_money", "card", "bank", "ussd"]:
+            failures.append(f"initialize_subscription_payment: expected mobile-money-first channels, got {sent_channels!r}")
+
+        fake_requests.last_post_json = None
+        paystack.initialize_payment("user@example.com", 500, plan="per_use")
+        sent_channels_once = (fake_requests.last_post_json or {}).get("channels")
+        if sent_channels_once != ["mobile_money", "card", "bank", "ussd"]:
+            failures.append(f"initialize_payment: expected mobile-money-first channels, got {sent_channels_once!r}")
 
         # 2. Missing plan_code -> "" without a network call.
         if paystack.initialize_subscription_payment("user@example.com", 5000, "", "monthly") != "":

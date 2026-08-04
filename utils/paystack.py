@@ -93,6 +93,14 @@ def initialize_payment(email: str, amount_kobo: int, plan: str = "per_use") -> s
         "amount": amount_kobo,
         "currency": "GHS",
         "callback_url": callback_url,
+        # Laudon Ch.10, C4: mobile money first -- the dominant payment rail
+        # in Ghana, but Paystack defaults to whatever the merchant dashboard
+        # has configured, which favors card. Explicitly ordering this list
+        # is the only app-code lever available; actual per-network
+        # availability (MTN/Vodafone/AirtelTigo) still depends on the live
+        # Paystack account's own enabled channels -- not verifiable without
+        # one.
+        "channels": ["mobile_money", "card", "bank", "ussd"],
         "metadata": {"plan": plan, "custom_fields": [
             {"display_name": "Plan", "variable_name": "plan", "value": plan}
         ]},
@@ -165,6 +173,9 @@ def initialize_subscription_payment(email: str, amount_kobo: int, plan_code: str
         "currency": "GHS",
         "callback_url": _base_url(),
         "plan": plan_code,
+        # Laudon Ch.10, C4: same mobile-money-first ordering as
+        # initialize_payment() -- see that function's comment.
+        "channels": ["mobile_money", "card", "bank", "ussd"],
         "metadata": {"plan": plan_label, "custom_fields": [
             {"display_name": "Plan", "variable_name": "plan", "value": plan_label}
         ]},
