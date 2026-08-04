@@ -86,6 +86,28 @@ class Finding:
         return f"[{self.severity.upper()}] {self.dimension}: {self.table_name}{col} — {self.finding}"
 
 
+import re as _re_ident
+
+_SAFE_IDENTIFIER_RE = _re_ident.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _safe_identifier(name: str) -> str:
+    """Validate a table/column name before it's f-string-interpolated into a
+    SQL statement (Laudon Ch.8, C1 -- SQL injection is on the list because it
+    still works). SQLAlchemy's bound parameters (:t, :cutoff, etc., used
+    throughout this file for VALUES) can't parameterize identifiers -- table
+    and column names have to be interpolated -- so every one of them is
+    validated against a strict allowlist pattern here instead, regardless of
+    whether it came from a hardcoded literal in this file or from
+    information_schema introspection of the live database. Raises ValueError
+    (never silently strips/escapes) on anything that doesn't match -- this
+    script only ever runs against ImpactProof's own schema, so a name that
+    fails this check means something is wrong, not that it needs sanitizing."""
+    if not name or not _SAFE_IDENTIFIER_RE.match(name):
+        raise ValueError(f"Refusing to interpolate unsafe SQL identifier: {name!r}")
+    return name
+
+
 def _get_engine():
     db_url = os.environ.get("SUPABASE_DB_URL", "")
     if not db_url:
@@ -107,6 +129,7 @@ def check_completeness(engine) -> list[Finding]:
             "and table_type='BASE TABLE'"
         )).scalars().all()
         for table in tables:
+            table = _safe_identifier(table)
             columns = conn.execute(text(
                 "select column_name from information_schema.columns "
                 "where table_schema='public' and table_name=:t"
@@ -115,6 +138,7 @@ def check_completeness(engine) -> list[Finding]:
             if not total:
                 continue
             for col in columns:
+                col = _safe_identifier(col)
                 nulls = conn.execute(text(
                     f'select count(*) from "{table}" where "{col}" is null'
                 )).scalar()
@@ -151,6 +175,8 @@ def check_consistency(engine) -> list[Finding]:
             where tc.constraint_type = 'FOREIGN KEY' and tc.table_schema = 'public'
         """)).all()
         for child_table, child_column, parent_table, parent_column in fks:
+            child_table, child_column = _safe_identifier(child_table), _safe_identifier(child_column)
+            parent_table, parent_column = _safe_identifier(parent_table), _safe_identifier(parent_column)
             orphans = conn.execute(text(f"""
                 select count(*) from "{child_table}" c
                 where c."{child_column}" is not null
@@ -176,6 +202,7 @@ def check_uniqueness(engine) -> list[Finding]:
     findings = []
     with engine.connect() as conn:
         for table, column in _UNIQUENESS_CHECKS:
+            table, column = _safe_identifier(table), _safe_identifier(column)
             dupes = conn.execute(text(f"""
                 select count(*) from (
                     select "{column}" from "{table}"
@@ -201,15 +228,19 @@ def check_validity(engine) -> list[Finding]:
     findings = []
     with engine.connect() as conn:
         for table, column, low, high in _RANGE_CHECKS:
+            table, column = _safe_identifier(table), _safe_identifier(column)
             conditions = []
+            params = {}
             if low is not None:
-                conditions.append(f'"{column}" < {low}')
+                conditions.append(f'"{column}" < :low')
+                params["low"] = low
             if high is not None:
-                conditions.append(f'"{column}" > {high}')
+                conditions.append(f'"{column}" > :high')
+                params["high"] = high
             if not conditions:
                 continue
             where = " or ".join(conditions)
-            bad = conn.execute(text(f'select count(*) from "{table}" where {where}')).scalar()
+            bad = conn.execute(text(f'select count(*) from "{table}" where {where}'), params).scalar()
             if bad:
                 findings.append(Finding(
                     "validity", table, column,
@@ -218,11 +249,13 @@ def check_validity(engine) -> list[Finding]:
                     "critical", sample_count=bad,
                 ))
         for table, column, allowed in _ENUM_CHECKS:
-            placeholders = ", ".join(f"'{v}'" for v in allowed)
-            bad = conn.execute(text(
+            table, column = _safe_identifier(table), _safe_identifier(column)
+            from sqlalchemy import bindparam
+            stmt = text(
                 f'select count(*) from "{table}" where "{column}" is not null '
-                f'and "{column}" not in ({placeholders})'
-            )).scalar()
+                f'and "{column}" not in :allowed'
+            ).bindparams(bindparam("allowed", expanding=True))
+            bad = conn.execute(stmt, {"allowed": sorted(allowed)}).scalar()
             if bad:
                 findings.append(Finding(
                     "validity", table, column,
@@ -240,6 +273,7 @@ def check_timeliness(engine) -> list[Finding]:
     now = datetime.now(timezone.utc)
     with engine.connect() as conn:
         for table, ts_column, max_age_hours, context in _STALENESS_CHECKS:
+            table, ts_column = _safe_identifier(table), _safe_identifier(ts_column)
             cutoff = now - timedelta(hours=max_age_hours)
             stale = conn.execute(text(
                 f'select count(*) from "{table}" where "{ts_column}" < :cutoff'
