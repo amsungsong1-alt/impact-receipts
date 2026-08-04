@@ -487,6 +487,56 @@ threshold design as a concrete example, and names four honest open gaps rather t
 completeness. `docs/responsible_ai_statement.md` is the shorter, customer/investor-facing
 distillation of the same material for pitch use.
 
+## Revenue model & unit economics (Laudon Ch.10, §10-1/§10-2)
+
+ImpactProof runs freemium (3 free checks) + transaction-fee (GHS 5/use) + subscription
+(GHS 50/mo Professional, GHS 200/mo Agency) simultaneously — a combination Laudon's Ch.10
+digital-goods framing (marginal cost ≈ 0) explicitly warns against, since every AI-assisted
+assessment costs real Anthropic API money. **C1** extends `utils/api_pricing.py` (the Ch.9
+CLTV pass's real per-call cost logging) with `compute_p95_cost_per_assessment()`,
+`compute_cost_by_document_length_bucket()`, and `compute_subscription_breakeven_assessments()`
+— no schema change; the two call sites that already gate a scored assessment
+(`irc_extraction`/`batch_extraction`) already satisfy "measured and stored, not estimated."
+`docs/unit_economics.md` documents the real (n=6 as of 2026-08-04, explicitly flagged as too
+small to price on) numbers this produces, and what's deliberately *not* measured (a literal
+`assessment_id`-linked cost table, wall-clock duration, storage/compute overhead) and why.
+
+**C2/C6** (`scripts/pricing_model.py`) is a scenario-comparison script, never a UI, and never
+touches a live price constant or Paystack Plan object — compares the current split against a
+subscription+fair-use-cap+overage model, credit packs, and a limited free tier (both a
+cached-demo and a live-scored variant), reading real cost from C1's functions (falling back
+to a clearly-labeled SYNTHETIC EXAMPLE distribution otherwise) and pricing *assumptions* (not
+live prices) from `knowledge/cltv_assumptions.yaml`. C6 adds differential/concessional
+pricing by organisational capacity plus an explicit `check_cannibalization()` — which
+correctly flags that a naive CBO/Government discount undercuts Agency pricing per-assessment,
+meaning any real concessional tier needs a real eligibility check, not a self-reported
+dropdown.
+
+**C3**: `check_access()` gained `ai_features_allowed` (paid-only), splitting it from the
+existing free-checks-based `allowed`. Council Assessment and Score Chat were previously
+gated on the same free-checks counter as basic scoring — meaning a free-tier account with
+checks remaining could run genuinely AI-powered (real marginal cost) features, contradicting
+the product's own "3 free checks" framing. Core scoring (`evaluator.py`, zero marginal cost
+by construction) stays on the unchanged `allowed` gate and remains unlimited.
+
+**C4**: `utils/paystack.py` now sends Paystack's `channels` param, mobile-money-first
+(`["mobile_money", "card", "bank", "ussd"]`) — previously unset entirely, meaning channel
+ordering was 100% merchant-dashboard-controlled despite mobile money being the dominant rail
+in Ghana. `utils/receipts.py::build_receipt_html()` gives the billing page's previously-bare
+payment-history dataframe a real downloadable receipt (PDF via the existing
+`_html_to_pdf_bytes()`, HTML fallback) — something an M&E officer can attach to a donor grant
+line, which didn't exist before. Live mobile-money channel *availability* per network and
+end-to-end failed-payment UX aren't verifiable without a live Paystack test account — flagged
+as a manual post-merge check, not code.
+
+**C5**: `utils/account_export.py::build_account_export()` — a full JSON export (audits with
+full decrypted content, Logframe Library + items, clients, payment history), composed
+entirely from existing ownership-checked read functions, mirroring
+`purge_account_audit_content()`'s scope plus payment history. Surfaced on My Audits right
+before the Danger Zone. No live Paystack account or price change involved anywhere in this
+arc — same explicit boundary as the original Ch.10 brief: this pass produces numbers and
+tooling, not a pricing decision.
+
 ## Testing
 
 Twenty-three plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
@@ -509,7 +559,9 @@ still behaves as a plain dict within one process):
 python test_app.py              # evaluator.py + diagnostics.py scoring behaviour
 python test_council.py          # fabrication guard + logframe match
 python test_metrics.py          # metrics event logging/summarization
-python test_billing.py          # auth token lifecycle, metering, Paystack subscriptions/webhook sig
+python test_billing.py          # auth token lifecycle, metering, Paystack subscriptions/webhook sig;
+                                 # Ch.10 C3: ai_features_allowed paid-only gate; Ch.10 C4: mobile-money-
+                                 # first channel ordering
 python test_audits.py           # saved audits, logframe library, benchmark, access log, encryption, deletion
 python test_crm.py              # crm events, agency-ready detection, account segmentation, purge;
                                  # Ch.9 behavioural segmentation (all 7 segments), MEL-calendar-aware
@@ -533,7 +585,8 @@ python test_customer_profiles.py # Ch.9 CRM: customer_profiles read path (get/li
 python test_mel_calendar.py     # Ch.9 CRM: knowledge/mel_calendar.yaml loads, reporting-month check,
                                  # graceful degradation on a missing file
 python test_api_pricing.py      # Ch.9 CRM (C4): model_pricing.yaml loads, per-model cost computation,
-                                 # assessment-only usage averaging for CLTV's cost floor
+                                 # assessment-only usage averaging for CLTV's cost floor; Ch.10 C1: p95,
+                                 # cost-by-document-length bucketing, subscription break-even
 python test_lifecycle_triggers.py # Ch.9 CRM (C6): trigger eligibility conditions, cooldown/dedup,
                                  # individually-disableable triggers, fail-open no-engine degradation
 python test_cross_sell.py       # Ch.9 CRM (C7): behaviour-only recommendation selection, dedup,
@@ -549,6 +602,13 @@ python test_indicator_stewardship.py # Ch.6 Phase 2 C7 (register): inconsistent 
                                  # detection, single-use exemption, per-account hash isolation
 python test_policy_generator.py # Ch.6 Phase 2 C7 (policy): known fields fill correctly, unknown
                                  # fields always placeholder (never fabricate), disclaimer always present
+python test_pricing_model.py    # Ch.10 C2/C6: scenario math (current split, fair-use cap,
+                                 # credit packs, limited free tier), concessional-tier
+                                 # cannibalization detection, synthetic-fallback and main() smoke test
+python test_receipts.py         # Ch.10 C4: receipt HTML renders all fields, non-success status
+                                 # class, missing-field placeholders, no external assets
+python test_account_export.py   # Ch.10 C5: full bundle composition, empty-account degradation,
+                                 # cross-account isolation, no-engine degradation
 python test_i18n.py             # currency conversion, geoIP routing, ROI copy, Paystack checkout routing
 python test_security.py         # app.py-level regression tests (user_email overwrite guard, portfolio
                                  # heatmap sample gate, Readiness Card crosswalk tags, verify landing page,
