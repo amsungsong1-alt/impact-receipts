@@ -113,6 +113,75 @@ def run_is_uncertain_and_mark_uncertain_fields():
           "uncertain, real values (including a meaningful '0') are not.")
 
 
+def run_validate_council_synthesis():
+    failures = []
+
+    # A well-shaped synthesis response must pass.
+    good = {
+        "upgraded_result_statement": "487 farmers were trained in 2023.",
+        "upgraded_evidence_statement": "Attendance sheets confirm this figure.",
+        "reporting_team_brief": {
+            "what_score_means": "Your result is well-defined.",
+            "what_to_change": ["Add a verification source."],
+            "how_long": "1-2 hours",
+            "projected_status": "Meets standard",
+        },
+    }
+    valid, errors = es.validate_council_synthesis(good)
+    if not valid:
+        failures.append(f"a well-shaped synthesis response should validate, got errors: {errors}")
+
+    # Missing sections entirely (fabrication guard withheld both fields)
+    # must still validate -- shape, not completeness.
+    withheld = {"upgraded_result_statement": "", "upgraded_evidence_statement": ""}
+    valid, errors = es.validate_council_synthesis(withheld)
+    if not valid:
+        failures.append(f"withheld-but-well-shaped response should validate, got errors: {errors}")
+
+    # Wrong top-level type must fail.
+    valid, errors = es.validate_council_synthesis(["not", "a", "dict"])
+    if valid:
+        failures.append("a top-level list (not a dict) should fail validation")
+
+    # upgraded_result_statement as the wrong type (e.g. a prompt-injection
+    # attempt producing a list instead of a string) must fail.
+    wrong_type = {"upgraded_result_statement": ["should", "be", "a", "string"]}
+    valid, errors = es.validate_council_synthesis(wrong_type)
+    if valid:
+        failures.append("upgraded_result_statement as a list should fail validation")
+    if not any("upgraded_result_statement" in e for e in errors):
+        failures.append(f"expected an error naming 'upgraded_result_statement', got {errors}")
+
+    # reporting_team_brief with the wrong shape must fail.
+    bad_brief = {"reporting_team_brief": "should be an object, not a string"}
+    valid, errors = es.validate_council_synthesis(bad_brief)
+    if valid:
+        failures.append("reporting_team_brief as a string should fail validation")
+
+    # reporting_team_brief with a field of the wrong type must fail.
+    bad_brief_field = {"reporting_team_brief": {"what_to_change": "should be a list, not a string"}}
+    valid, errors = es.validate_council_synthesis(bad_brief_field)
+    if valid:
+        failures.append("reporting_team_brief.what_to_change as a string should fail validation")
+
+    # None must never raise.
+    try:
+        valid, errors = es.validate_council_synthesis(None)
+        if valid:
+            failures.append("None should fail validation, not pass")
+    except Exception as exc:
+        failures.append(f"validate_council_synthesis(None) raised instead of returning (False, [...]): {exc}")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: validate_council_synthesis — well-shaped and withheld-but-valid inputs pass; "
+          "wrong top-level type, wrong field type, and wrong nested brief shape all fail; never raises.")
+
+
 if __name__ == "__main__":
     run_validate_extraction()
     run_is_uncertain_and_mark_uncertain_fields()
+    run_validate_council_synthesis()

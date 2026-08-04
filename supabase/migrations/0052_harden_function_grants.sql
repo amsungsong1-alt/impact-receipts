@@ -1,0 +1,52 @@
+-- 0052_harden_function_grants.sql
+-- Laudon Ch.8 hardening, C1/C3: fixes for two real findings surfaced by
+-- Supabase's own security advisor (get_advisors) against the live
+-- production project on 2026-08-03, not found by this repo's own static
+-- analysis -- recorded here as a concrete example of why an external
+-- linter/scanner catches things code review alone doesn't.
+--
+-- Finding 1 (WARN, function_search_path_mutable): public.increment_free_checks
+-- and public.refresh_customer_profiles have no SET search_path pinned. A
+-- SECURITY DEFINER function without a pinned search_path is the classic
+-- Postgres privilege-escalation footgun -- a caller who can create objects
+-- in a schema earlier in their own search_path could shadow an
+-- unqualified reference inside the function and have it execute with the
+-- function owner's privileges instead. Both are SECURITY DEFINER (per
+-- Finding 2 below), so this applies to both.
+--
+-- Finding 2 (WARN, anon/authenticated_security_definer_function_executable):
+-- refresh_customer_profiles() is directly callable by ANY holder of the
+-- public anon key via POST /rest/v1/rpc/refresh_customer_profiles --
+-- bypassing supabase/functions/customer-profile-refresh/index.ts's
+-- CRON_SECRET bearer check entirely, since that check only guards the Edge
+-- Function's own HTTP endpoint, not the underlying Postgres function it
+-- calls. Anyone with the anon key (meant to be public/embeddable -- it's
+-- shipped to every browser) can currently trigger an unbounded,
+-- unauthenticated full customer-profile rebuild on demand: a cost/DoS
+-- vector, not just an authorization tidiness issue. Revoking anon/
+-- authenticated EXECUTE is safe here because the Edge Function calls this
+-- RPC using SUPABASE_SERVICE_ROLE_KEY (service_role), which is unaffected
+-- by this revoke -- confirmed against supabase/functions/
+-- customer-profile-refresh/index.ts before writing this migration.
+--
+-- increment_free_checks(p_email) is NOT revoked from anon/authenticated --
+-- unlike refresh_customer_profiles, this one is deliberately called by the
+-- Streamlit app's own anon-key client (utils/db.py) as its normal, intended
+-- calling pattern for metering a single account's free-check counter. Only
+-- its search_path gets pinned here, not its grants.
+alter function public.increment_free_checks(text) set search_path = public;
+alter function public.refresh_customer_profiles() set search_path = public;
+
+revoke execute on function public.refresh_customer_profiles() from anon, authenticated;
+-- service_role and the function owner retain execute rights by default --
+-- this is what supabase/functions/customer-profile-refresh/index.ts uses.
+
+-- Not fixed in this migration (documented, not silently dropped): the
+-- pg_net extension is installed in the public schema (WARN,
+-- extension_in_public). Moving an extension's schema can break any
+-- existing function/trigger that calls its members unqualified, and this
+-- repo doesn't have full visibility into every place pg_net might be
+-- invoked (e.g. from within Supabase-managed cron jobs configured outside
+-- this repo's migration files) -- relocating it needs a manual audit of
+-- every pg_net call site first, tracked as an open item in
+-- docs/compliance/records_of_processing.md rather than risked here.

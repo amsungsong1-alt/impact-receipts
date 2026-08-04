@@ -503,7 +503,17 @@ def run_council_assessment(submission: dict, ev: dict, api_key: str) -> dict:
         # Strip any accidental markdown fences before parsing
         clean = re.sub(r"```(?:json)?|```", "", raw_synthesis).strip()
         try:
-            parsed             = json.loads(clean)
+            parsed = json.loads(clean)
+            # Model output is untrusted input, syntactically valid JSON or
+            # not -- validate its shape before trusting upgraded_result/
+            # upgraded_evidence/reporting_brief are what the rest of this
+            # function assumes (see utils/extraction_schema.py's docstring).
+            # A shape mismatch is treated identically to a JSON parse
+            # failure: same except branch, same graceful fallback below.
+            from utils.extraction_schema import validate_council_synthesis
+            _valid, _schema_errors = validate_council_synthesis(parsed)
+            if not _valid:
+                raise ValueError(f"synthesis response failed schema validation: {_schema_errors}")
             upgraded_result    = parsed.get("upgraded_result_statement", "")
             upgraded_evidence  = parsed.get("upgraded_evidence_statement", "")
             reporting_brief    = parsed.get("reporting_team_brief", {})

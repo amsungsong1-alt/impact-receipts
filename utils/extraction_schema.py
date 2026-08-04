@@ -89,3 +89,54 @@ def mark_uncertain_fields(flat_fields: dict) -> dict:
     caption) to handle explicitly, rather than the caller re-deriving the
     same "Not found"/empty check independently at each extraction site."""
     return {name: is_uncertain(value) for name, value in flat_fields.items()}
+
+
+# ---------------------------------------------------------------------------
+# council.py's synthesis output (Laudon Ch.8 hardening, C1): this is model
+# output too -- a narrative synthesis rather than a structured extraction --
+# but the same principle applies: validate its shape before it's used, don't
+# just trust that syntactically-valid JSON also has the shape the caller
+# expects. Schema mirrors council.run_council_assessment()'s own documented
+# return-shape docstring exactly.
+# ---------------------------------------------------------------------------
+
+_COUNCIL_SYNTHESIS_BRIEF_TYPES: dict = {
+    "what_score_means": str,
+    "what_to_change": list,
+    "how_long": str,
+    "projected_status": str,
+}
+
+
+def validate_council_synthesis(data) -> tuple[bool, list[str]]:
+    """Shape check on council.py's parsed synthesis JSON (the
+    upgraded_result_statement/upgraded_evidence_statement/
+    reporting_team_brief response), run immediately after json.loads() and
+    before any of it is shown to a user or passed to check_fabrication().
+    Same fail-closed-on-unusable, tolerant-of-missing-optional-parts
+    convention as validate_extraction() above -- a synthesis response that
+    passes json.loads() but comes back with, say, upgraded_result_statement
+    as a list instead of a string (a prompt-injection attempt via document
+    content, or just a model hiccup) must not reach check_fabrication() or
+    the UI as if it were the documented shape."""
+    errors: list[str] = []
+    if not isinstance(data, dict):
+        return False, [f"synthesis response must be a JSON object, got {type(data).__name__}"]
+
+    for key in ("upgraded_result_statement", "upgraded_evidence_statement"):
+        if key in data and not isinstance(data[key], str):
+            errors.append(f"'{key}' must be a string, got {type(data[key]).__name__}")
+
+    if "reporting_team_brief" in data:
+        brief = data["reporting_team_brief"]
+        if not isinstance(brief, dict):
+            errors.append(f"'reporting_team_brief' must be an object, got {type(brief).__name__}")
+        else:
+            for field, expected_type in _COUNCIL_SYNTHESIS_BRIEF_TYPES.items():
+                if field in brief and not isinstance(brief[field], expected_type):
+                    errors.append(
+                        f"'reporting_team_brief.{field}' must be a {expected_type.__name__}, "
+                        f"got {type(brief[field]).__name__}"
+                    )
+
+    return (len(errors) == 0), errors
