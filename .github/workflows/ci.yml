@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Laudon Ch.8 hardening, C7: fails the build on a known high-severity
+      # CVE in a pinned dependency -- exact pins (requirements.txt) make
+      # this meaningful (a floor-only >= range means "known vulnerable"
+      # could just mean "hasn't been bumped yet", not "this exact build is
+      # exposed"). --strict fails on any dependency pip-audit can't resolve
+      # a fix for too, not just ones it silently skips.
+      - name: Dependency vulnerability scan (pip-audit)
+        run: |
+          pip install pip-audit
+          pip-audit --strict --desc
+
+      # No pytest in this repo -- every test_*.py is a plain-assert script,
+      # run directly and expected to exit 0 (see CLAUDE.md's own testing
+      # convention). AUDIT_ENCRYPTION_KEY is a throwaway CI-only key so
+      # test_audits.py/test_backfill_encrypt_audits.py's Fernet round-trip
+      # tests have something to encrypt against -- never the real
+      # production key, which must never appear in a workflow file.
+      - name: Run test suite
+        env:
+          AUDIT_ENCRYPTION_KEY: ${{ secrets.CI_TEST_AUDIT_ENCRYPTION_KEY }}
+        run: |
+          set -e
+          for f in test_*.py; do
+            echo "Running $f"
+            python "$f"
+          done
+
+      # Laudon Ch.8 hardening, C2/C3: a secret committed to a NEW commit is
+      # cheaper to catch here (fails the PR) than in the one-time full
+      # history scan this repo already ran once (.gitleaks.toml records
+      # that result) -- this step is the ongoing version of that same scan,
+      # not a replacement for the local pre-commit hook
+      # (.pre-commit-config.yaml), which is the cheapest place to catch it
+      # of all (before it's ever pushed).
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
