@@ -333,6 +333,46 @@ def run_admin_rbac_gate():
     print("PASS: admin RBAC gate -- is_admin=true required; false/missing/unknown/empty accounts all rejected.")
 
 
+def run_admin_rbac_gate_role_tier():
+    """Laudon Ch.8, C3: the role column (0050_users_role_and_totp.sql) is
+    additive to is_admin, not a replacement -- either signal must grant
+    access, so a legacy is_admin=true row with no role set (pre-migration
+    shape) is never locked out, and a new role='admin'/'owner' row is
+    authorized even if is_admin is false/missing (the post-migration
+    shape, since the migration's own backfill sets both together in
+    practice, but the check must not assume that)."""
+    failures = []
+    import utils.db as db
+    original_get_client = db._get_client
+    rows = [
+        {"email": "role-admin@example.com", "role": "admin", "is_admin": False},
+        {"email": "role-owner@example.com", "role": "owner", "is_admin": False},
+        {"email": "role-user@example.com", "role": "user", "is_admin": False},
+        {"email": "role-analyst@example.com", "role": "analyst", "is_admin": False},
+    ]
+    db._get_client = lambda: _FakeAdminUsersClient(rows)
+    try:
+        if not app._is_authorized_admin("role-admin@example.com"):
+            failures.append("expected role='admin' to be authorized even with is_admin=false")
+        if not app._is_authorized_admin("role-owner@example.com"):
+            failures.append("expected role='owner' to be authorized even with is_admin=false")
+        if app._is_authorized_admin("role-user@example.com"):
+            failures.append("expected role='user' (default) to be rejected")
+        if app._is_authorized_admin("role-analyst@example.com"):
+            failures.append("expected role='analyst' (read-only tier, not yet wired to any admin "
+                             "surface) to be rejected from the full admin dashboard")
+    finally:
+        db._get_client = original_get_client
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: admin RBAC gate role tier -- role IN ('admin','owner') authorizes "
+          "independently of is_admin; 'user'/'analyst' do not.")
+
+
 def run_admin_crm_behavioral_dashboard():
     """Laudon Ch.9, C5: the new behavioural CRM dashboard section must
     render without raising across seeded data and completely empty data."""
@@ -409,4 +449,5 @@ if __name__ == "__main__":
     run_verify_landing()
     run_agency_d4_views()
     run_admin_rbac_gate()
+    run_admin_rbac_gate_role_tier()
     run_admin_crm_behavioral_dashboard()

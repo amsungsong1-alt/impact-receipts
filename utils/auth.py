@@ -282,3 +282,155 @@ def revoke_all_sessions(email: str) -> None:
             .eq("email", email).is_("revoked_at", "null").execute()
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Supabase Auth session attachment (see utils/supabase_auth.py) -- stores the
+# access/refresh token minted for a user's real auth.uid() on the same
+# sessions row as this app's own token_hash, so a returning visitor's
+# ?session=... also carries their RLS identity. Purely additive: every
+# function here degrades to a no-op/None on any failure, and no caller may
+# treat that as a login failure -- the app's own session token above is the
+# only thing login has ever depended on.
+# ---------------------------------------------------------------------------
+
+def attach_auth_session(raw_token: str, auth_session: dict | None) -> None:
+    """Encrypt and store a minted Supabase Auth session's tokens on the
+    sessions row identified by raw_token (this app's own session token).
+    Unlike token_hash, these must be stored reversibly (Fernet, not SHA-256)
+    since the app has to hand them back to PostgREST/GoTrue in raw form --
+    see 0040_sessions_auth_tokens.sql. No-ops if crypto isn't configured
+    (AUDIT_ENCRYPTION_KEY missing) or auth_session is falsy."""
+    if not raw_token or not auth_session:
+        return
+    try:
+        from utils.crypto import encrypt_text
+        access_ct = encrypt_text(auth_session.get("access_token", ""))
+        refresh_ct = encrypt_text(auth_session.get("refresh_token", ""))
+        if not access_ct or not refresh_ct:
+            return
+        c = _get_client()
+        if not c:
+            return
+        expires_at = auth_session.get("expires_at")
+        expires_iso = (datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat()
+                       if expires_at else None)
+        c.table("sessions").update({
+            "auth_access_token": access_ct,
+            "auth_refresh_token": refresh_ct,
+            "auth_access_token_expires_at": expires_iso,
+        }).eq("token_hash", _hash_token(raw_token)).execute()
+    except Exception:
+        pass
+
+
+def get_auth_session(raw_token: str) -> dict | None:
+    """Decrypt and return {"access_token","refresh_token","expires_at"
+    (datetime|None)} for this app session's stored Supabase Auth tokens, or
+    None if never attached, or crypto/DB unavailable. Does not refresh a
+    near-expiry token -- see refresh_auth_session_if_needed()."""
+    if not raw_token:
+        return None
+    try:
+        c = _get_client()
+        if not c:
+            return None
+        res = (c.table("sessions")
+               .select("auth_access_token,auth_refresh_token,auth_access_token_expires_at")
+               .eq("token_hash", _hash_token(raw_token)).execute())
+        row = res.data[0] if res.data else None
+        if not row or not row.get("auth_access_token") or not row.get("auth_refresh_token"):
+            return None
+        from utils.crypto import decrypt_text
+        access = decrypt_text(row["auth_access_token"])
+        refresh = decrypt_text(row["auth_refresh_token"])
+        if not access or not refresh:
+            return None
+        return {
+            "access_token": access,
+            "refresh_token": refresh,
+            "expires_at": _parse_ts(row.get("auth_access_token_expires_at")),
+        }
+    except Exception:
+        return None
+
+
+def refresh_auth_session_if_needed(raw_token: str, threshold_seconds: int = 300) -> dict | None:
+    """Refresh this session's Supabase Auth access token if it's missing or
+    expiring within threshold_seconds; otherwise return it unchanged.
+
+    Guards against Streamlit's overlapping-rerun model tripping Supabase's
+    refresh-token reuse detection the same way redeem_magic_link_token()
+    guards its own double-redeem race: the write is conditioned on the
+    expiry value this call actually read (a compare-and-swap), so a
+    concurrent rerun that already refreshed loses the race harmlessly
+    instead of rotating the same refresh token twice and forcing a logout.
+    """
+    current = get_auth_session(raw_token)
+    if not current:
+        return None
+    expires_at = current.get("expires_at")
+    if expires_at and (expires_at - _now()) > timedelta(seconds=threshold_seconds):
+        return current  # still fresh
+    from utils.supabase_auth import refresh_auth_session as _do_refresh
+    new_session = _do_refresh(current.get("refresh_token"))
+    if not new_session:
+        return current  # refresh failed -- keep using the (possibly stale) token, never nothing
+    try:
+        from utils.crypto import encrypt_text
+        access_ct = encrypt_text(new_session["access_token"])
+        refresh_ct = encrypt_text(new_session["refresh_token"])
+        if not access_ct or not refresh_ct:
+            return new_session
+        c = _get_client()
+        if not c:
+            return new_session
+        expires_iso = datetime.fromtimestamp(new_session["expires_at"], tz=timezone.utc).isoformat()
+        q = (c.table("sessions").update({
+                "auth_access_token": access_ct,
+                "auth_refresh_token": refresh_ct,
+                "auth_access_token_expires_at": expires_iso,
+             }).eq("token_hash", _hash_token(raw_token)))
+        if expires_at:
+            q = q.eq("auth_access_token_expires_at", expires_at.isoformat())
+        q.execute()
+    except Exception:
+        pass
+    return new_session
+
+
+def ensure_auth_session(email: str, raw_token: str) -> str | None:
+    """Guarantee this app session has a working Supabase Auth identity for
+    `email`, minting one for the first time or refreshing an existing one,
+    and returns the access token to attach to a session-scoped client
+    (utils/db.py::_get_authed_client()) -- or None if Supabase Auth isn't
+    configured/available, which callers must treat as "fall back to the
+    anon-key client for this request," never as a login failure.
+
+    This is the single call site that closes the loop between minting
+    (utils/supabase_auth.py) and RLS actually resolving anyone's identity
+    (utils/db.py::link_auth_user_id -> auth_email(), 0039_auth_email_function.sql):
+    without the link_auth_user_id() call below, auth_email() would return
+    NULL for every account forever, no matter how many valid JWTs get
+    minted. Call this from BOTH _complete_email_login (fresh login) and
+    _restore_session_from_query_param (returning session) -- a session that
+    was established before this feature existed has no stored auth tokens
+    yet, and refresh_auth_session_if_needed() alone will never mint one for
+    it; it only refreshes what's already there.
+    """
+    if not email or not raw_token:
+        return None
+    existing = refresh_auth_session_if_needed(raw_token)
+    if existing:
+        return existing.get("access_token")
+    try:
+        from utils.supabase_auth import mint_auth_session
+        new_session = mint_auth_session(email)
+        if not new_session:
+            return None
+        attach_auth_session(raw_token, new_session)
+        from utils.db import link_auth_user_id
+        link_auth_user_id(email, new_session["auth_user_id"])
+        return new_session.get("access_token")
+    except Exception:
+        return None

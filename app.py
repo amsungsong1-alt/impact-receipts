@@ -50,10 +50,11 @@ from utils import geoip
 # --- Payment / auth / DB utilities ---
 try:
     from utils.db import (
-        get_user, upsert_user, mark_paid, set_user_plan,
+        get_user, get_user_privileged, upsert_user, mark_paid, set_user_plan,
         is_still_paid, save_example, get_examples,
         save_user_draft, load_user_draft, clear_user_draft,
         get_payment_history, delete_wa_conversations, set_user_currency,
+        set_user_totp,
     )
     from utils.paystack import (
         initialize_payment, verify_payment, last_payment_error,
@@ -64,6 +65,7 @@ try:
         send_login_email, verify_magic_link_token, redeem_magic_link_token,
         issue_session_token, verify_session_token,
         list_sessions, revoke_session, revoke_all_sessions,
+        ensure_auth_session,
     )
     from utils.metering import check_access, record_check, FREE_CHECKS_LIMIT
     _UTILS_AVAILABLE = True
@@ -75,6 +77,7 @@ except ImportError:
         "stub mode (no login, no payments, no usage tracking) until this is fixed."
     )
     def get_user(e): return None
+    def get_user_privileged(e): return None
     def upsert_user(e): return None
     def mark_paid(e, days=30): pass
     def set_user_plan(e, p): pass
@@ -101,6 +104,7 @@ except ImportError:
     def list_sessions(e): return []
     def revoke_session(token_hash, e): pass
     def revoke_all_sessions(e): pass
+    def ensure_auth_session(e, raw_token): return None
     FREE_CHECKS_LIMIT = 3
     def check_access(e):
         return {"is_paid": False, "plan": "free", "checks_used": 0,
@@ -130,7 +134,7 @@ try:
         get_benchmark, MIN_BENCHMARK_SAMPLE, check_rate_limit, log_access,
         purge_account_audit_content, last_audit_error,
         create_client, list_clients, delete_client, assign_audit_client,
-        list_audits_with_client,
+        list_audits_with_client, check_cost_rate_limit,
     )
     _AUDITS_AVAILABLE = True
 except ImportError:
@@ -153,6 +157,7 @@ except ImportError:
     def get_benchmark(donor, sector, org_type, my_confidence, my_clarity): return None
     MIN_BENCHMARK_SAMPLE = 10
     def check_rate_limit(email, action, max_count, window_seconds): return True  # fail open
+    def check_cost_rate_limit(email, action, max_count, window_seconds): return False  # fail closed -- see its own docstring
     def log_access(email, action, resource_type=None, resource_id=None, ip_address=None): pass
     def purge_account_audit_content(email): return {"audits_deleted": 0, "libraries_deleted": 0, "clients_deleted": 0}
     def last_audit_error(): return "utils.audits failed to import."
@@ -173,6 +178,23 @@ def _safe_rate_limit_ok(email: str, action: str, max_count: int, window_seconds:
         return check_rate_limit(email, action, max_count, window_seconds)
     except Exception:
         return True
+
+
+def _safe_cost_rate_limit_ok(email: str, action: str, max_count: int, window_seconds: int) -> bool:
+    """Guards the three document-extraction call sites that each trigger a
+    real Anthropic API call (Instant Report Check, Score My Report,
+    CSV Portfolio) -- a deliberate divergence from _safe_rate_limit_ok's
+    fail-OPEN convention above. check_rate_limit's fail-open behavior is
+    correct for ordinary features (a limiter outage shouldn't block saving
+    an audit), but is exactly backwards for a cost-bearing endpoint, where
+    "the limiter is broken" is precisely the moment an abuser could run up
+    an unbounded bill (Laudon Ch.8, C1: rate-limit uploads to blunt both
+    abuse and cost attacks). Any exception here -- not just a False result --
+    also denies, unlike the try/except-returns-True pattern above."""
+    try:
+        return check_cost_rate_limit(email, action, max_count, window_seconds)
+    except Exception:
+        return False
 
 
 def _safe_log_access(email: str, action: str, resource_type: str | None = None,
@@ -954,8 +976,22 @@ def _extract_text_from_file(fname_lower, raw):
 
     Returns (text, error_message). On success error_message is "".
     On failure text is "" and error_message describes why.
+
+    Every upload path that reads and parses file content (Instant Report
+    Check, single-document donor-report extraction, CSV Portfolio batch)
+    routes through this one function, so utils.upload_guard.validate_upload
+    is enforced here once rather than at each call site -- extension
+    allowlist, size cap, and content-type/magic-byte verification (not
+    filename trust) all happen BEFORE any parser (pdfplumber/python-docx/
+    python-pptx/pandas+openpyxl) ever sees the bytes. A rejection here always
+    fails closed (returns "" + the reason), never attempts to strip/
+    sanitize the offending content and continue.
     """
     import io as _io
+    from utils.upload_guard import validate_upload as _validate_upload
+    _ok, _reason = _validate_upload(fname_lower, raw)
+    if not _ok:
+        return "", _reason
     text = ""
     if fname_lower.endswith(".pdf"):
         if not _HAS_PDFPLUMBER:
@@ -2176,6 +2212,19 @@ def _restore_session_from_query_param() -> None:
     _email = verify_session_token(_tok)
     if _email:
         st.session_state["user_email"] = _email
+        # Ensure (mint-if-never-attached, else refresh) this session's
+        # Supabase Auth identity BEFORE the get_user() call below -- a
+        # session established before this feature existed has no auth
+        # tokens attached yet, and refresh alone never mints a first one
+        # (see ensure_auth_session's docstring). Doing this first means
+        # get_user() benefits from a real JWT on this very page load,
+        # instead of falling back to the anon client for one request.
+        try:
+            _auth_token = ensure_auth_session(_email, _tok)
+            if _auth_token:
+                st.session_state["_supabase_auth_access_token"] = _auth_token
+        except Exception:
+            pass
         _u = get_user(_email)
         if _u and is_still_paid(_u):
             st.session_state["is_paid"] = True
@@ -4839,8 +4888,26 @@ _DONOR_TO_FRAMEWORK: dict = {
 
 def _complete_email_login(email: str) -> None:
     st.session_state["user_email"] = email
-    _is_new_user = get_user(email) is None  # check before upsert
+    _is_new_user = get_user_privileged(email) is None  # service-role check -- correct even pre-auth-session
     upsert_user(email)
+    _safe_log_access(email, "login_success")  # Laudon Ch.8, C4: audit trail auth-event coverage
+
+    # Issue this app's own session token FIRST (moved up from the end of
+    # this function) -- ensure_auth_session() attaches Supabase Auth tokens
+    # to the sessions row this creates, and every get_user/load_user_draft/
+    # etc. call below benefits from having a real JWT by the time it runs,
+    # instead of falling back to the anon client (which, once RLS is
+    # enforced on users/payments, sees nothing at all).
+    _session_tok = issue_session_token(email)
+    if _session_tok:
+        st.query_params["session"] = _session_tok
+        try:
+            _auth_token = ensure_auth_session(email, _session_tok)
+            if _auth_token:
+                st.session_state["_supabase_auth_access_token"] = _auth_token
+        except Exception:
+            pass
+
     _u = get_user(email)
     if _u and is_still_paid(_u):
         st.session_state["is_paid"] = True
@@ -4898,11 +4965,6 @@ def _complete_email_login(email: str) -> None:
                 st.session_state["_draft_restored_from_cloud"] = True
         except Exception:
             pass
-    # Issue a durable session token so this browser is recognised on future
-    # visits without retyping the email — mirrored into the URL like screen/tab.
-    _session_tok = issue_session_token(email)
-    if _session_tok:
-        st.query_params["session"] = _session_tok
     st.rerun()
 
 
@@ -4921,9 +4983,27 @@ def _render_email_gate_inline(form_key_suffix: str = "") -> None:
             _otp_input = st.text_input("Verification code", max_chars=6, placeholder="123456")
             _verify_clicked = st.form_submit_button("Verify →", use_container_width=True)
         if _verify_clicked:
-            if _otp_input.strip() == st.session_state.get("_otp_code"):
+            # Laudon Ch.8, C3: durable, fail-CLOSED lockout keyed by email --
+            # the st.session_state counter below this check only ever
+            # throttled one browser session; a new tab/incognito window
+            # reset it to zero, so it never actually bounded how many
+            # 6-digit guesses (1,000,000 possible) an attacker could make
+            # against a still-valid 20-minute code. This durable check
+            # persists across sessions via access_log, same mechanism as
+            # _safe_cost_rate_limit_ok, deliberately fail-closed (an outage
+            # here must block guessing, not silently allow unlimited
+            # attempts) -- the inverse tradeoff from most of this codebase's
+            # rate limits, justified because this one guards authentication
+            # itself, not a convenience feature.
+            if not _safe_cost_rate_limit_ok(_otp_email, "otp_verify_attempt", max_count=5, window_seconds=900):
+                st.error("Too many incorrect attempts. Please request a new code and try again later.")
+                for _k in ("_otp_email", "_otp_code", "_otp_sent_at", "_otp_attempts"):
+                    st.session_state.pop(_k, None)
+                st.rerun()
+            elif _otp_input.strip() == st.session_state.get("_otp_code"):
                 _complete_email_login(_otp_email)
             else:
+                _safe_log_access(_otp_email, "otp_verify_attempt")
                 st.session_state["_otp_attempts"] = st.session_state.get("_otp_attempts", 0) + 1
                 if st.session_state["_otp_attempts"] >= 5:
                     st.error("Too many incorrect attempts. Please request a new code.")
@@ -5597,10 +5677,12 @@ def render_billing_page():
                 if st.button("Sign out", key=f"revoke_{_s.get('token_hash', '')[:12]}",
                              use_container_width=True):
                     revoke_session(_s.get("token_hash", ""), email)
+                    _safe_log_access(email, "session_revoked", resource_type="session")
                     st.rerun()
         if len(_sessions) > 1:
             if st.button("Sign out of all devices", key="billing_revoke_all"):
                 revoke_all_sessions(email)
+                _safe_log_access(email, "session_revoke_all", resource_type="session")
                 st.rerun()
 
 
@@ -5740,6 +5822,11 @@ def render_my_audits_page():
             "This permanently deletes all your saved audits, Logframe Libraries, and any "
             "in-progress draft. This cannot be undone."
         )
+        if not _require_step_up_reauth(email, "purge_history", "permanently delete your history"):
+            if st.button("Cancel", key="purge_step_up_cancel"):
+                st.session_state.pop("_confirm_purge_history", None)
+                st.rerun()
+            return
         _pc1, _pc2 = st.columns(2)
         with _pc1:
             if st.button("Yes, permanently delete my history", key="purge_confirm",
@@ -6559,6 +6646,11 @@ def render_screen_1():
                             key="irc_result_hint_3",
                             placeholder='e.g. "youth employment" or "Output 4.1"',
                         )
+                    st.caption(
+                        "🔒 Your document is sent to Anthropic's Claude API for extraction "
+                        "(up to 60,000 characters). ImpactProof never stores the file itself — "
+                        "see our Privacy Notice for details."
+                    )
                     _irc_files = st.file_uploader(
                         "Upload report file(s) (or a previously downloaded draft.json)",
                         type=["pdf", "docx", "txt", "csv", "pptx", "xlsx", "xls", "json"],
@@ -6596,9 +6688,12 @@ def render_screen_1():
                     except Exception as _draft_exc:
                         st.error(f"Could not read the draft file: {_draft_exc}")
                     # --- END v3.4 ---
-                elif _irc_run_clicked and not _safe_rate_limit_ok(
+                elif _irc_run_clicked and not _safe_cost_rate_limit_ok(
                     st.session_state.get("user_email", ""), "irc_extraction", max_count=20, window_seconds=3600
                 ):
+                    # Fail-closed (see _safe_cost_rate_limit_ok's docstring): this
+                    # triggers a real Anthropic API call, so a limiter outage
+                    # must deny, not wave every request through.
                     st.warning("You've run a lot of Instant Report Checks in the last hour — please wait a bit before running more.")
                 elif _irc_run_clicked:
                     _safe_log_access(st.session_state.get("user_email", ""), "irc_extraction")
@@ -9287,6 +9382,7 @@ def render_screen_2():
                 st.warning("You've saved a lot of audits in the last hour — please wait a bit before saving more.")
             elif save_audit(_audit_email, subs, evs, _ref_id):
                 st.session_state[_audit_saved_key] = True
+                _safe_log_access(_audit_email, "assessment_created", resource_type="audit", resource_id=_ref_id)
                 st.success("✓ Saved to your private history.")
             else:
                 st.warning(f"Could not save this audit right now — your download above still works. "
@@ -10450,25 +10546,40 @@ def _extract_all_results_from_document(document_text: str, api_key: str,
         # Try clean parse first
         try:
             data = _json.loads(raw)
-            # C2 -- Laudon Ch.11, extraction/scoring separation formalized:
-            # validate the response's shape before any result reaches the
-            # portfolio DataFrame. Falls through to the recovery path below
-            # on failure rather than a new failure mode.
-            from utils.extraction_schema import validate_extraction as _batch_validate
-            _batch_valid, _ = _batch_validate(data)
-            if _batch_valid:
-                results = data.get("results", [])
-                if isinstance(results, list) and results:
-                    return results, ""
         except _json.JSONDecodeError:
-            pass
+            # Response was likely truncated (hit max_tokens mid-object) --
+            # this is the ONE case _recover_partial_json_results() exists
+            # for: salvaging complete objects from an incomplete JSON
+            # stream. A response that parses cleanly but has the wrong
+            # shape (below) is a different failure mode and must not reuse
+            # this path -- see that branch's comment.
+            recovered = _recover_partial_json_results(raw)
+            if recovered:
+                return recovered, ""
+            return [], ("Could not extract any complete results from the document. The response may have "
+                        "been too large. Try uploading a shorter document or a document with fewer indicators.")
 
-        # Response was likely truncated — recover complete objects
-        recovered = _recover_partial_json_results(raw)
-        if recovered:
-            return recovered, ""
-
-        return [], "Could not extract any complete results from the document. The response may have been too large. Try uploading a shorter document or a document with fewer indicators."
+        # C2 -- Laudon Ch.11, extraction/scoring separation formalized:
+        # validate the response's shape before any result reaches the
+        # portfolio DataFrame. Model output is untrusted input -- a response
+        # that parses as JSON but has the wrong shape (e.g. `results`
+        # missing/not-a-list, or a section with the wrong type -- possibly a
+        # prompt-injection attempt via document content) is a genuinely
+        # different failure than truncation, and must be rejected outright,
+        # never silently handed to _recover_partial_json_results() as if it
+        # were a truncated-but-otherwise-trustworthy response -- that used
+        # to be exactly this function's silent-recovery bug: a schema
+        # mismatch would fall through to a truncation-recovery heuristic
+        # and could still populate the portfolio with unvalidated data.
+        from utils.extraction_schema import validate_extraction as _batch_validate
+        _batch_valid, _batch_errors = _batch_validate(data)
+        if not _batch_valid:
+            return [], ("The extraction response had an unexpected format "
+                        f"({'; '.join(_batch_errors)}). Please try again, or contact support if this persists.")
+        results = data.get("results", [])
+        if not isinstance(results, list) or not results:
+            return [], "The document didn't contain any results ImpactProof could extract."
+        return results, ""
     except Exception as e:
         import logging as _logging
         _logging.error("Batch extraction failed", exc_info=True)
@@ -11252,8 +11363,8 @@ def _render_score_my_report_tab():
     st.info(
         "🔒 **Data processing notice:** Your document is sent to Anthropic's Claude API "
         "(claude-sonnet-4-6) for result extraction. Up to 60,000 characters of text are "
-        "transmitted. ImpactProof does not store your document after your session ends. "
-        "Anthropic's privacy policy applies to API processing."
+        "transmitted. ImpactProof does not store your document after your session ends — "
+        "see our Privacy Notice for what Anthropic does with it."
     )
     uploaded_doc = st.file_uploader(
         "Upload your donor report (Word or PDF)",
@@ -11289,7 +11400,15 @@ def _render_score_my_report_tab():
     run_btn = st.button("Extract & Get Determinations", type="primary", key="smr_run")
     _smr_state = st.session_state.get("smr_results")
 
-    if run_btn:
+    if run_btn and not _safe_cost_rate_limit_ok(
+        _smr_email, "smr_extraction", max_count=20, window_seconds=3600
+    ):
+        # Fail-closed (see _safe_cost_rate_limit_ok's docstring): this
+        # triggers a real Anthropic API call, so a limiter outage must deny,
+        # not wave every request through. This endpoint had no rate limit
+        # at all before this check (Laudon Ch.8, C1).
+        st.warning("You've run a lot of report extractions in the last hour — please wait a bit before running more.")
+    elif run_btn:
         # Extract document text
         with st.spinner("Reading document..."):
             try:
@@ -13981,11 +14100,156 @@ def _is_authorized_admin(email: str) -> bool:
     """Laudon Ch.9, C5: the second (DB-backed role) factor of the admin
     gate, alongside the unchanged ADMIN_PASSPHRASE check in
     _render_admin_view(). Factored out as its own function so it's directly
-    testable without simulating the whole passphrase/session-state flow."""
+    testable without simulating the whole passphrase/session-state flow.
+
+    Checks role IN ('admin','owner') (Laudon Ch.8, C3 -- see
+    0050_users_role_and_totp.sql) OR the legacy is_admin boolean, so this
+    stays backward-compatible with any account/environment where that
+    migration hasn't run yet -- purely additive, never a way to lose access
+    to an already-authorized account."""
     if not email:
         return False
     user = get_user(email)
-    return bool(user and user.get("is_admin"))
+    if not user:
+        return False
+    return user.get("role") in ("admin", "owner") or bool(user.get("is_admin"))
+
+
+_STEP_UP_REAUTH_MAX_AGE_SECONDS = 600  # 10 minutes
+
+
+def _require_step_up_reauth(email: str, key_prefix: str, action_label: str) -> bool:
+    """Laudon Ch.8, C3: forced re-auth before a destructive action (delete
+    account history, revoke all sessions, change retention policy), even
+    within an already-logged-in, unexpired (60-day) session -- a stolen or
+    left-open session shouldn't be enough on its own to trigger something
+    irreversible. Sends a fresh 6-digit code to the account's own email
+    (same mechanism as login, utils.email_otp) and requires it before
+    returning True; returns True immediately if this was already satisfied
+    within the last 10 minutes, so re-confirming twice in the same sitting
+    isn't required. `key_prefix` namespaces session_state keys so multiple
+    distinct destructive actions on the same page don't share one
+    challenge/timer."""
+    if not email:
+        return False
+    _verified_at = st.session_state.get(f"_step_up_verified_at_{key_prefix}", 0)
+    if time.time() - _verified_at < _STEP_UP_REAUTH_MAX_AGE_SECONDS:
+        return True
+
+    st.info(f"For your protection, confirm it's you before we {action_label}.")
+    _code_key = f"_step_up_code_{key_prefix}"
+    _sent_key = f"_step_up_sent_at_{key_prefix}"
+    if not st.session_state.get(_sent_key):
+        with st.spinner("Sending a confirmation code…"):
+            _ok, _err, _code = send_login_email(email, APP_URL)
+        if _ok:
+            st.session_state[_code_key] = _code
+            st.session_state[_sent_key] = time.time()
+        else:
+            st.error(f"Could not send confirmation code: {_err}")
+            return False
+
+    if time.time() - st.session_state.get(_sent_key, 0) > 600:
+        st.warning("That confirmation code expired.")
+        if st.button("Send a new code", key=f"{key_prefix}_step_up_resend"):
+            st.session_state.pop(_sent_key, None)
+            st.session_state.pop(_code_key, None)
+            st.rerun()
+        return False
+
+    _entered = st.text_input(
+        "Confirmation code (sent to your email)", max_chars=6, key=f"{key_prefix}_step_up_input"
+    )
+    if st.button("Confirm", key=f"{key_prefix}_step_up_verify"):
+        if not _safe_cost_rate_limit_ok(email, "step_up_reauth_attempt", max_count=5, window_seconds=900):
+            st.error("Too many incorrect attempts. Please try again later.")
+            return False
+        if _entered.strip() == st.session_state.get(_code_key):
+            st.session_state[f"_step_up_verified_at_{key_prefix}"] = time.time()
+            st.session_state.pop(_code_key, None)
+            st.session_state.pop(_sent_key, None)
+            st.rerun()
+        else:
+            _safe_log_access(email, "step_up_reauth_attempt")
+            st.error("Incorrect code.")
+    return False
+
+
+def _render_admin_totp_gate(email: str, user: dict) -> bool:
+    """Laudon Ch.8, C3: mandatory TOTP two-factor for role in ('admin',
+    'owner') (see 0050_users_role_and_totp.sql), enforced BELOW the existing
+    ADMIN_PASSPHRASE + is_admin/role gate in _render_admin_view() -- a third
+    factor, not a replacement for the first two. Blocks (returns False and
+    renders enrollment/verification UI) until a fresh code succeeds; returns
+    True immediately on every later rerun within the same Streamlit session
+    once verified, so the user isn't asked again on every widget click.
+
+    Accounts without role IN ('admin','owner') never reach this function at
+    all (see the call site below) -- legacy is_admin=true accounts on a
+    database where migration 0050 hasn't been applied yet are unaffected,
+    by design: this cannot lock out an existing admin mid-migration."""
+    if st.session_state.get("_admin_totp_verified_email") == email:
+        return True
+
+    from utils.crypto import encrypt_text, decrypt_text
+    from utils.twofactor import (
+        generate_totp_secret, get_provisioning_uri, verify_totp, qr_code_png_bytes,
+    )
+
+    if not user.get("totp_enabled"):
+        st.warning(
+            "Two-factor authentication is required for admin access and isn't set up on "
+            "this account yet. Scan the code below with an authenticator app "
+            "(Google Authenticator, 1Password, Authy, etc.) to finish setup."
+        )
+        _secret = st.session_state.get("_admin_totp_enroll_secret")
+        if not _secret:
+            _secret = generate_totp_secret()
+            st.session_state["_admin_totp_enroll_secret"] = _secret
+        _uri = get_provisioning_uri(_secret, email)
+        _png = qr_code_png_bytes(_uri) if _uri else None
+        if _png:
+            st.image(_png, width=220)
+        st.caption("Can't scan a QR code? Enter this secret manually instead:")
+        st.code(_secret)
+        _enroll_code = st.text_input(
+            "6-digit code from your authenticator app", key="_admin_totp_enroll_code"
+        )
+        if st.button("Verify and enable 2FA", key="_admin_totp_enroll_verify_btn"):
+            if verify_totp(_secret, _enroll_code):
+                _ct = encrypt_text(_secret)
+                if not _ct:
+                    st.error(
+                        "Could not encrypt the 2FA secret (AUDIT_ENCRYPTION_KEY missing/invalid) "
+                        "-- setup cannot complete until that's fixed."
+                    )
+                    return False
+                set_user_totp(email, _ct, True)
+                st.session_state.pop("_admin_totp_enroll_secret", None)
+                st.session_state["_admin_totp_verified_email"] = email
+                st.success("Two-factor authentication enabled.")
+                st.rerun()
+            else:
+                st.error("Incorrect code — try again.")
+        return False
+
+    _secret = decrypt_text(user.get("totp_secret") or "")
+    if not _secret:
+        st.error(
+            "This account's two-factor secret could not be decrypted (missing/rotated "
+            "AUDIT_ENCRYPTION_KEY). Admin access is blocked until this is resolved — "
+            "contact whoever manages the encryption key."
+        )
+        return False
+    _code = st.text_input("6-digit authenticator code", key="_admin_totp_verify_code")
+    if st.button("Verify", key="_admin_totp_verify_btn"):
+        if verify_totp(_secret, _code):
+            st.session_state["_admin_totp_verified_email"] = email
+            st.rerun()
+        else:
+            _safe_log_access(email, "admin_totp_failed", resource_type="account")
+            st.error("Incorrect code.")
+    return False
 
 
 def _render_admin_view():
@@ -14000,12 +14264,28 @@ def _render_admin_view():
     # There's no per-visitor identity available before the passphrase
     # succeeds (this isn't a logged-in-user flow), so rate-limiting/logging
     # uses a single shared key across all attempts -- not per-attacker, but
-    # still meaningfully throttles brute-forcing given check_rate_limit's
-    # fail-open behavior and ADMIN_PASSPHRASE's presumed entropy. Raised
-    # from "no gate hardening at all" now that this view also exposes
-    # plaintext account/email segment data below, not just anonymous counts.
+    # still meaningfully throttles brute-forcing given ADMIN_PASSPHRASE's
+    # presumed entropy. Raised from "no gate hardening at all" now that this
+    # view also exposes plaintext account/email segment data below, not
+    # just anonymous counts.
+    #
+    # Laudon Ch.8, C3 (risk #6): fail-CLOSED here, not the codebase's usual
+    # fail-open convention -- this is the single gate in front of every
+    # customer's plaintext account/billing data, so "the rate limiter is
+    # broken" must deny access, not silently grant unlimited passphrase
+    # guesses. A security alert fires on the lockout trip itself (not every
+    # wrong guess, to avoid spamming) so a human learns about sustained
+    # brute-forcing even though it's already blocked.
     _admin_gate_key = "_admin_gate"
-    if not _safe_rate_limit_ok(_admin_gate_key, "admin_passphrase_attempt", max_count=10, window_seconds=300):
+    if not _safe_cost_rate_limit_ok(_admin_gate_key, "admin_passphrase_attempt", max_count=10, window_seconds=300):
+        if not st.session_state.get("_admin_gate_lockout_alerted"):
+            st.session_state["_admin_gate_lockout_alerted"] = True
+            from utils.email_otp import send_security_alert_email
+            send_security_alert_email(
+                "Admin passphrase gate locked out",
+                f"10+ incorrect admin passphrase attempts in the last 5 minutes. "
+                f"Access is blocked (fail-closed). Time (UTC): {datetime.utcnow().isoformat()}",
+            )
         st.error("Too many attempts. Try again later.")
         return
 
@@ -14027,6 +14307,17 @@ def _render_admin_view():
             "Log in (Screen 1) as an account with is_admin = true."
         )
         return
+
+    # Laudon Ch.8, C3: mandatory TOTP two-factor, third layer on top of the
+    # passphrase + role checks above -- only for accounts explicitly on the
+    # new role tier (see 0050_users_role_and_totp.sql's migration note on
+    # why legacy is_admin=true accounts pre-migration aren't forced through
+    # this and can't be locked out by it).
+    _admin_user = get_user(_admin_email) or {}
+    if _admin_user.get("role") in ("admin", "owner"):
+        if not _render_admin_totp_gate(_admin_email, _admin_user):
+            return
+
     _safe_log_access(_admin_gate_key, "admin_view_access")
 
     summary = metrics.summarize()

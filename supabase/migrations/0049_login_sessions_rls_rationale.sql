@@ -1,0 +1,19 @@
+-- 0049_login_sessions_rls_rationale.sql
+-- Laudon Ch.8 hardening: login_tokens and sessions are deliberately left
+-- with RLS disabled (as set by 0005_disable_rls.sql) and are the two
+-- documented exemptions in test_rls_coverage.py's coverage check.
+--
+-- Rationale: both are read BEFORE any Supabase Auth JWT exists -- that is
+-- how a caller gets one (verify_magic_link_token/verify_session_token run
+-- pre-auth-session, by definition). auth.uid()-keyed RLS has no identity to
+-- check yet at that point, and the real security boundary here has never
+-- been row ownership -- it's possession of a random 256-bit token (see
+-- utils/auth.py's token_hash lookups), which application-code filtering
+-- (.eq("token_hash", ...)) already enforces regardless of RLS. A permissive
+-- `using (true)` policy would add schema complexity for zero real security
+-- gain, and a future well-intentioned "tightening" of it (e.g. to
+-- auth_email()) would lock out every pre-auth login attempt.
+--
+-- This file makes no schema change -- it exists so the decision is
+-- reviewable in the same place as every other RLS decision in this series,
+-- not buried only in a test file's exemption list.
