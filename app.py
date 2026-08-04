@@ -10103,6 +10103,34 @@ def _render_monthly_trend_summary(email: str) -> None:
     st.caption(f"💡 {_gap['tip']}")
 
 
+def _render_indicator_stewardship(email: str) -> None:
+    """Laudon Ch.6 Phase 2, C7 -- indicator stewardship register (the
+    "draft information policy generator" half of C7 is deferred to its own
+    scoping pass). Flags this account's own indicator names reused across
+    assessments with inconsistent target/baseline values -- never picks a
+    "correct" one, only surfaces the inconsistency. Renders nothing when
+    there's nothing to flag or the warehouse tables don't exist yet."""
+    try:
+        from utils.indicator_stewardship import find_indicator_inconsistencies
+    except Exception:
+        return
+    findings = find_indicator_inconsistencies(email)
+    if not findings:
+        return
+    st.markdown("#### 🗂️ Indicator stewardship register")
+    st.caption(
+        "Indicator names your team has used more than once with a different target or "
+        "baseline value recorded — a sign the definition may have drifted, or that two "
+        "different things are being tracked under one name."
+    )
+    for f in findings:
+        with st.expander(f"{f['indicator_name']} — used {f['use_count']}× with inconsistent values"):
+            if len(f["distinct_targets"]) > 1:
+                st.markdown(f"**Targets recorded:** {', '.join(f['distinct_targets'])}")
+            if len(f["distinct_baselines"]) > 1:
+                st.markdown(f"**Baselines recorded:** {', '.join(f['distinct_baselines'])}")
+
+
 def _trend_indicator_options(history_df):
     """Return {indicator_id: display_label} for the selectors, in first-seen order."""
     options = {}
@@ -11921,6 +11949,7 @@ def render_screen_3():
         _render_email_gate_inline("_trends")
     else:
         _render_monthly_trend_summary(_trends_email)
+        _render_indicator_stewardship(_trends_email)
         render_trends_view(_load_trend_history(_trends_email))
 
 
