@@ -10131,6 +10131,41 @@ def _render_indicator_stewardship(email: str) -> None:
                 st.markdown(f"**Baselines recorded:** {', '.join(f['distinct_baselines'])}")
 
 
+def _render_policy_generator(email: str) -> None:
+    """Laudon Ch.6 Phase 2, C7 -- draft information policy generator (the
+    half deferred from the earlier C7 pass). Template-filled from the
+    account's own personalization profile (account_sector/primary_donors/
+    country, migration 0017) -- never LLM-generated, never invents a value
+    for a field the account never supplied. Renders nothing if the account
+    has no email (nothing to source a profile from)."""
+    if not email:
+        return
+    try:
+        from utils.db import get_user
+        from utils.policy_generator import generate_information_policy_draft
+    except Exception:
+        return
+    user = get_user(email) or {}
+    with st.expander("🗒️ Draft a starting-point data policy for your organisation"):
+        st.caption(
+            "Generates a Markdown draft, pre-filled only with what you've already told us "
+            "(sector, country, primary donors) — every other section is an explicit "
+            "[Add: ...] placeholder for your team to complete. Not legal advice."
+        )
+        draft = generate_information_policy_draft({
+            "account_sector": user.get("account_sector", ""),
+            "primary_donors": user.get("primary_donors") or [],
+            "country": user.get("country", ""),
+        })
+        st.download_button(
+            "⬇️ Download policy draft (Markdown)",
+            data=draft.encode("utf-8"),
+            file_name="information_policy_draft.md",
+            mime="text/markdown",
+            key="policy_generator_dl",
+        )
+
+
 def _trend_indicator_options(history_df):
     """Return {indicator_id: display_label} for the selectors, in first-seen order."""
     options = {}
@@ -11950,6 +11985,7 @@ def render_screen_3():
     else:
         _render_monthly_trend_summary(_trends_email)
         _render_indicator_stewardship(_trends_email)
+        _render_policy_generator(_trends_email)
         render_trends_view(_load_trend_history(_trends_email))
 
 
