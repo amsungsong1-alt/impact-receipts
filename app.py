@@ -5660,6 +5660,36 @@ def render_billing_page():
         } for h in _history]
         st.dataframe(_rows, use_container_width=True, hide_index=True)
 
+        # Laudon Ch.10, C4: a receipt an M&E officer can attach to a donor
+        # grant line -- previously this table had no download of any kind.
+        with st.expander("Download a receipt"):
+            from utils.receipts import build_receipt_html
+            _org_context = {
+                "email": email,
+                "account_sector": user.get("account_sector", ""),
+                "primary_donors": user.get("primary_donors") or [],
+            }
+            for _idx, _h in enumerate(_history):
+                _ref = _h.get("paystack_reference") or f"row{_idx}"
+                _label = f"{(_h.get('created_at') or '')[:10]} — {_h.get('plan') or '—'} — GHS {round((_h.get('amount_pesewas') or 0) / 100, 2)}"
+                _rc1, _rc2 = st.columns([3, 1])
+                with _rc1:
+                    st.caption(_label)
+                with _rc2:
+                    _receipt_html = build_receipt_html(_h, _org_context)
+                    _receipt_pdf = _html_to_pdf_bytes(_receipt_html)
+                    if _receipt_pdf:
+                        st.download_button(
+                            "PDF", data=_receipt_pdf, file_name=f"receipt_{_ref}.pdf",
+                            mime="application/pdf", key=f"receipt_pdf_{_ref}",
+                        )
+                    else:
+                        st.download_button(
+                            "HTML", data=_receipt_html.encode("utf-8"),
+                            file_name=f"receipt_{_ref}.html", mime="text/html",
+                            key=f"receipt_html_{_ref}",
+                        )
+
     # --- Devices / sessions ---
     st.divider()
     st.markdown("#### Signed-in devices")
