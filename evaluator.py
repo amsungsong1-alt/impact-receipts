@@ -899,6 +899,82 @@ def validate_reporting_period(evidence_date, period_start, period_end) -> tuple:
     return (True, "Evidence date falls within the reporting period.", "OK")
 
 
+# ---------------------------------------------------------------------------
+# Cleansing-on-ingest (Laudon Ch.6, C8) — flag-never-correct. Every check here
+# only ever returns a warning for a human to look at; none of them rewrite,
+# guess, or drop a submitted value. Deliberately does not duplicate two
+# existing flag-only checks that already cover related ground:
+# validate_reporting_period() (evidence date vs. reporting period) and
+# evaluate_logframe_linkage()'s direction_mismatch (indicator direction vs.
+# baseline/achievement movement).
+# ---------------------------------------------------------------------------
+
+def _extract_leading_number(text: str):
+    """Best-effort extraction of the first number in a free-text logframe
+    value (e.g. "500 households" -> 500.0, "1,200" -> 1200.0). Returns None
+    when no number is found — never guesses at one."""
+    if not text:
+        return None
+    match = re.search(r"[\d,]+\.?\d*", text)
+    if not match:
+        return None
+    try:
+        return float(match.group(0).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def check_data_quality_flags(submission: dict) -> list:
+    """Deterministic, submission-dict-only checks for internally
+    inconsistent data entry. Returns a list of {"issue": str, "severity":
+    "WARNING"} dicts — informational only, never applied to the submission
+    or to any score."""
+    flags = []
+    ev_list = submission.get("evidence", []) or []
+    ev = ev_list[0] if ev_list else {}
+    ev_desc = (ev.get("description", "") or "").strip()
+    result_stmt = (submission.get("result_statement", "") or "").strip()
+    baseline = (submission.get("logframe_baseline", "") or "").strip()
+    achievement = (submission.get("logframe_achievement", "") or "").strip()
+    target = (submission.get("logframe_target", "") or "").strip()
+
+    if baseline and achievement and baseline.lower() == achievement.lower():
+        flags.append({
+            "issue": (
+                "Baseline and achievement values are identical — confirm this reflects "
+                "genuinely no change over the period, not a copy-paste."
+            ),
+            "severity": "WARNING",
+        })
+
+    if ev_desc and result_stmt and len(ev_desc) > 20:
+        _desc_l = ev_desc.lower()
+        _stmt_l = result_stmt.lower()
+        if _desc_l == _stmt_l or _desc_l in _stmt_l or _stmt_l in _desc_l:
+            flags.append({
+                "issue": (
+                    "Your evidence description closely mirrors the result statement — "
+                    "it may not add the independent supporting detail donors look for."
+                ),
+                "severity": "WARNING",
+            })
+
+    t_num = _extract_leading_number(target)
+    a_num = _extract_leading_number(achievement)
+    if t_num and a_num and t_num > 0 and a_num > 0:
+        ratio = a_num / t_num
+        if ratio >= 10 or ratio <= 0.1:
+            flags.append({
+                "issue": (
+                    f"Target ({target}) and achievement ({achievement}) differ by more than "
+                    "10x — verify the units and figures match before submitting."
+                ),
+                "severity": "WARNING",
+            })
+
+    return flags
+
+
 def _level_from_verifier(text: str) -> int:
     """Keyword-based level from the 'verified by' free-text field."""
     if not text or not text.strip():
@@ -1939,6 +2015,10 @@ def evaluate_submission(submission: dict) -> dict:
         submission.get("governance_checklist", {}) or {},
     )
 
+    # Laudon Ch.6, C8 -- cleansing-on-ingest, flag-never-correct. Purely
+    # additive, informational; never touches confidence_score/clarity_score.
+    data_quality_flags = check_data_quality_flags(submission)
+
     return {
         # v3.0 primary keys
         "confidence_score":         confidence_score,
@@ -1967,6 +2047,7 @@ def evaluate_submission(submission: dict) -> dict:
         "rule_base_version":     rule_base_version,
         "threshold_used":        _threshold,
         "track_label":           _track_label,
+        "data_quality_flags":    data_quality_flags,
         # backward-compat keys
         "scores": {
             "overall":     {"score": confidence_score, "label": confidence_label, "meaning": confidence_meaning},

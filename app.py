@@ -8657,6 +8657,14 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             for iss in lk_issues:
                 st.markdown(f"- {iss}")
 
+    # Laudon Ch.6, C8 -- cleansing-on-ingest flags. Flag-never-correct: shown
+    # for awareness only, never auto-applied to the submission or the score.
+    _dq_flags = ev.get("data_quality_flags", [])
+    if _dq_flags:
+        st.markdown("#### Data Quality Flags")
+        for _flag in _dq_flags:
+            st.warning(_flag.get("issue", ""))
+
     # Score-explanation chat assistant (council XV)
     with st.expander("💬 Ask about your score", expanded=False):
         _render_help_chat(submission, ev, donor=donor, card_idx=card_idx)

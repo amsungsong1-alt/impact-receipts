@@ -1625,6 +1625,72 @@ def run_criterion_sensitivity():
           "5.0 axis ceiling capping, and measurement_denominator wiring verified.")
 
 
+def run_data_quality_flags():
+    """Laudon Ch.6, C8 -- cleansing-on-ingest, flag-never-correct. Each check
+    must fire only for the specific inconsistency it targets, must never
+    raise on missing/empty fields, and must never appear for a clean
+    submission (CASES["strong"])."""
+    failures = []
+
+    # Clean submission -- no flags at all.
+    clean_flags = evaluator.check_data_quality_flags(CASES["strong"])
+    if clean_flags:
+        failures.append(f"CASES['strong'] should have zero data_quality_flags, got {clean_flags}")
+
+    # 1. Baseline == achievement (identical, case-insensitive).
+    base = dict(CASES["strong"])
+    base["logframe_baseline"] = "450"
+    base["logframe_achievement"] = "450"
+    flags = evaluator.check_data_quality_flags(base)
+    if not any("identical" in f["issue"] for f in flags):
+        failures.append(f"expected an identical-baseline/achievement flag, got {flags}")
+
+    # 2. Evidence description mirrors the result statement.
+    base2 = dict(CASES["strong"])
+    base2["evidence"] = [{
+        **CASES["strong"]["evidence"][0],
+        "description": CASES["strong"]["result_statement"],
+    }]
+    flags2 = evaluator.check_data_quality_flags(base2)
+    if not any("mirrors" in f["issue"] for f in flags2):
+        failures.append(f"expected an evidence-mirrors-result-statement flag, got {flags2}")
+
+    # 3. Target/achievement order-of-magnitude mismatch (10x+).
+    base3 = dict(CASES["strong"])
+    base3["logframe_target"] = "450"
+    base3["logframe_achievement"] = "45000"
+    flags3 = evaluator.check_data_quality_flags(base3)
+    if not any("differ by more than 10x" in f["issue"] for f in flags3):
+        failures.append(f"expected a target/achievement magnitude-mismatch flag, got {flags3}")
+
+    # Regression guard: a modest, legitimate over-achievement (487 vs target
+    # 450, CASES["strong"]'s actual values) must NOT trip the 10x check.
+    if any("differ by more than 10x" in f["issue"] for f in clean_flags):
+        failures.append("CASES['strong']'s normal 450->487 achievement incorrectly tripped the 10x check")
+
+    # Never raises on completely empty/missing fields.
+    try:
+        empty_flags = evaluator.check_data_quality_flags({})
+    except Exception as e:
+        failures.append(f"check_data_quality_flags({{}}) must never raise, got {e!r}")
+    else:
+        if empty_flags:
+            failures.append(f"check_data_quality_flags({{}}) should return no flags, got {empty_flags}")
+
+    # Wiring: evaluate_submission() surfaces the flags under data_quality_flags.
+    ev = evaluator.evaluate_submission(base)
+    if not any("identical" in f["issue"] for f in ev.get("data_quality_flags", [])):
+        failures.append("evaluate_submission() did not surface data_quality_flags for the baseline==achievement case")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: data quality flags — baseline/achievement duplicate, evidence/result mirroring, "
+          "and target/achievement magnitude mismatch all detected; clean submissions stay flag-free.")
+
+
 if __name__ == "__main__":
     run()
     run_systemic_gaps()
@@ -1641,3 +1707,4 @@ if __name__ == "__main__":
     run_nesta_directness_mapping()
     run_weakest_link()
     run_criterion_sensitivity()
+    run_data_quality_flags()
