@@ -1691,6 +1691,61 @@ def run_data_quality_flags():
           "and target/achievement magnitude mismatch all detected; clean submissions stay flag-free.")
 
 
+def run_hedge_language():
+    """Laudon Ch.6, C6 -- hedge-language detection. Must find phrases from
+    HEDGE_LANGUAGE_PHRASES, band risk_level by count, never false-positive on
+    a clean submission, and never raise on empty input."""
+    failures = []
+
+    clean = evaluator.detect_hedge_language(CASES["strong"]["result_statement"], "")
+    if clean["risk_level"] != "none" or clean["hedge_phrase_count"] != 0:
+        failures.append(f"CASES['strong']'s result statement should be hedge-free, got {clean}")
+
+    one_hedge = evaluator.detect_hedge_language("This may have contributed to the outcome.", "")
+    if one_hedge["hedge_phrase_count"] != 1 or "may have" not in one_hedge["hedge_phrases_found"]:
+        failures.append(f"expected exactly 'may have' detected once, got {one_hedge}")
+    if one_hedge["risk_level"] != "low":
+        failures.append(f"1 hedge phrase should be risk_level 'low', got {one_hedge['risk_level']}")
+
+    five_hedges = evaluator.detect_hedge_language(
+        "It seems this may have possibly contributed, and it is believed this arguably helped.", ""
+    )
+    if five_hedges["hedge_phrase_count"] < 5:
+        failures.append(f"expected at least 5 distinct hedge phrases, got {five_hedges}")
+    if five_hedges["risk_level"] != "high":
+        failures.append(f"5+ hedge phrases should be risk_level 'high', got {five_hedges['risk_level']}")
+
+    # Scans both result_statement and evidence_description.
+    split = evaluator.detect_hedge_language("Clean statement.", "This possibly helped somewhat.")
+    if "possibly" not in split["hedge_phrases_found"]:
+        failures.append(f"expected 'possibly' detected from evidence_description, got {split}")
+
+    # Never raises on empty/None input.
+    try:
+        empty = evaluator.detect_hedge_language("", "")
+        none_input = evaluator.detect_hedge_language(None, None)
+    except Exception as e:
+        failures.append(f"detect_hedge_language must never raise on empty/None input, got {e!r}")
+    else:
+        if empty["risk_level"] != "none" or none_input["risk_level"] != "none":
+            failures.append(f"empty/None input should be risk_level 'none', got {empty} / {none_input}")
+
+    # Wiring: evaluate_submission() surfaces hedge_language.
+    base = dict(CASES["strong"])
+    base["result_statement"] = "This may have possibly contributed to the outcome."
+    ev = evaluator.evaluate_submission(base)
+    if ev.get("hedge_language", {}).get("hedge_phrase_count", 0) < 2:
+        failures.append("evaluate_submission() did not surface hedge_language for a hedged result statement")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: hedge-language detection — phrase matching, count-based risk banding, "
+          "result+evidence scanning, and evaluate_submission() wiring verified.")
+
+
 if __name__ == "__main__":
     run()
     run_systemic_gaps()
@@ -1708,3 +1763,4 @@ if __name__ == "__main__":
     run_weakest_link()
     run_criterion_sensitivity()
     run_data_quality_flags()
+    run_hedge_language()

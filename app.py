@@ -8657,13 +8657,23 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             for iss in lk_issues:
                 st.markdown(f"- {iss}")
 
-    # Laudon Ch.6, C8 -- cleansing-on-ingest flags. Flag-never-correct: shown
-    # for awareness only, never auto-applied to the submission or the score.
+    # Laudon Ch.6, C8/C6 -- cleansing-on-ingest flags + hedge-language signal.
+    # Flag-never-correct: shown for awareness only, never auto-applied to the
+    # submission or the score.
     _dq_flags = ev.get("data_quality_flags", [])
-    if _dq_flags:
+    _hedge = ev.get("hedge_language", {})
+    _hedge_risk = _hedge.get("risk_level", "none")
+    if _dq_flags or _hedge_risk != "none":
         st.markdown("#### Data Quality Flags")
         for _flag in _dq_flags:
             st.warning(_flag.get("issue", ""))
+        if _hedge_risk != "none":
+            _hedge_list = ", ".join(f"“{w}”" for w in _hedge.get("hedge_phrases_found", []))
+            st.warning(
+                f"Hedging language detected ({_hedge_risk} risk): {_hedge_list}. Donors read this "
+                "as uncertainty about whether the result actually happened — consider stating the "
+                "claim directly, or explaining the uncertainty explicitly instead of hedging it."
+            )
 
     # Score-explanation chat assistant (council XV)
     with st.expander("💬 Ask about your score", expanded=False):

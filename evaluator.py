@@ -1117,6 +1117,50 @@ def get_funder_readiness_flags(result_statement: str, evidence_description: str)
     }
 
 
+# ---------------------------------------------------------------------------
+# Hedge-language detection (Laudon Ch.6, C6) — deterministic house-style text
+# mining. Distinct from Directness/Measurement's existing checks: those flag
+# missing quantification or unsubstantiated causal claims (what the writer
+# said); this flags epistemic hedging — language that signals the writer's
+# own uncertainty about whether the claim is true (how the writer said it).
+# A short, deliberately conservative phrase list -- common function words
+# ("some", "many", "several") are excluded since they'd false-positive on
+# almost every submission without actually signalling uncertainty.
+# Informational only — no score impact, matches funder-readiness's contract.
+# ---------------------------------------------------------------------------
+
+HEDGE_LANGUAGE_PHRASES = [
+    "may have", "might have", "could have", "possibly", "perhaps",
+    "it is believed", "we believe", "it seems", "it seemed", "seems to",
+    "seemed to", "appears to", "appeared to", "is thought to", "was thought to",
+    "to some extent", "in some cases", "arguably", "presumably",
+]
+
+
+def detect_hedge_language(result_statement: str, evidence_description: str = "") -> dict:
+    """Scans the result statement + evidence description for hedge phrases
+    from HEDGE_LANGUAGE_PHRASES. Returns matched phrases (a small fixed
+    vocabulary the writer chose, not free-text PII, so safe to surface/store)
+    plus a count-derived risk_level -- never reproduces the surrounding
+    sentence."""
+    combined = f"{result_statement or ''} {evidence_description or ''}".lower()
+    found = sorted({phrase for phrase in HEDGE_LANGUAGE_PHRASES if phrase in combined})
+    count = len(found)
+    if count == 0:
+        risk = "none"
+    elif count <= 2:
+        risk = "low"
+    elif count <= 4:
+        risk = "moderate"
+    else:
+        risk = "high"
+    return {
+        "hedge_phrases_found": found,
+        "hedge_phrase_count": count,
+        "risk_level": risk,
+    }
+
+
 def get_verification_level(
     internal_review: str,
     external_review: str,
@@ -2019,6 +2063,10 @@ def evaluate_submission(submission: dict) -> dict:
     # additive, informational; never touches confidence_score/clarity_score.
     data_quality_flags = check_data_quality_flags(submission)
 
+    # Laudon Ch.6, C6 -- hedge-language detection. Same contract: additive,
+    # informational, no score impact.
+    hedge_language = detect_hedge_language(result_stmt, ev_desc)
+
     return {
         # v3.0 primary keys
         "confidence_score":         confidence_score,
@@ -2048,6 +2096,7 @@ def evaluate_submission(submission: dict) -> dict:
         "threshold_used":        _threshold,
         "track_label":           _track_label,
         "data_quality_flags":    data_quality_flags,
+        "hedge_language":        hedge_language,
         # backward-compat keys
         "scores": {
             "overall":     {"score": confidence_score, "label": confidence_label, "meaning": confidence_meaning},
