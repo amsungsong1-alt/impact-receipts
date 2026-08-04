@@ -7956,7 +7956,9 @@ def _render_council_assessment(submission: dict, ev: dict, card_idx: int, api_ke
         "Verify specific donor requirements directly with the donor before submission."
     )
     email = st.session_state.get("user_email", "")
-    has_access = check_access(email)["allowed"]
+    # Laudon Ch.10, C3: genuinely AI-powered (real marginal cost per call) --
+    # gated on paid status, not the free-checks counter, same as IRC.
+    has_access = check_access(email)["ai_features_allowed"]
 
     proj_conf, proj_clar = _calculate_projected_scores(ev)
     conf_score = ev.get("confidence_score", 0)
@@ -8184,7 +8186,10 @@ def _render_help_chat(submission: dict, ev: dict, donor: str = "", card_idx: int
     from diagnostics import build_chat_system_prompt
 
     email = st.session_state.get("user_email", "")
-    has_access = check_access(email)["allowed"]
+    # Laudon Ch.10, C3: genuinely AI-powered -- gated on paid status, matching
+    # this function's own docstring above ("Gated behind paid tier"), which
+    # the free-checks-counter gate here previously didn't actually match.
+    has_access = check_access(email)["ai_features_allowed"]
 
     if not has_access:
         metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context="chat_attempt")

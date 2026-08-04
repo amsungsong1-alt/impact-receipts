@@ -187,19 +187,27 @@ def run_metering():
         db.mark_paid("paid@example.com", days=30)
         _row(fake_client, "users", "free@example.com")["free_checks_used"] = 2
 
-        # 1. Free user under the limit is allowed, with the right remaining count.
+        # 1. Free user under the limit is allowed to score/download, but NOT
+        #    to run AI features (Laudon Ch.10, C3) -- allowed and
+        #    ai_features_allowed are genuinely different gates now.
         access = metering.check_access("free@example.com")
         if not access["allowed"] or access["checks_remaining"] != 1:
             failures.append(f"free user under limit: unexpected access {access!r}")
+        if access["ai_features_allowed"]:
+            failures.append("a free user with checks remaining must NOT have ai_features_allowed=True")
 
-        # 2. Paid user is always allowed regardless of checks_used.
+        # 2. Paid user is always allowed for both scoring AND AI features,
+        #    regardless of checks_used.
         access_paid = metering.check_access("paid@example.com")
         if not access_paid["allowed"] or not access_paid["is_paid"]:
             failures.append(f"paid user: unexpected access {access_paid!r}")
+        if not access_paid["ai_features_allowed"]:
+            failures.append(f"paid user should have ai_features_allowed=True, got {access_paid!r}")
 
-        # 3. No email -> not allowed, no crash.
-        if metering.check_access("")["allowed"]:
-            failures.append("check_access('') must not be allowed")
+        # 3. No email -> not allowed for either gate, no crash.
+        _no_email = metering.check_access("")
+        if _no_email["allowed"] or _no_email["ai_features_allowed"]:
+            failures.append(f"check_access('') must not be allowed for either gate, got {_no_email!r}")
 
         # 4. Free user AT the limit is blocked.
         _row(fake_client, "users", "free@example.com")["free_checks_used"] = metering.FREE_CHECKS_LIMIT

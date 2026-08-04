@@ -22,12 +22,18 @@ def check_access(email: str) -> dict:
     """One get_user() round trip. Returns the single shape every gate should
     read instead of re-deriving is_paid/checks_used/allowed independently:
     {"is_paid": bool, "plan": str, "checks_used": int,
-     "checks_remaining": int, "allowed": bool}.
-    allowed = is_paid or checks_used < FREE_CHECKS_LIMIT. No email -> allowed=False.
+     "checks_remaining": int, "allowed": bool, "ai_features_allowed": bool}.
+    allowed = is_paid or checks_used < FREE_CHECKS_LIMIT -- gates scoring/
+    downloads/basic features, which have zero marginal AI cost by
+    construction (evaluator.py never calls an LLM). ai_features_allowed =
+    is_paid only -- Laudon Ch.10, C3: a genuinely AI-powered feature (real
+    marginal cost per call) must never be reachable on the free-checks
+    counter alone, mirroring the gate Instant Report Check already used
+    correctly. No email -> both False.
     """
     if not email:
         return {"is_paid": False, "plan": "free", "checks_used": 0,
-                "checks_remaining": 0, "allowed": False}
+                "checks_remaining": 0, "allowed": False, "ai_features_allowed": False}
     user = get_user(email)
     is_paid = is_still_paid(user)
     checks_used = (user or {}).get("free_checks_used", 0)
@@ -38,6 +44,7 @@ def check_access(email: str) -> dict:
         "checks_used": checks_used,
         "checks_remaining": max(0, FREE_CHECKS_LIMIT - checks_used),
         "allowed": is_paid or checks_used < FREE_CHECKS_LIMIT,
+        "ai_features_allowed": is_paid,
     }
 
 
