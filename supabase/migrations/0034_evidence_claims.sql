@@ -21,7 +21,13 @@ create table if not exists evidence_claims (
 
 create index if not exists evidence_claims_assessment_idx on evidence_claims(assessment_id);
 
-alter table evidence_claims disable row level security;
+-- RLS (Laudon Ch.8 hardening, 2026): ownership flows through
+-- assessments.user_hash (one-way, see 0031_assessments.sql). Only
+-- app_audits_rw ever touches this table; default-deny for every other role.
+alter table evidence_claims enable row level security;
+
+create policy evidence_claims_service_bypass on evidence_claims
+  for all to app_audits_rw using (true) with check (true);
 
 grant select, insert on evidence_claims to app_audits_rw;
 grant usage, select on evidence_claims_id_seq to app_audits_rw;

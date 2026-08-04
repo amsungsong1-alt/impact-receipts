@@ -22,7 +22,14 @@ create table if not exists criterion_scores (
 create index if not exists criterion_scores_assessment_idx on criterion_scores(assessment_id);
 create index if not exists criterion_scores_criterion_idx on criterion_scores(criterion);
 
-alter table criterion_scores disable row level security;
+-- RLS (Laudon Ch.8 hardening, 2026): a criterion_scores row has no direct
+-- tenant column -- ownership flows through assessments.user_hash, which is
+-- deliberately one-way (see 0031_assessments.sql). Only app_audits_rw ever
+-- touches this table; default-deny for every other role.
+alter table criterion_scores enable row level security;
+
+create policy criterion_scores_service_bypass on criterion_scores
+  for all to app_audits_rw using (true) with check (true);
 
 grant select, insert on criterion_scores to app_audits_rw;
 grant usage, select on criterion_scores_id_seq to app_audits_rw;

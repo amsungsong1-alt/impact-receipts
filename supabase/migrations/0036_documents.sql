@@ -21,7 +21,15 @@ create table if not exists documents (
 
 create index if not exists documents_assessment_idx on documents(assessment_id);
 
-alter table documents disable row level security;
+-- RLS (Laudon Ch.8 hardening, 2026): ownership flows through
+-- assessments.user_hash (one-way, see 0031_assessments.sql); this table only
+-- ever stores filename/content_hash metadata, never document content (see
+-- header comment above). Only app_audits_rw ever touches it; default-deny
+-- for every other role.
+alter table documents enable row level security;
+
+create policy documents_service_bypass on documents
+  for all to app_audits_rw using (true) with check (true);
 
 grant select, insert on documents to app_audits_rw;
 grant usage, select on documents_id_seq to app_audits_rw;

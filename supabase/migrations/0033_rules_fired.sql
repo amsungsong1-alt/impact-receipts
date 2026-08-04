@@ -29,7 +29,13 @@ create table if not exists rules_fired (
 create index if not exists rules_fired_assessment_idx on rules_fired(assessment_id);
 create index if not exists rules_fired_rule_id_idx on rules_fired(rule_id);
 
-alter table rules_fired disable row level security;
+-- RLS (Laudon Ch.8 hardening, 2026): ownership flows through
+-- assessments.user_hash (one-way, see 0031_assessments.sql). Only
+-- app_audits_rw ever touches this table; default-deny for every other role.
+alter table rules_fired enable row level security;
+
+create policy rules_fired_service_bypass on rules_fired
+  for all to app_audits_rw using (true) with check (true);
 
 grant select, insert on rules_fired to app_audits_rw;
 grant usage, select on rules_fired_id_seq to app_audits_rw;

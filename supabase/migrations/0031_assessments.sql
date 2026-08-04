@@ -39,7 +39,18 @@ create table if not exists assessments (
 create index if not exists assessments_user_hash_idx on assessments(user_hash, created_at desc);
 create index if not exists assessments_bucket_idx on assessments(donor, sector, org_type);
 
-alter table assessments disable row level security;
+-- RLS (Laudon Ch.8 hardening, 2026): user_hash is deliberately one-way (see
+-- header comment above), so row-ownership RLS is impossible here by design
+-- -- there is no predicate that proves "this caller owns this row" without
+-- reversing a hash that exists specifically so it can't be reversed. The
+-- only real caller today is utils/audits.py's SQLAlchemy connection as
+-- app_audits_rw (see 0009_least_privilege_role.sql) -- default-deny for
+-- every other role, so this table isn't reachable via the anon-key REST
+-- client at all, not even for insert.
+alter table assessments enable row level security;
+
+create policy assessments_service_bypass on assessments
+  for all to app_audits_rw using (true) with check (true);
 
 grant select, insert on assessments to app_audits_rw;
 grant usage, select on assessments_id_seq to app_audits_rw;

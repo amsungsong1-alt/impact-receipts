@@ -28,7 +28,13 @@ create table if not exists quality_audits (
 create index if not exists quality_audits_run_idx on quality_audits(run_at desc);
 create index if not exists quality_audits_table_idx on quality_audits(table_name, dimension);
 
-alter table quality_audits disable row level security;
+-- RLS (Laudon Ch.8 hardening, 2026): system-level findings, not per-user
+-- data. Only app_audits_rw (the internal audit script's connection) ever
+-- touches this table; default-deny for every other role.
+alter table quality_audits enable row level security;
+
+create policy quality_audits_service_bypass on quality_audits
+  for all to app_audits_rw using (true) with check (true);
 
 grant select, insert on quality_audits to app_audits_rw;
 grant usage, select on quality_audits_id_seq to app_audits_rw;

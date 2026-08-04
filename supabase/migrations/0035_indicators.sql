@@ -29,7 +29,13 @@ create table if not exists indicators (
 
 create index if not exists indicators_assessment_idx on indicators(assessment_id);
 
-alter table indicators disable row level security;
+-- RLS (Laudon Ch.8 hardening, 2026): ownership flows through
+-- assessments.user_hash (one-way, see 0031_assessments.sql). Only
+-- app_audits_rw ever touches this table; default-deny for every other role.
+alter table indicators enable row level security;
+
+create policy indicators_service_bypass on indicators
+  for all to app_audits_rw using (true) with check (true);
 
 grant select, insert on indicators to app_audits_rw;
 grant usage, select on indicators_id_seq to app_audits_rw;

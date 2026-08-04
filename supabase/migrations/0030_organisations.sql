@@ -17,7 +17,15 @@ create table if not exists organisations (
   created_at  timestamptz not null default now()
 );
 
-alter table organisations disable row level security;
+-- RLS (Laudon Ch.8 hardening, 2026): organisations has no per-user tenant
+-- column by design -- it IS the tenant, and is only ever read/written via
+-- utils/audits.py's SQLAlchemy connection as app_audits_rw (see
+-- 0009_least_privilege_role.sql). Default-deny for every other role, so it
+-- isn't reachable via the anon-key REST client at all.
+alter table organisations enable row level security;
+
+create policy organisations_service_bypass on organisations
+  for all to app_audits_rw using (true) with check (true);
 
 grant select, insert, update on organisations to app_audits_rw;
 grant usage, select on organisations_id_seq to app_audits_rw;
