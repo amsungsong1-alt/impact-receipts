@@ -473,6 +473,20 @@ run against this repo's usual in-memory test fixtures; their internal logic (ren
 
 This closes out Ch.6 in full — both phases shipped, tested, and live.
 
+## Ethics framework (Laudon Ch.4)
+
+`docs/ethics_framework.md` maps Laudon's five moral dimensions of information systems
+(information rights, property rights, accountability/liability/control, system quality,
+quality of life) onto controls already built for other reasons across the Ch.6/Ch.8/Ch.11/
+Ch.12 passes — the fabrication guard, the compliance hard-gate, the org-type-aware
+thresholds, RLS/encryption, `quality_audit.py` — rather than introducing new mechanisms.
+Documentation only, no code changes: the audit's finding was that the underlying controls
+mostly already existed, scattered, and what was missing was the connecting document, not the
+mechanism. Includes a worked 5-step ethical analysis (Laudon's own process) of the org-type
+threshold design as a concrete example, and names four honest open gaps rather than claiming
+completeness. `docs/responsible_ai_statement.md` is the shorter, customer/investor-facing
+distillation of the same material for pitch use.
+
 ## Testing
 
 Twenty-three plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
