@@ -120,13 +120,12 @@ def log_api_usage(email: str, model: str, call_site: str, input_tokens: int, out
         pass
 
 
-def compute_average_cost_per_assessment(email: str | None = None) -> float | None:
-    """Average estimated_cost_pesewas across api_usage_log rows tagged to a
-    call site that actually gates a scored assessment (ASSESSMENT_CALL_SITES) --
-    the real (not assumed) per-assessment API cost floor CLTV nets against.
-    Optionally scoped to one account. Returns None if there's no matching
-    data yet or on any DB failure -- CLTV must treat "no data" differently
-    from "zero cost.\""""
+def _assessment_costs(email: str | None = None) -> list[float] | None:
+    """Shared query behind compute_average_cost_per_assessment()/
+    compute_p95_cost_per_assessment() -- every ASSESSMENT_CALL_SITES row's
+    estimated_cost_pesewas, optionally scoped to one account. Returns None
+    (not []) on any DB failure so callers can distinguish "no engine/error"
+    from "engine reachable, genuinely zero rows yet.\""""
     engine = _get_engine()
     if not engine:
         return None
@@ -137,9 +136,108 @@ def compute_average_cost_per_assessment(email: str | None = None) -> float | Non
             )
             if email:
                 q = q.filter(ApiUsageLog.email == email)
-            costs = [c[0] for c in q.all()]
+            return [c[0] for c in q.all()]
     except Exception:
         return None
+
+
+def compute_average_cost_per_assessment(email: str | None = None) -> float | None:
+    """Average estimated_cost_pesewas across api_usage_log rows tagged to a
+    call site that actually gates a scored assessment (ASSESSMENT_CALL_SITES) --
+    the real (not assumed) per-assessment API cost floor CLTV nets against.
+    Optionally scoped to one account. Returns None if there's no matching
+    data yet or on any DB failure -- CLTV must treat "no data" differently
+    from "zero cost.\""""
+    costs = _assessment_costs(email)
     if not costs:
         return None
     return round(sum(costs) / len(costs), 4)
+
+
+def compute_p95_cost_per_assessment(email: str | None = None) -> float | None:
+    """Laudon Ch.10, C1: the 95th-percentile estimated_cost_pesewas across
+    ASSESSMENT_CALL_SITES rows -- a mean alone hides the expensive tail
+    (long documents, retried extractions) that determines whether a heavy
+    subscriber is actually margin-negative. Nearest-rank method (no numpy
+    dependency needed for this). Returns None on no data/DB failure, same
+    contract as compute_average_cost_per_assessment()."""
+    costs = _assessment_costs(email)
+    if not costs:
+        return None
+    ordered = sorted(costs)
+    # Nearest-rank percentile: round(p * (n-1)), clamped into range -- exact
+    # for n=1 (returns the only value) and matches numpy's default
+    # interpolation closely enough for a cost-estimate use case.
+    idx = min(len(ordered) - 1, max(0, round(0.95 * (len(ordered) - 1))))
+    return round(ordered[idx], 4)
+
+
+# Tertile boundaries (by input_tokens, a document-length proxy already
+# stored on every row -- no new field needed) for bucketing cost by
+# document length. Documented, not researched -- revisit once there's
+# enough real-usage volume to derive these from an actual distribution
+# instead of a plausible guess.
+_DOC_LENGTH_SHORT_MAX_TOKENS = 2000
+_DOC_LENGTH_MEDIUM_MAX_TOKENS = 8000
+
+
+def compute_cost_by_document_length_bucket(email: str | None = None) -> dict:
+    """Laudon Ch.10, C1: mean estimated_cost_pesewas grouped into short/
+    medium/long buckets by input_tokens (a document-length proxy already
+    logged at every ASSESSMENT_CALL_SITES call, so this needs no new
+    column). Returns {"short": {"mean_cost_pesewas", "count"}, "medium": ...,
+    "long": ...} -- a bucket with zero rows still appears with count 0 and a
+    None mean, never silently omitted. Returns {} on no engine/DB failure."""
+    engine = _get_engine()
+    if not engine:
+        return {}
+    try:
+        with Session(engine) as session:
+            q = session.query(ApiUsageLog.input_tokens, ApiUsageLog.estimated_cost_pesewas).filter(
+                ApiUsageLog.call_site.in_(ASSESSMENT_CALL_SITES)
+            )
+            if email:
+                q = q.filter(ApiUsageLog.email == email)
+            rows = q.all()
+    except Exception:
+        return {}
+
+    buckets = {"short": [], "medium": [], "long": []}
+    for input_tokens, cost in rows:
+        tokens = input_tokens or 0
+        if tokens <= _DOC_LENGTH_SHORT_MAX_TOKENS:
+            buckets["short"].append(cost)
+        elif tokens <= _DOC_LENGTH_MEDIUM_MAX_TOKENS:
+            buckets["medium"].append(cost)
+        else:
+            buckets["long"].append(cost)
+
+    return {
+        name: {
+            "mean_cost_pesewas": round(sum(costs) / len(costs), 4) if costs else None,
+            "count": len(costs),
+        }
+        for name, costs in buckets.items()
+    }
+
+
+def compute_subscription_breakeven_assessments(
+    monthly_price_pesewas: int, cost_per_assessment_pesewas: float | None = None
+) -> float | None:
+    """Laudon Ch.10, C1: the number of assessments per month at which a
+    subscriber paying monthly_price_pesewas stops being margin-positive --
+    breakeven_n = monthly_price_pesewas / cost_per_assessment_pesewas. A
+    subscriber running MORE than this many assessments in a month is
+    margin-negative for that month.
+
+    Defaults cost_per_assessment_pesewas to compute_average_cost_per_assessment()
+    (all accounts, not subscriber-only -- see docs/unit_economics.md's
+    explicit TODO on this scoping gap) when not supplied. Returns None if no
+    cost figure is available (no data yet, or the caller passed 0/None with
+    nothing to fall back to) rather than a divide-by-zero or a guessed
+    number."""
+    if cost_per_assessment_pesewas is None:
+        cost_per_assessment_pesewas = compute_average_cost_per_assessment()
+    if not cost_per_assessment_pesewas or cost_per_assessment_pesewas <= 0:
+        return None
+    return round(monthly_price_pesewas / cost_per_assessment_pesewas, 2)
