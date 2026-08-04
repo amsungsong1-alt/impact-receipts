@@ -22,6 +22,8 @@ price_mix:
 price_ghs:
   per_use: 5
   monthly: 50
+  annual: 500
+  agency: 200
 # One-off cost to acquire a customer (ads, founder time, etc.) -- a rough
 # placeholder, not derived from real marketing spend data.
 acquisition_cost_ghs: 20
@@ -30,3 +32,38 @@ acquisition_cost_ghs: 20
 expected_lifetime_cycles: 6
 # Annual discount rate applied to future cycles' cash flow.
 discount_rate_annual: 0.15
+
+# Laudon Ch.10, C2/C6: pricing-SCENARIO modeling inputs for
+# scripts/pricing_model.py. Same placeholder-assumption status as
+# everything above -- adjust before relying on this financially.
+# scripts/pricing_model.py NEVER writes these back into a live price
+# constant; this file is read-only input to an analysis script, not a
+# source of truth for what customers are actually charged (that remains
+# app.py's PRICE_* constants and the live Paystack Plan objects).
+credit_pack:
+  assessments: 10
+  price_ghs: 40
+free_tier:
+  # "1 assessment per organisation ever" scenario input -- a hypothetical
+  # alternative to the current 3-free-checks-per-account model, not
+  # something currently implemented.
+  assessments_per_org_lifetime: 1
+subscription_fair_use:
+  # A hypothetical "subscription + fair-use cap + overage" scenario -- cap
+  # chosen as a round number above expected_assessments_per_cycle, not
+  # derived from real subscriber usage (none exists yet at volume).
+  included_assessments_per_month: 15
+  overage_price_ghs: 3
+concessional_tiers:
+  # Laudon Ch.10, C6: differential pricing by organisational capacity --
+  # hypothetical discount tiers to model, not live pricing. Bucket names
+  # mirror evaluator.py's existing org-type-aware SCORING threshold naming
+  # (CBO/Government=3.5, National NGO=3.75, INGO=4.0) for consistency, but
+  # this is a PRICING discount -- a separate concept that happens to use
+  # the same three org-type buckets, not the same mechanism.
+  - org_type: "CBO/Government"
+    discount_pct: 60
+  - org_type: "National NGO"
+    discount_pct: 30
+  - org_type: "International NGO (INGO)"
+    discount_pct: 0
