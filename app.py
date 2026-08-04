@@ -5838,6 +5838,28 @@ def render_my_audits_page():
                                    f"— baseline {_it.get('logframe_baseline') or '—'}, "
                                    f"target {_it.get('logframe_target') or '—'}")
 
+    # --- Export: switching costs, built honestly (Laudon Ch.10, C5) ---
+    st.divider()
+    st.markdown("#### Export your data")
+    st.caption(
+        "Download everything associated with your account -- saved audits, Logframe Library, "
+        "clients, and payment history -- as a single file. Same data-portability principle as "
+        "Ghana Data Protection Act 843 / Nigeria NDPA."
+    )
+    if st.button("Prepare my data export", key="my_audits_export_btn"):
+        import json as _json_export
+        from utils.account_export import build_account_export
+        _bundle = build_account_export(email)
+        st.session_state["_account_export_json"] = _json_export.dumps(_bundle, default=str, indent=2)
+    if st.session_state.get("_account_export_json"):
+        st.download_button(
+            "⬇️ Download my data (JSON)",
+            data=st.session_state["_account_export_json"].encode("utf-8"),
+            file_name=f"impactproof_export_{email.split('@')[0]}.json",
+            mime="application/json",
+            key="my_audits_export_dl",
+        )
+
     # --- Danger zone: permanent data deletion (Ghana Data Protection Act 843) ---
     st.divider()
     st.markdown("#### Danger zone")
