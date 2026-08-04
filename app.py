@@ -12189,6 +12189,38 @@ def _render_agency_dss_view(full_audits: list) -> None:
         _pivot_df = pd.DataFrame(_pivot_rows).pivot(index="Criterion", columns="Client", values="Mean score")
         st.dataframe(_pivot_df, use_container_width=True)
 
+    _render_warehouse_slice_dice()
+
+
+def _render_warehouse_slice_dice() -> None:
+    """Laudon Ch.6 Phase 2, C5: OLAP slice/dice over the cross-portfolio
+    star-schema warehouse (utils/warehouse.py) -- distinct from the pivot
+    above, which is this ONE account's own saved audits. This draws from
+    every scored assessment across all accounts (hash-keyed, no free text),
+    the same anonymized-aggregate privacy model as the "how you compare"
+    benchmark. Renders nothing (not even a caption) when the warehouse has
+    no data yet, so it never implies a broken feature on an environment
+    where migration 0055 hasn't been applied/populated."""
+    try:
+        from utils.warehouse import slice_by
+    except Exception:
+        return
+    _dim_label = {"donor": "Donor", "sector": "Sector", "org_type": "Org type", "quarter": "Quarter"}
+    _slice_choice = st.selectbox(
+        "Slice the portfolio-wide warehouse by", list(_dim_label.keys()),
+        format_func=lambda k: _dim_label[k], key="dss_warehouse_slice_dim",
+    )
+    _rows = slice_by(_slice_choice)
+    if not _rows:
+        return  # No warehouse data yet (or not populated) -- silent, not an error.
+    st.markdown("#### Portfolio-wide warehouse slice")
+    st.caption(
+        "Aggregated across every scored assessment on ImpactProof, not just this account's "
+        "saved audits — buckets below 10 assessments are withheld."
+    )
+    import pandas as pd
+    st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+
 
 def _render_agency_ess_view(full_audits: list, email: str) -> None:
     """D4c -- Laudon Ch.12 pp.478-481, ESS view: director/donor-facing
