@@ -389,15 +389,16 @@ request. Still dirty after the final attempt degrades to a structural suggestion
 fabricated rewrite, never a bare empty string) — see `utils/fabrication_guard.py`'s module
 docstring.
 
-## Data foundations & quality (Laudon Ch.6) — schema + write path built, NOT applied to production
+## Data foundations & quality (Laudon Ch.6) — Phase 1 + Phase 2 shipped and LIVE
 
 Audited the full schema (all 30 migrations, `evaluator.py`'s actual scoring output shape) and
 found the data that matters most — per-criterion scores, fired rules, evidence claims,
 indicators — has never been a relational entity: it lives as dict keys inside a single
 encrypted blob (`audits.evaluations_json`), and only for the minority of users who opt into
 saving history. Migrations `0030`–`0037` (`organisations`, `assessments`, `criterion_scores`,
-`rules_fired`, `evidence_claims`, `indicators`, `documents`, `quality_audits`) normalize this —
-**written and reviewed only, not applied to any database, per this pass's explicit scope**.
+`rules_fired`, `evidence_claims`, `indicators`, `documents`, `quality_audits`) normalize this.
+**Applied to production 2026-08-04** (via the Supabase MCP `apply_migration` tool) — all 8
+tables are live with real RLS (`app_audits_rw` bypass, default-deny for every other role).
 
 The new tables are **hash-keyed** (`user_hash`, `metrics.session_hash()`), not email-keyed —
 same pattern as `assessment_links`/`outcome_feedback`/`rule_disputes` — and populated for
@@ -420,9 +421,9 @@ single 0–5 level scale the way the 3 confidence-axis criteria are. `indicators
 free-text *values* ("50 households"), not dates, and there's no separate "when was this
 measured" field to parse a real date from; mapping an unrelated field into a date column would
 violate the no-fabrication rule, so they stay null until a real source field exists. Verified
-end-to-end against an in-memory SQLite engine (`test_assessment_facts.py`) — **never run
-against a real Postgres database**, same caveat as the migrations themselves; this call is a
-safe no-op in production today since `0030`–`0037` aren't applied yet.
+end-to-end against an in-memory SQLite engine (`test_assessment_facts.py`); now that `0030`–
+`0037` are applied, this call actually writes on every scored assessment in production, not
+just the opted-in minority.
 
 `scripts/generate_data_dictionary.py` regenerates `docs/data_dictionary.md` from a live
 schema's `information_schema` introspection merged with `knowledge/
@@ -437,11 +438,40 @@ connection** (`SUPABASE_DB_URL`) — `information_schema` doesn't exist in SQLit
 run against this repo's usual in-memory test fixtures; their internal logic (rendering,
 `Finding` construction) was smoke-tested with fake data instead, not run against a live schema.
 
-Deferred, not built this pass: C4 (evidence data warehouse — `fact_assessment` + dimension
-tables, genuinely cheap to build once `criterion_scores` exists to source it from), C5 (OLAP
-slice/dice surface), C6 (text mining for hedge-word/house-style risk patterns), C7 (indicator
-stewardship register + draft information policy generator for the customer), C8
-(cleansing-on-ingest, flag-never-correct).
+**Phase 2 (C4–C8), also shipped and live, 2026-08-04:**
+- **C8** (`evaluator.check_data_quality_flags()`) — cleansing-on-ingest, flag-never-correct:
+  baseline≡achievement duplicates, evidence descriptions that mirror the result statement,
+  10x+ target/achievement magnitude mismatches. Purely additive to `evaluate_submission()`'s
+  return dict; never touches `confidence_score`/`clarity_score`.
+- **C6** (`evaluator.detect_hedge_language()`) — deterministic epistemic-hedge-phrase detection
+  ("may have," "it is believed," "arguably," …) in the result/evidence text, count-based risk
+  banding. Distinct from Directness/Measurement's existing checks: this flags *how* confidently
+  something was stated, not *what* was claimed.
+- **C4** (migration `0055`: `dim_donor`/`dim_sector`/`dim_org_type`/`dim_date`/`fact_assessment`)
+  — a Kimball star schema on top of `assessments`/`criterion_scores`, populated by
+  `scripts/populate_warehouse.py` (idempotent, get-or-create dimensions, one fact row per
+  assessment with a derived criteria pass/fail count). Applied to production alongside
+  `0030`-`0037`. Unlike `quality_audit.py`/`generate_data_dictionary.py`, this script does plain
+  inserts, not `information_schema` introspection, so `test_populate_warehouse.py` runs it
+  against real in-memory SQLite, not just smoke-tests it.
+- **C5** (`utils/warehouse.py::slice_by()`) — read-only OLAP slice/dice over `fact_assessment`,
+  grouped by donor/sector/org_type/quarter, buckets below `MIN_SLICE_SAMPLE` (10) withheld (same
+  near-empty-sample convention as the benchmark feature). Surfaced as a new panel on the Agency
+  Dashboard's DSS tab, clearly distinct from that tab's existing per-account criterion × client
+  pivot (Ch.12) — this one draws from every scored assessment across all accounts.
+- **C7, register half** (`utils/indicator_stewardship.py::find_indicator_inconsistencies()`) —
+  flags an account's own indicator names reused across assessments with a different recorded
+  target/baseline, scoped by `user_hash` so accounts never see each other's indicator usage.
+  Surfaced on Screen 3's Trends section.
+- **C7, policy-generator half** (`utils/policy_generator.py::generate_information_policy_draft()`)
+  — a pure, template-filled Markdown draft of a data/information policy for the *customer's own*
+  organisation (distinct from `docs/privacy_notice.md`/`docs/compliance/*.md`, which describe
+  ImpactProof's own practices). Never LLM-generated: every slot is filled only from the account's
+  personalization profile (`account_sector`/`primary_donors`/`country`); anything unsupplied
+  renders as an explicit `[Add: ...]` placeholder, never a guessed value. Download button next to
+  the stewardship register on Screen 3.
+
+This closes out Ch.6 in full — both phases shipped, tested, and live.
 
 ## Testing
 
@@ -497,6 +527,14 @@ python test_cross_sell.py       # Ch.9 CRM (C7): behaviour-only recommendation s
 python test_assessment_facts.py # Ch.6 C1 write path: assessments/criterion_scores/rules_fired/
                                  # evidence_claims/indicators content, no free-text columns,
                                  # date parsing, no-op degradation with no engine/empty email
+python test_populate_warehouse.py # Ch.6 Phase 2 C4: star-schema ETL -- fact row content, get-or-create
+                                 # dimensions, idempotent re-runs, null-degradation on missing fields
+python test_warehouse.py        # Ch.6 Phase 2 C5: OLAP slice_by() aggregates, MIN_SLICE_SAMPLE gate,
+                                 # graceful degradation with no engine/missing tables
+python test_indicator_stewardship.py # Ch.6 Phase 2 C7 (register): inconsistent target/baseline
+                                 # detection, single-use exemption, per-account hash isolation
+python test_policy_generator.py # Ch.6 Phase 2 C7 (policy): known fields fill correctly, unknown
+                                 # fields always placeholder (never fabricate), disclaimer always present
 python test_i18n.py             # currency conversion, geoIP routing, ROI copy, Paystack checkout routing
 python test_security.py         # app.py-level regression tests (user_email overwrite guard, portfolio
                                  # heatmap sample gate, Readiness Card crosswalk tags, verify landing page,
