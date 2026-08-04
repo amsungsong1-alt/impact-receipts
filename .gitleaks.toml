@@ -1,0 +1,28 @@
+# .gitleaks.toml — Laudon Ch.8 hardening, C2: secret-scanning config for
+# both the pre-commit hook (.pre-commit-config.yaml) and a periodic full
+# git-history scan (scripts/security_audit.py, and manually via
+# `gitleaks detect --source . --log-opts="--all"`).
+#
+# Extends gitleaks' own default rule set (https://github.com/gitleaks/gitleaks)
+# rather than replacing it -- this file only adds the allowlist below.
+title = "impact-receipts gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known false positives reviewed during the Ch.8 hardening pass (2026) -- confirmed NOT secrets."
+regexes = [
+  # Streamlit widget `key="..."` string literals in app.py -- their naming
+  # convention (short_snake_case, high-entropy-looking due to length/mixed
+  # words) matches the generic-api-key heuristic rule, but these are UI
+  # element identifiers, never credentials. Scoped narrowly to the exact
+  # strings found by the full-history scan below, not a broad pattern, so a
+  # genuinely new secret with a similar-looking name still gets caught.
+  '''wa_s0_questions_clicked''',
+  '''wa_s0_questions_btn''',
+]
+
+# Full-history scan performed 2026-08-02 (359 commits, ~2.4 MB scanned):
+# these were the only 2 findings, both reviewed and confirmed as the false
+# positives allowlisted above. Zero real secrets found in git history.

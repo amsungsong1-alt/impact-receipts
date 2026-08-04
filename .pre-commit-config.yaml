@@ -1,0 +1,16 @@
+# .pre-commit-config.yaml — Laudon Ch.8 hardening, C2: secret scanning on
+# every commit, so a real key/token never reaches git history in the first
+# place (cheaper than finding it later -- see the one-time full-history scan
+# documented in .gitleaks.toml).
+#
+# Setup (once per clone):
+#   pip install pre-commit
+#   pre-commit install
+#
+# Runs automatically on `git commit` from then on. To scan everything
+# without committing (e.g. in CI): pre-commit run --all-files
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

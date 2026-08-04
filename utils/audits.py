@@ -692,6 +692,38 @@ def check_rate_limit(email: str, action: str, max_count: int, window_seconds: in
         return True
 
 
+def check_cost_rate_limit(email: str, action: str, max_count: int, window_seconds: int) -> bool:
+    """Same query as check_rate_limit(), but fails CLOSED (returns False,
+    i.e. deny) on any DB error or missing email/engine -- a deliberate
+    divergence from this module's usual degrade-gracefully convention.
+
+    Use this only for endpoints that trigger a real per-call dollar cost
+    (an LLM extraction call) -- check_rate_limit's fail-open behavior is
+    correct for ordinary features (a rate-limiter outage shouldn't block
+    saving an audit), but is exactly backwards for a cost-bearing endpoint,
+    where "the limiter is broken" is precisely the moment an abuser could
+    run up an unbounded bill. A caller should show a generic "please try
+    again shortly" message on a False result, not reveal whether the denial
+    was the real limit or an infrastructure fault (same reasoning as this
+    module's other fail-closed checks, e.g. account lockout)."""
+    if not email or not action:
+        return False
+    engine = _get_engine()
+    if not engine:
+        return False
+    try:
+        from sqlalchemy import func as _func
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
+        with Session(engine) as session:
+            count = (session.query(_func.count(AccessLog.id))
+                     .filter(AccessLog.email == email, AccessLog.action == action,
+                             AccessLog.created_at >= cutoff)
+                     .scalar())
+            return (count or 0) < max_count
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Data deletion ("erase my history" -- Ghana Data Protection Act 843)
 # ---------------------------------------------------------------------------

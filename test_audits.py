@@ -245,6 +245,31 @@ def run_access_log_and_rate_limit():
         audits._get_engine = lambda: None
         if not audits.check_rate_limit("a@example.com", "test_action", max_count=1, window_seconds=60):
             failures.append("check_rate_limit did not fail open when the engine is unavailable")
+        audits._get_engine = lambda: engine
+    finally:
+        audits._get_engine = original_get_engine
+
+    # check_cost_rate_limit: same counting behavior as check_rate_limit, but
+    # a deliberately opposite failure mode (Laudon Ch.8, C1 -- a cost-bearing
+    # LLM-extraction endpoint must deny, not allow, when the limiter itself
+    # is broken).
+    audits._get_engine = lambda: engine
+    try:
+        for _ in range(3):
+            audits.log_access("cost_limit_test@example.com", "cost_action")
+        if not audits.check_cost_rate_limit("cost_limit_test@example.com", "cost_action", max_count=5, window_seconds=60):
+            failures.append("check_cost_rate_limit denied a request under its max_count threshold")
+        for _ in range(3):
+            audits.log_access("cost_limit_test@example.com", "cost_action")
+        if audits.check_cost_rate_limit("cost_limit_test@example.com", "cost_action", max_count=5, window_seconds=60):
+            failures.append("check_cost_rate_limit allowed a request at/over its max_count threshold")
+
+        # A DB error must fail CLOSED, the opposite of check_rate_limit.
+        audits._get_engine = lambda: None
+        if audits.check_cost_rate_limit("a@example.com", "cost_action", max_count=1, window_seconds=60):
+            failures.append("check_cost_rate_limit did not fail closed when the engine is unavailable")
+        if audits.check_cost_rate_limit("", "cost_action", max_count=1, window_seconds=60):
+            failures.append("check_cost_rate_limit did not fail closed on a missing email")
     finally:
         audits._get_engine = original_get_engine
 

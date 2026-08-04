@@ -124,6 +124,38 @@ def send_login_email(to_email: str, link_url: str, code: str) -> tuple[bool, str
         return False, str(e)
 
 
+def send_security_alert_email(subject: str, body_text: str) -> tuple[bool, str]:
+    """Laudon Ch.8, C3: alert the founder on security-relevant events (admin
+    gate lockout, repeated 2FA failures) that fail-closed logic already
+    blocked but a human should still know about. Degrades gracefully:
+    SECURITY_ALERT_EMAIL unset means "no alerting configured" (returns False
+    with an explanatory message), never an exception -- this must never be
+    what breaks the fail-closed block it's reporting on."""
+    api_key = _get_secret("RESEND_API_KEY")
+    alert_to = _get_secret("SECURITY_ALERT_EMAIL")
+    if not api_key or not alert_to:
+        return False, "Security alerting not configured (RESEND_API_KEY/SECURITY_ALERT_EMAIL missing)."
+    from_address = _from_address()
+    try:
+        import requests
+        resp = requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "from": from_address,
+                "to": [alert_to],
+                "subject": f"[{_APP_NAME} security alert] {subject}",
+                "html": f"<pre style='font-family:monospace;white-space:pre-wrap;'>{body_text}</pre>",
+            },
+            timeout=10,
+        )
+        if resp.status_code in (200, 201):
+            return True, ""
+        return False, f"Email service returned {resp.status_code}: {resp.text[:200]}"
+    except Exception as e:
+        return False, str(e)
+
+
 def send_results_email(
     to_email: str,
     conf_score: float,
