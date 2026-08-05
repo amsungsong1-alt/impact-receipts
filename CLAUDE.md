@@ -537,6 +537,52 @@ before the Danger Zone. No live Paystack account or price change involved anywhe
 arc — same explicit boundary as the original Ch.10 brief: this pass produces numbers and
 tooling, not a pricing decision.
 
+## Impact-Linked Readiness Module
+
+`utils/impact_linked_readiness.py` — a distinct product surface from the rest of the app:
+whether ONE contractual indicator (the kind impact-linked loans/SIINC deals condition
+financial terms on, e.g. "3,000 farmers onboarded, verified") is defensible enough to put
+real money on, not whether a donor report reads well. Higher stakes than donor reporting —
+money consequences, not reputation — so the assurance bar is "agreed-upon procedures against
+pre-defined criteria," not a quality score; deliberately fully deterministic, no AI/LLM call
+anywhere in this module, since AI-judgment scoring would be unacceptable in a financially
+contractual context. Never invoked inside `evaluate_submission()` and never reads/returns
+`confidence_score`/`clarity_score` — a structurally separate module, not an extension of the
+donor-report scoring engine, run only on-click via a new expander on Screen 2's existing
+per-indicator report card ("🏦 Check funder-readiness for this indicator").
+
+Three checks, all reusing existing per-indicator data (no new UI fields, no migration):
+**`check_indicator_contractibility()`** flags ambiguous/absent units, no disaggregation rule,
+no confirmed collection tool/method, and a target with no baseline — reusing
+`_extract_leading_number`-style unit detection, the existing `disaggregation_status` dropdown,
+and the `provenance_checklist.collection_tool_named` answer already collected on Screen 1.
+**`trace_evidence_chain()`** is a structured 5-link trace (definition → collection instrument
+→ sampling approach → raw records → aggregation method) built from the SAME
+`provenance_checklist` dict `get_provenance_adjustment()` already reads — `aggregation_method`
+is *always* `present: False`, an honest MVP gap (no field anywhere captures it) rather than a
+guess, matching the same "ship the gap, don't fabricate a value" convention as
+`indicators.baseline_date`/`endline_date` shipping always-null. **`assess_verification_readiness()`**
+reuses the `auditor_traceable` checklist answer, explicitly labeled `"signal": "self_declared"`
+— a policy invariant asserted directly in tests — since no custody-location/collector-identity/
+retention-duration schema exists to check independently.
+
+`generate_readiness_certificate()` assembles all three into red/amber/green traffic lights
+(deliberately not numeric, to avoid false comparability with the 0-5 confidence/clarity axes),
+a flattened named-gaps list, and a disclaimer ("pre-verification diagnostic, not a
+verified-impact claim, not independent assurance") — ImpactProof is explicitly not positioned
+as the independent verifier itself (that needs a human with liability); this is the diagnostic
+layer that makes that human review cheaper. Deliberately not built this pass: any new schema
+for custody/collector/retention tracking, a new UI field for aggregation method, baseline-
+integrity (timing/collector of the baseline itself) and target-plausibility checks, or a
+standalone/exportable certificate artifact — inline-on-Screen-2 was the user-confirmed v1
+scope. Planned via the full Explore→Plan→Review plan-mode workflow (2 parallel Explore agents
+audited existing indicator/logframe-scoring and audit-trail/consent infrastructure, 1 Plan
+agent designed the implementation, 2 product judgment calls put back to the user via
+AskUserQuestion before finalizing) — the originating "mostly reconfiguration" premise from the
+strategy discussion that proposed this feature turned out directionally right but optimistic;
+real new logic was needed, though no per-report→per-indicator refactor was, since a
+`submission` dict already models exactly one indicator.
+
 ## Testing
 
 Twenty-three plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
@@ -609,6 +655,10 @@ python test_receipts.py         # Ch.10 C4: receipt HTML renders all fields, non
                                  # class, missing-field placeholders, no external assets
 python test_account_export.py   # Ch.10 C5: full bundle composition, empty-account degradation,
                                  # cross-account isolation, no-engine degradation
+python test_impact_linked_readiness.py # Impact-Linked Readiness Module: contractibility flags,
+                                 # 5-link evidence chain (aggregation_method always missing by
+                                 # design), self-declared verification signal, certificate never
+                                 # touches confidence_score/clarity_score
 python test_i18n.py             # currency conversion, geoIP routing, ROI copy, Paystack checkout routing
 python test_security.py         # app.py-level regression tests (user_email overwrite guard, portfolio
                                  # heatmap sample gate, Readiness Card crosswalk tags, verify landing page,

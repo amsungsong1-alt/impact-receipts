@@ -8732,6 +8732,41 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
                 "claim directly, or explaining the uncertainty explicitly instead of hedging it."
             )
 
+    # Impact-Linked Readiness Module -- a distinct product surface (funders,
+    # not donors): is THIS indicator defensible enough to condition an
+    # impact-linked loan/SIINC premium on. Deterministic only, no AI call,
+    # never touches confidence_score/clarity_score. Computed only when this
+    # expander is opened, not automatically alongside every submission.
+    with st.expander("🏦 Check funder-readiness for this indicator", expanded=False):
+        from utils.impact_linked_readiness import generate_readiness_certificate
+        _cert = generate_readiness_certificate(submission)
+        _light_emoji = {"green": "🟢", "amber": "🟡", "red": "🔴"}
+        st.caption(
+            "For impact-linked finance (loans/SIINC deals where financial terms are tied to "
+            "verified outcomes) — checks whether THIS indicator is defensible enough to put "
+            "money on, not whether the report reads well."
+        )
+        st.markdown(
+            f"{_light_emoji.get(_cert['contractibility']['light'], '⚪')} **Indicator contractibility** "
+            f"— is it defined tightly enough?"
+        )
+        for _c in _cert["contractibility"]["checks"]:
+            if _c["status"] == "flag":
+                st.warning(_c["message"])
+        st.markdown(
+            f"{_light_emoji.get(_cert['evidence_chain']['light'], '⚪')} **Evidence chain** "
+            f"— definition → collection → sampling → raw records → aggregation"
+        )
+        for _link in _cert["evidence_chain"]["links"]:
+            if not _link["present"]:
+                st.warning(f"**{_link['link'].replace('_', ' ').title()}:** {_link['detail']}")
+        st.markdown(
+            f"{_light_emoji.get(_cert['verification_readiness']['light'], '⚪')} "
+            f"**Verification readiness** — {_cert['verification_readiness']['basis']}"
+        )
+        st.caption(_cert["verification_readiness"]["gap"])
+        st.info(_cert["disclaimer"])
+
     # Score-explanation chat assistant (council XV)
     with st.expander("💬 Ask about your score", expanded=False):
         _render_help_chat(submission, ev, donor=donor, card_idx=card_idx)
