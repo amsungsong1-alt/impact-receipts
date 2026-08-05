@@ -11,8 +11,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-lock.txt .
+# Install from the full-closure lock file, not requirements.txt directly --
+# requirements.txt only pins direct/top-level packages; requirements-lock.txt
+# pins every transitive dependency too, so this build is byte-for-byte
+# reproducible (see requirements-lock.txt's own header for the incident that
+# made this necessary -- an unpinned transitive dep silently broke production
+# on a cold rebuild). requirements.txt is still copied in for reference/
+# regeneration, but is not itself installed from here.
+RUN pip install --no-cache-dir -r requirements-lock.txt
 
 COPY . .
 

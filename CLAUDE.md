@@ -717,6 +717,35 @@ succeed against it) — not something the deploy script attempts to automate bli
 no active upstream health check (that's an Nginx-Plus feature); recovery relies on Docker's
 `HEALTHCHECK` + `restart: unless-stopped` on both real services.
 
+### Dependency pinning: `requirements.txt` vs `requirements-lock.txt`
+
+Two files, two jobs. `requirements.txt` is hand-maintained — the direct packages this app
+actually imports, exact-pinned with a rationale comment per package (Laudon Ch.8, C7).
+`requirements-lock.txt` is machine-generated — the full transitive closure (every package
+`requirements.txt`'s own dependencies pull in, pinned too), frozen from a real,
+verified-working install rather than typed by hand. **Docker (`Dockerfile`) and CI
+(`.github/workflows/ci.yml`) install from `requirements-lock.txt`, not `requirements.txt`** —
+that's the one that actually makes a build reproducible.
+
+This distinction exists because of a real production outage (2026-08-05): `requirements.txt`
+pinned `streamlit==1.58.0` exactly, but Streamlit's own declared dependency on `starlette` is
+only floor-pinned upstream (`>=0.40.0`, no ceiling) — so even with every line in
+`requirements.txt` exact, a fresh `pip install` could still silently resolve a new,
+incompatible major version of a *transitive* package. That's exactly what happened on a cold
+Docker rebuild (triggered by an unrelated upstream base-image digest change, which invalidated
+the cached `pip install` layer): `pip` picked up starlette's new `1.x` line, which added a
+required constructor argument to an internal class Streamlit's own vendored gzip middleware
+calls without it — crashing every single request. Fixed short-term by pinning
+`starlette==0.52.1` directly; fixed structurally by adding `requirements-lock.txt` so this
+entire class of drift (any unlisted transitive dependency, not just starlette) can't recur.
+
+To regenerate after changing `requirements.txt`: install into an environment that matches
+production — the droplet itself (`docker compose exec app pip freeze`) or a container built
+from this repo's own `Dockerfile`, **not** a bare local venv, which can resolve different
+platform-specific wheels than the Linux container actually runs — then replace
+`requirements-lock.txt`'s contents with that freeze output. Full test suite must still pass
+against the regenerated lock file before committing.
+
 ## Working conventions
 
 - Rules are the source of truth for scores; AI narrates and interrogates around them — never

@@ -1,9 +1,19 @@
-# Laudon Ch.8 hardening, C7: exact-pinned (not floor-only >=) so a fresh
-# `pip install -r requirements.txt` is reproducible and CI's pip-audit step
-# (.github/workflows/ci.yml) checks a known, fixed set of versions rather
-# than whatever happens to be newest on install day. Bump deliberately: edit
-# the version here, run the full test suite, then commit -- never let an
-# unpinned range silently pull a new major version into production.
+# Laudon Ch.8 hardening, C7: exact-pinned (not floor-only >=) so the direct
+# dependencies this app actually imports are unambiguous, and CI's
+# pip-audit step (.github/workflows/ci.yml) checks a known, fixed set of
+# top-level versions. Bump deliberately: edit the version here, run the
+# full test suite, then commit.
+#
+# This file alone is NOT what Docker/CI install from -- see
+# requirements-lock.txt (the full transitive closure, including every
+# package listed here). A 2026-08-05 production incident showed why: this
+# file pins direct packages exactly, but streamlit's own dependency on
+# starlette is only floor-pinned upstream (>=0.40.0, no ceiling), so a
+# fresh install could still silently pull an incompatible new major version
+# of a TRANSITIVE dependency, even with every line below exact. After
+# bumping/adding anything here, regenerate requirements-lock.txt (see that
+# file's own header for how) -- never assume this file alone is sufficient
+# for a reproducible install.
 streamlit==1.58.0
 # Explicit pin, not just a top-level one: streamlit only declares
 # starlette>=0.40.0 (no ceiling), so an unpinned transitive install can pull
