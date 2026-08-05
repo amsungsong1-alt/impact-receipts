@@ -5,6 +5,20 @@
 # the version here, run the full test suite, then commit -- never let an
 # unpinned range silently pull a new major version into production.
 streamlit==1.58.0
+# Explicit pin, not just a top-level one: streamlit only declares
+# starlette>=0.40.0 (no ceiling), so an unpinned transitive install can pull
+# starlette's new 1.x line, which added a required thread_minimum_size kwarg
+# to GZipResponder.__init__() that streamlit's own vendored gzip middleware
+# (web/server/starlette/starlette_gzip_middleware.py) doesn't pass -- crashes
+# every request with "GZipResponder.__init__() missing 1 required keyword-
+# only argument: 'thread_minimum_size'". Verified compatible signature
+# directly against streamlit 1.58.0's actual call site before pinning this.
+# This is also a live gap in this file's own "exact-pinned, reproducible"
+# goal above -- only top-level packages are pinned here, not the full
+# transitive closure, so this class of drift can still happen for any other
+# unlisted transitive dependency. A full pip-freeze-style lock file would
+# close that gap properly; not done here under a live production incident.
+starlette==0.52.1
 anthropic==0.105.2
 python-dotenv==1.2.2
 PyMuPDF==1.27.2.3
