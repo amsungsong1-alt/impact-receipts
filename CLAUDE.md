@@ -583,6 +583,40 @@ strategy discussion that proposed this feature turned out directionally right bu
 real new logic was needed, though no per-report→per-indicator refactor was, since a
 `submission` dict already models exactly one indicator.
 
+## Strategic positioning (Laudon Ch.3)
+
+`docs/strategy/` — seven documents (`five_forces.md`, `competitive_strategy.md`,
+`value_chain.md`, `network_effects.md`, `ecosystem_map.md`, `resistance_analysis.md`,
+`pitch_spine.md`), prepared for the Execute Africa AI Challenge pitch (ALX Tech Hub Accra,
+September 2026) and impact-linked finance conversations. Documentation only, no code — the
+last item on the Laudon prompt-pack roadmap. Grounded in three parallel Explore-agent research
+passes against the live codebase and one live Supabase query (4 production accounts as of
+2026-08-04/05), not generic startup-strategy prose; every claim is tagged Confirmed/
+Assumption/Research-needed and cross-referenced across documents so the pack reads as one
+argument rather than seven independent essays.
+
+Reuses real, already-shipped internal language rather than inventing new positioning: the
+**DRCA** framework (Deterministic/Reproducible/Comparable/Auditable) from `council.py`'s
+admin-only `debate_competitive_position()` tool becomes the differentiation argument in
+`competitive_strategy.md`; the org-type thresholds' real calibration to STAR-Ghana and
+District Assembly grants (`evaluator.py`, the Fairness expander) becomes the concrete
+Ghana-specificity evidence in the same document and in `pitch_spine.md`.
+
+Required "uncomfortable findings" are each owned by exactly one document, not scattered or
+duplicated: `five_forces.md` names the direct-LLM substitute as the sharpest competitive
+threat and answers it on technical merit (the fabrication guard, `evaluator.py`'s
+zero-API-call determinism) rather than dismissing it; `competitive_strategy.md` states
+low-cost leadership is not available; `value_chain.md` confirms ImpactProof sits at
+reporting — the latest, weakest intervention point — with the Impact-Linked Readiness Module
+named as a real but only partial upstream exception; `network_effects.md` states plainly that
+real usage volume (6 logged API-cost events, every one of the codebase's own `MIN_*_SAMPLE=10`
+gates) is too sparse for any network-effect claim to be more than "correctly built, not yet
+proven"; `ecosystem_map.md` states no relationship exists with any named donor or
+impact-linked-finance organisation, and names the validator relationship as the single most
+consequential open item; `resistance_analysis.md` states its own gain-not-loss reframe is a
+design intention read from the architecture, not validated user feedback. `pitch_spine.md`
+compresses all six into a five-slide, ~770-word argument that introduces zero new facts.
+
 ## Testing
 
 Twenty-three plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
