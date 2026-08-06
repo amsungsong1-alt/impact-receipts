@@ -7121,44 +7121,57 @@ def render_screen_1():
                                         pass
 
                                     # --- Compliance fields ---
+                                    # Each guarded by "still at its unanswered placeholder" --
+                                    # same never-overwrite-a-real-answer convention already used
+                                    # for sector/donor keyword inference above. Without this, IRC
+                                    # would silently revert a user's own manual answer (e.g. "Not
+                                    # applicable") any time the document's wording fuzzy-matched
+                                    # to a different option, which is exactly what a document that
+                                    # never explicitly says "not applicable" tends to produce.
                                     try:
                                         _con_raw = _irc_to_str(_ev3.get("consent_documented",""))
-                                        if _con_raw and _con_raw != "Not found":
+                                        if (_con_raw and _con_raw != "Not found"
+                                                and st.session_state.get("gov_consent_status", "") == "Select consent status..."):
                                             _con_mt = _irc_match_option(_con_raw, list(CONSENT_CHECKLIST_MAP.keys()))
                                             if _con_mt: _irc_set_global("gov_consent_status", _con_mt)
                                     except Exception:
                                         pass
                                     try:
                                         _anon_raw = _irc_to_str(_ev3.get("data_anonymised",""))
-                                        if _anon_raw and _anon_raw != "Not found":
+                                        if (_anon_raw and _anon_raw != "Not found"
+                                                and st.session_state.get("gov_anonymization_status", "") == "Select anonymization status..."):
                                             _anon_mt = _irc_match_option(_anon_raw, list(ANON_CHECKLIST_MAP.keys()))
                                             if _anon_mt: _irc_set_global("gov_anonymization_status", _anon_mt)
                                     except Exception:
                                         pass
                                     try:
                                         _law_raw = _irc_to_str(_ev3.get("data_protection_compliant",""))
-                                        if _law_raw and _law_raw != "Not found":
+                                        if (_law_raw and _law_raw != "Not found"
+                                                and st.session_state.get("gov_compliance_law_status", "") == "Select compliance status..."):
                                             _law_mt = _irc_match_option(_law_raw, list(LAW_CHECKLIST_MAP.keys()))
                                             if _law_mt: _irc_set_global("gov_compliance_law_status", _law_mt)
                                     except Exception:
                                         pass
                                     try:
                                         _sfg_raw = _irc_to_str(_ev3.get("safeguarding_measures",""))
-                                        if _sfg_raw and _sfg_raw != "Not found":
+                                        if (_sfg_raw and _sfg_raw != "Not found"
+                                                and st.session_state.get("gov_safeguarding_status", "") == "Select safeguarding status..."):
                                             _sfg_mt = _irc_match_option(_sfg_raw, list(SAFEGUARDING_CHECKLIST_MAP.keys()))
                                             if _sfg_mt: _irc_set_global("gov_safeguarding_status", _sfg_mt)
                                     except Exception:
                                         pass
                                     try:
                                         _csg_raw = _irc_to_str(_ev3.get("child_safeguarding",""))
-                                        if _csg_raw and _csg_raw != "Not found":
+                                        if (_csg_raw and _csg_raw != "Not found"
+                                                and st.session_state.get("gov_child_safeguarding_status", "") == "Select child safeguarding status..."):
                                             _csg_mt = _irc_match_option(_csg_raw, list(CHILD_SAFEGUARDING_CHECKLIST_MAP.keys()))
                                             if _csg_mt: _irc_set_global("gov_child_safeguarding_status", _csg_mt)
                                     except Exception:
                                         pass
                                     try:
                                         _sec_raw2 = _irc_to_str(_ev3.get("secure_data_handling",""))
-                                        if _sec_raw2 and _sec_raw2 != "Not found":
+                                        if (_sec_raw2 and _sec_raw2 != "Not found"
+                                                and st.session_state.get("gov_secure_handling_status", "") == "Select secure handling status..."):
                                             _sec_mt2 = _irc_match_option(_sec_raw2, list(SECURE_HANDLING_CHECKLIST_MAP.keys()))
                                             if _sec_mt2: _irc_set_global("gov_secure_handling_status", _sec_mt2)
                                     except Exception:
