@@ -971,7 +971,7 @@ _IRC_PATTERNS = {
 }
 
 
-def _extract_text_from_file(fname_lower, raw):
+def _extract_text_from_file(fname_lower, raw, progress_cb=None):
     """Extract plain text from a PDF, DOCX, TXT, CSV, PPTX, or XLSX file's raw bytes.
 
     Returns (text, error_message). On success error_message is "".
@@ -986,6 +986,13 @@ def _extract_text_from_file(fname_lower, raw):
     python-pptx/pandas+openpyxl) ever sees the bytes. A rejection here always
     fails closed (returns "" + the reason), never attempts to strip/
     sanitize the offending content and continue.
+
+    progress_cb, if given, is called with a float in [0, 1] as extraction
+    proceeds -- real per-page granularity for PDFs (pdfplumber's page-by-page
+    text extraction is the dominant slow path for a large scanned/annexed
+    report; the other formats parse in one shot, so they only report 0 then
+    1). Optional and unused by every existing caller except the one that
+    added it, so this stays fully backward compatible.
     """
     import io as _io
     from utils.upload_guard import validate_upload as _validate_upload
@@ -997,10 +1004,13 @@ def _extract_text_from_file(fname_lower, raw):
         if not _HAS_PDFPLUMBER:
             return "", "pdfplumber not installed. Run: pip install pdfplumber"
         with _pdfplumber.open(_io.BytesIO(raw)) as _pdf:
-            for _pg in _pdf.pages:
+            _n_pages = len(_pdf.pages) or 1
+            for _pg_i, _pg in enumerate(_pdf.pages):
                 _pt = _pg.extract_text()
                 if _pt:
                     text += _pt + "\n"
+                if progress_cb:
+                    progress_cb((_pg_i + 1) / _n_pages)
     elif fname_lower.endswith(".docx"):
         if not _HAS_DOCX:
             return "", "python-docx not installed. Run: pip install python-docx"
@@ -1030,6 +1040,8 @@ def _extract_text_from_file(fname_lower, raw):
             text += _df.to_string(index=False) + "\n"
     else:
         return "", "Unsupported file type. Upload a PDF, DOCX, TXT, CSV, PPTX, or XLSX."
+    if progress_cb and not fname_lower.endswith(".pdf"):
+        progress_cb(1.0)
     return text, ""
 
 
@@ -1067,10 +1079,16 @@ def _extract_report_fields(uploaded_file):
     return _match_fields_from_text(text)
 
 
-def _irc_extract_combined(doc_files):
+def _irc_extract_combined(doc_files, progress_cb=None):
     """Extract and combine text + rule-based fields from one or more uploaded files.
 
     Returns (full_text, raw_fields, error_message). error_message is "" on success.
+
+    progress_cb, if given, receives a float in [0, 1] for overall progress
+    across all files -- each file's own progress (real per-page for a PDF,
+    see _extract_text_from_file) is weighted by 1/len(doc_files) so a
+    multi-file upload still reports smooth, monotonic overall progress
+    rather than jumping file-to-file.
     """
     if not doc_files:
         return "", {}, ("No readable text found in this document. Please upload a "
@@ -1078,9 +1096,14 @@ def _irc_extract_combined(doc_files):
                          "files cannot be extracted.")
     parts = []
     raw_fields = {}
-    for f in doc_files:
+    _n_files = len(doc_files)
+    for _fi, f in enumerate(doc_files):
         f.seek(0)
-        text, err = _extract_text_from_file(f.name.lower(), f.read())
+        _per_file_cb = None
+        if progress_cb:
+            def _per_file_cb(_frac, _fi=_fi, _n_files=_n_files):
+                progress_cb((_fi + _frac) / _n_files)
+        text, err = _extract_text_from_file(f.name.lower(), f.read(), progress_cb=_per_file_cb)
         if err:
             return "", {}, f"{f.name}: {err}"
         if not text.strip():
@@ -6768,9 +6791,16 @@ def render_screen_1():
                     _irc_should_rerun = False
                     with st.spinner("Reading your document(s) and pre-filling the form…"):
                         try:
-                            # Step 1: extract and combine raw text from all uploaded documents
+                            # Step 1: extract and combine raw text from all uploaded documents.
+                            # A real, page-level progress bar -- not just a spinner -- since a
+                            # 10MB+ multi-page PDF's pdfplumber pass can take a real while and
+                            # a bare spinner gives no sense of whether it's stuck or progressing.
                             _doc_files = [f for f in _irc_files if not f.name.lower().endswith(".json")]
-                            _full_text, _raw_fields, _ext_err = _irc_extract_combined(_doc_files)
+                            _extract_bar = st.progress(0.0, text="Reading your document(s)… 0%")
+                            def _irc_extract_progress_cb(_frac):
+                                _extract_bar.progress(min(1.0, _frac), text=f"Reading your document(s)… {min(100, int(_frac * 100))}%")
+                            _full_text, _raw_fields, _ext_err = _irc_extract_combined(_doc_files, progress_cb=_irc_extract_progress_cb)
+                            _extract_bar.empty()
                             if _ext_err:
                                 st.warning(_ext_err)
                                 st.stop()
