@@ -1033,16 +1033,12 @@ def _extract_text_from_file(fname_lower, raw):
     return text, ""
 
 
-def _extract_report_fields(uploaded_file):
-    """Rule-based extraction. No AI. Returns (fields, found_list, not_found_list) or (None, error_str, [])."""
+def _match_fields_from_text(text):
+    """Rule-based field matching against already-extracted text. No AI, no
+    file parsing -- callers that already have text (e.g. _irc_extract_combined,
+    which extracts it once for the AI call) should use this directly rather
+    than re-parsing the source file a second time."""
     import re as _re
-    fname = uploaded_file.name.lower()
-    raw = uploaded_file.read()
-    text, _err = _extract_text_from_file(fname, raw)
-    if _err:
-        return None, _err, []
-    if not text.strip():
-        return None, "Could not extract text. The file may be scanned/image-based.", []
     fields, found, not_found = {}, [], []
     for field, pats in _IRC_PATTERNS.items():
         matched = False
@@ -1057,6 +1053,18 @@ def _extract_report_fields(uploaded_file):
             fields[field] = ""
             not_found.append(field)
     return fields, found, not_found
+
+
+def _extract_report_fields(uploaded_file):
+    """Rule-based extraction. No AI. Returns (fields, found_list, not_found_list) or (None, error_str, [])."""
+    fname = uploaded_file.name.lower()
+    raw = uploaded_file.read()
+    text, _err = _extract_text_from_file(fname, raw)
+    if _err:
+        return None, _err, []
+    if not text.strip():
+        return None, "Could not extract text. The file may be scanned/image-based.", []
+    return _match_fields_from_text(text)
 
 
 def _irc_extract_combined(doc_files):
@@ -1080,8 +1088,7 @@ def _irc_extract_combined(doc_files):
                              f"text-based PDF, DOCX, TXT, PPTX, or XLSX — scanned image "
                              f"files cannot be extracted.")
         parts.append(f"--- Document: {f.name} ---\n\n{text}")
-        f.seek(0)
-        fields, _, _ = _extract_report_fields(f)
+        fields, _, _ = _match_fields_from_text(text)
         for fk, fv in (fields or {}).items():
             if fv and not raw_fields.get(fk):
                 raw_fields[fk] = fv
@@ -6843,12 +6850,24 @@ def render_screen_1():
                                         except Exception as _irc_api_exc:
                                             _irc_api_result["error"] = _irc_api_exc
 
+                                    # Larger documents mean a longer prompt, which takes the
+                                    # model longer to process -- a flat "usually 10-30s" was
+                                    # routinely wrong for bigger reports, so scale the stated
+                                    # range with the actual text length sent to the API instead
+                                    # of quoting one fixed estimate for every document size.
+                                    _irc_text_len = len(_full_text[:60000])
+                                    if _irc_text_len < 10000:
+                                        _irc_eta = "usually 10-30s"
+                                    elif _irc_text_len < 30000:
+                                        _irc_eta = "usually 20-50s for a document this size"
+                                    else:
+                                        _irc_eta = "usually 40-90s for a document this size"
                                     _irc_thread = threading.Thread(target=_irc_call_api, daemon=True)
                                     _irc_start_t = time.time()
                                     _irc_thread.start()
                                     while _irc_thread.is_alive():
                                         _irc_elapsed = time.time() - _irc_start_t
-                                        _irc_timer_ph.info(f"🤖 Extracting fields with AI… {_irc_elapsed:.0f}s elapsed (usually 10-30s)")
+                                        _irc_timer_ph.info(f"🤖 Extracting fields with AI… {_irc_elapsed:.0f}s elapsed ({_irc_eta})")
                                         time.sleep(0.5)
                                     _irc_thread.join()
                                     _irc_timer_ph.empty()
