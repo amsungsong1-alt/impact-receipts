@@ -19,11 +19,24 @@ from __future__ import annotations
 import io
 import zipfile
 
-MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB -- generous for a text-bearing
-                                      # report, small enough to bound parse
-                                      # time/memory for an in-memory-only
-                                      # pipeline (see app.py's
-                                      # _extract_text_from_file)
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB -- raised from the original 15 MB
+                                      # (2026-08-06): 15 MB was tighter than a
+                                      # real donor report with embedded photos/
+                                      # scanned annexes needs, and well below
+                                      # Streamlit's own 200 MB widget ceiling
+                                      # (server.maxUploadSize, unset in
+                                      # .streamlit/config.toml -> platform
+                                      # default), which made the two limits
+                                      # confusing to hit in practice. Still
+                                      # bounded well under 200 MB deliberately:
+                                      # the extraction pipeline is in-memory
+                                      # only (no temp file), on a 1 vCPU/2 GB
+                                      # VPS shared with nginx/certbot, and a
+                                      # PDF's in-memory parse footprint can run
+                                      # several multiples of its raw byte size
+                                      # once pdfplumber decodes embedded
+                                      # images -- see app.py's
+                                      # _extract_text_from_file
 
 # Extension -> the family of magic-byte signatures a genuine file of that
 # type must start with. Checked BEFORE any parser runs -- a mismatch means
