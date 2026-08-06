@@ -3858,7 +3858,12 @@ def _smart_extract_from_result(result_text: str, s: str) -> None:
             if any(_kw in rt for _kw in _sk_kws):
                 st.session_state["sector"] = _sk_name
                 st.session_state["_sector_auto_inferred"] = True
-                break
+                # The "sector" selectbox is already instantiated earlier in this
+                # same script run (top of Screen 1, before the result-slot loop
+                # that reaches this code) -- writing its key now would raise
+                # StreamlitAPIException. Rerun so the fresh script pass starts
+                # with this value already set, before the widget is created.
+                st.rerun()
 
     # ── DONOR (programme-level — keyword inference, never overwrites) ───────
     if st.session_state.get("donor_selected") in (None, "", "(No donor specified)"):
@@ -3881,7 +3886,11 @@ def _smart_extract_from_result(result_text: str, s: str) -> None:
                 st.session_state["_donor_auto_inferred"] = True
                 if _dk_name in DONOR_PROFILES and st.session_state.get("donor_framework", "Generic") == "Generic":
                     st.session_state["donor_framework"] = _dk_name
-                break
+                # Same widget-already-instantiated hazard as "sector" above --
+                # "donor_selected"/"donor_framework" are also rendered earlier
+                # in this run (the Context expander, before the result-slot
+                # loop). Rerun rather than mutate post-instantiation.
+                st.rerun()
 
 
 def _smart_extract_achievement(result_text: str, s: str) -> None:
