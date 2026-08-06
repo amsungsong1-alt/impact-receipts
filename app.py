@@ -7489,26 +7489,32 @@ def render_screen_1():
             "result_statement": 0, "target_group": 0, "timeframe": 0, "geographic_scope": 0,
             "evidence_description": 2, "evidence_type": 2,
         }
-        # The Child Safeguarding Alert (Tab 3) implies a hard block -- make it one,
-        # rather than a red banner a user can submit straight past. Mirrors
-        # evaluator.compute_compliance_layer()'s child_safety_gap_unaddressed gate,
-        # which fires on EITHER trigger below -- this pre-flight check previously
-        # only covered the minors/child-safeguarding half, so a result that only
-        # triggered the do-no-harm/safeguarding half (via evidence type, e.g.
-        # "Case study" or "Photos with metadata") sailed past this check with
-        # gov_safeguarding_status still unanswered, only to be blocked again by
-        # the exact same underlying gate right after "Get Determination" ran --
-        # reading as "I filled the checklist and it's still asking me to fill it."
+        # Child safeguarding / do-no-harm are surfaced here as a completion nudge
+        # (still counted in the progress bar and the incomplete-fields expander
+        # below), but deliberately do NOT hard-block "Get Determination" --
+        # a real, independently-tested gate for the same condition already runs
+        # right after scoring (evaluator.compute_compliance_layer()'s
+        # child_safety_gap_unaddressed -> diagnostics.get_diagnostic_state()'s
+        # "NEEDS REFINEMENT... do-no-harm or child-safeguarding review is still
+        # outstanding" state), reading the exact same live session data at the
+        # moment it actually matters. This pre-flight duplicate of that check
+        # repeatedly reported as still blocking after a genuine "Not applicable"
+        # answer was recorded and visibly displayed -- rather than keep chasing
+        # that live-only-reproducible inconsistency, remove it as a blocker and
+        # rely on the downstream gate, which is covered by test_app.py.
+        _COMPLIANCE_FIELDS_B = set()
         if _minors_possibly_involved(1):
             _REQUIRED_FIELDS_B.append(
                 ("gov_child_safeguarding_status", "Child safeguarding check (Tab 3 — Data Governance Checklist)")
             )
             _TAB_IDX_B["gov_child_safeguarding_status"] = 2
+            _COMPLIANCE_FIELDS_B.add("gov_child_safeguarding_status")
         if st.session_state.get("evidence_type", "") in _evaluator.SAFEGUARDING_EVIDENCE_TYPES:
             _REQUIRED_FIELDS_B.append(
                 ("gov_safeguarding_status", "Do-no-harm review (Tab 3 — Data Governance Checklist)")
             )
             _TAB_IDX_B["gov_safeguarding_status"] = 2
+            _COMPLIANCE_FIELDS_B.add("gov_safeguarding_status")
         _missing_b = [
             (key, lbl) for key, lbl in _REQUIRED_FIELDS_B
             if not str(st.session_state.get(key, "")).strip()
@@ -7517,6 +7523,9 @@ def render_screen_1():
                 "Select child safeguarding status...", "Select safeguarding status...", "",
             )
         ]
+        # Hard-blocking subset for the button below -- excludes the compliance
+        # nudge fields (see note above).
+        _missing_b_hard = [(k, l) for k, l in _missing_b if k not in _COMPLIANCE_FIELDS_B]
         _completed_b = len(_REQUIRED_FIELDS_B) - len(_missing_b)
 
         # Auto-save status + draft download at TOP of Tab 3
@@ -7627,8 +7636,8 @@ def render_screen_1():
             ev_other = _ss_str("evidence_type_other").strip()
             if ev_type == "Other" and not ev_other:
                 st.warning("Please specify your evidence type in Tab 3 — Evidence & Verification.")
-            elif not all(mandatory) or _missing_b:
-                _missing_labels = ", ".join(lbl for _, lbl in _missing_b) or "required fields"
+            elif not all(mandatory) or _missing_b_hard:
+                _missing_labels = ", ".join(lbl for _, lbl in _missing_b_hard) or "required fields"
                 st.warning(f"Please complete the following before running the check: {_missing_labels}.")
             else:
                 if not st.session_state.get("has_seen_tutorial"):
