@@ -7477,17 +7477,31 @@ def render_screen_1():
             "evidence_description": 2, "evidence_type": 2,
         }
         # The Child Safeguarding Alert (Tab 3) implies a hard block -- make it one,
-        # rather than a red banner a user can submit straight past.
+        # rather than a red banner a user can submit straight past. Mirrors
+        # evaluator.compute_compliance_layer()'s child_safety_gap_unaddressed gate,
+        # which fires on EITHER trigger below -- this pre-flight check previously
+        # only covered the minors/child-safeguarding half, so a result that only
+        # triggered the do-no-harm/safeguarding half (via evidence type, e.g.
+        # "Case study" or "Photos with metadata") sailed past this check with
+        # gov_safeguarding_status still unanswered, only to be blocked again by
+        # the exact same underlying gate right after "Get Determination" ran --
+        # reading as "I filled the checklist and it's still asking me to fill it."
         if _minors_possibly_involved(1):
             _REQUIRED_FIELDS_B.append(
                 ("gov_child_safeguarding_status", "Child safeguarding check (Tab 3 — Data Governance Checklist)")
             )
             _TAB_IDX_B["gov_child_safeguarding_status"] = 2
+        if st.session_state.get("evidence_type", "") in _evaluator.SAFEGUARDING_EVIDENCE_TYPES:
+            _REQUIRED_FIELDS_B.append(
+                ("gov_safeguarding_status", "Do-no-harm review (Tab 3 — Data Governance Checklist)")
+            )
+            _TAB_IDX_B["gov_safeguarding_status"] = 2
         _missing_b = [
             (key, lbl) for key, lbl in _REQUIRED_FIELDS_B
             if not str(st.session_state.get(key, "")).strip()
             or st.session_state.get(key, "") in (
-                EVIDENCE_TYPES[0], "Choose an option...", "Select child safeguarding status...", ""
+                EVIDENCE_TYPES[0], "Choose an option...",
+                "Select child safeguarding status...", "Select safeguarding status...", "",
             )
         ]
         _completed_b = len(_REQUIRED_FIELDS_B) - len(_missing_b)
