@@ -9707,7 +9707,7 @@ def render_screen_2():
             except Exception:
                 pass
             try:
-                from utils.verification import record_export, compute_content_hash
+                from utils.verification import record_export, compute_content_hash, verify_ref_id
                 _card_ev0 = (subs[0].get("evidence") or [{}])[0]
                 _card_hash = compute_content_hash(
                     subs[0].get("result_statement", ""), _card_ev0.get("description", ""),
@@ -9719,8 +9719,21 @@ def render_screen_2():
                     clarity_score=evs[0].get("clarity_score"),
                     score_band=evs[0].get("confidence_label", ""),
                 )
-            except Exception:
-                pass
+                # record_export() is best-effort/never-raises by design (a DB hiccup must
+                # never block the download that's happening right now) -- which also means
+                # a silent failure here was previously invisible, surfacing later only as
+                # "?verify= says no record found" with no way to tell why. Self-check via a
+                # real round-trip read immediately after the write, same session, so a
+                # persistent failure (missing SUPABASE_DB_URL on this deployment, a schema
+                # mismatch, etc.) is visible right where the export just happened.
+                if not verify_ref_id(_ref_id):
+                    st.caption(
+                        "⚠ Verification record could not be saved for this export "
+                        "(the ?verify= lookup for this reference ID may not work). "
+                        "Your download itself is unaffected."
+                    )
+            except Exception as _verif_exc:
+                st.caption(f"⚠ Verification record could not be saved: {type(_verif_exc).__name__}: {_verif_exc}")
     else:
         st.info("📄 **Your score is above.** Upgrade to download the Readiness Card.")
         _render_paywall(prompt_context="limit_hit")
