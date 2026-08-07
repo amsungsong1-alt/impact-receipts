@@ -7421,6 +7421,15 @@ def render_screen_1():
                                 "**You have not been charged for this attempt.** "
                                 "A free retry has been added to your account."
                             )
+                            # Temporary diagnostic -- multi-result extraction has failed the
+                            # same generic way across several fix attempts already narrowed
+                            # down by classification (timeout/parse/rate-limit ruled out each
+                            # time), without the actual exception ever being visible anywhere
+                            # to confirm which of those attempts actually addressed it. Shows
+                            # the real exception type/message so the next failure is diagnosable
+                            # from what the user sees, not another guess.
+                            with st.expander("Technical details (for support)", expanded=False):
+                                st.code(f"{type(_irc_exc).__name__}: {_irc_exc}", language="text")
                     if _irc_should_rerun:
                         st.rerun()
                     # D3: show retry notice if retry credit is active
