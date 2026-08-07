@@ -5969,12 +5969,17 @@ def render_my_audits_page():
         "Permanently delete every saved audit, Logframe Library, and pre-submission draft "
         "associated with your account — for Ghana Data Protection Act 843 consistency. "
         "This does not delete your account, active sign-ins, or payment/invoice history "
-        "(kept for accounting purposes)."
+        "(kept for accounting purposes). It also does not delete anonymized scoring "
+        "statistics (indicator names, sub-scores, criterion pass/fail) kept for benchmarking "
+        "and data-quality checks — those are stored under a one-way hash that was never "
+        "reversible back to your email, by us or anyone else, so there's no account link "
+        "left to remove."
     )
     if st.session_state.get("_confirm_purge_history"):
         st.warning(
             "This permanently deletes all your saved audits, Logframe Libraries, and any "
-            "in-progress draft. This cannot be undone."
+            "in-progress draft. This cannot be undone. Anonymized, hash-keyed scoring "
+            "statistics (never traceable back to your account) are retained — see the note above."
         )
         if not _require_step_up_reauth(email, "purge_history", "permanently delete your history"):
             if st.button("Cancel", key="purge_step_up_cancel"):
