@@ -121,7 +121,7 @@ def get_pending_followup(email: str) -> dict | None:
                 return None
             return {
                 "id": row.id, "ref_id": row.ref_id, "export_type": row.export_type,
-                "created_at": row.created_at,
+                "created_at": row.created_at, "score_band": row.score_band,
             }
     except Exception:
         return None

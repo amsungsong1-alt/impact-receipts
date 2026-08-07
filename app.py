@@ -4087,8 +4087,13 @@ def _render_tab2_slot(slot: int):
     if not _fill_later:
         _lib_email = st.session_state.get("user_email", "")
         if _lib_email:
-            with st.expander("📁 Logframe Library — load or save indicators", expanded=False):
-                _libs = list_logframe_libraries(_lib_email)
+            # Computed before the expander so it can auto-expand for anyone
+            # who actually has a library to use -- previously always
+            # collapsed regardless, one more click buried under an already
+            # 3-levels-deep path (Screen 1 -> per-result slot -> Logframe
+            # tab -> this expander) for the exact users most likely to want it.
+            _libs = list_logframe_libraries(_lib_email)
+            with st.expander("📁 Logframe Library — load or save indicators", expanded=bool(_libs)):
                 _lib_names = {lib["name"]: lib["id"] for lib in _libs}
                 if _libs:
                     _chosen_lib_name = st.selectbox(
@@ -4109,16 +4114,24 @@ def _render_tab2_slot(slot: int):
                                 options=["Choose an indicator..."] + list(_item_labels.keys()),
                                 key=f"_lf_item_pick{s}",
                             )
-                            if _chosen_item_label != "Choose an indicator..." and st.button(
-                                "Load into this result", key=f"_lf_lib_load_btn{s}"
-                            ):
-                                _it = _item_labels[_chosen_item_label]
-                                st.session_state[f"logframe_indicator{s}"] = _it.get("logframe_indicator", "")
-                                st.session_state[f"logframe_baseline{s}"] = _it.get("logframe_baseline", "")
-                                st.session_state[f"logframe_target{s}"] = _it.get("logframe_target", "")
-                                st.session_state[f"logframe_achievement{s}"] = _it.get("logframe_achievement", "")
-                                st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
-                                st.rerun()
+                            if _chosen_item_label != "Choose an indicator...":
+                                # Previously loading silently overwrote
+                                # whatever the user had already typed, with
+                                # no warning or diff shown first.
+                                _has_existing_lf = any(
+                                    _ss_str(f"{_fk}{s}").strip()
+                                    for _fk in ("logframe_indicator", "logframe_baseline", "logframe_target", "logframe_achievement")
+                                )
+                                if _has_existing_lf:
+                                    st.caption("⚠ This will overwrite the indicator/baseline/target/achievement you've already entered for this result.")
+                                if st.button("Load into this result", key=f"_lf_lib_load_btn{s}"):
+                                    _it = _item_labels[_chosen_item_label]
+                                    st.session_state[f"logframe_indicator{s}"] = _it.get("logframe_indicator", "")
+                                    st.session_state[f"logframe_baseline{s}"] = _it.get("logframe_baseline", "")
+                                    st.session_state[f"logframe_target{s}"] = _it.get("logframe_target", "")
+                                    st.session_state[f"logframe_achievement{s}"] = _it.get("logframe_achievement", "")
+                                    st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
+                                    st.rerun()
                         else:
                             st.caption("This library has no saved indicators yet.")
                 else:
@@ -5863,6 +5876,8 @@ def render_my_audits_page():
     st.markdown("## My Audits")
     st.caption("Audits you've explicitly saved. Nothing appears here unless you checked "
                "\"Save this audit to my private history\" after a check.")
+    st.caption("Looking for a payment receipt to attach to a donor grant line? "
+               "That's on the **💳 Billing & account** page (sidebar), under payment history.")
 
     email = st.session_state.get("user_email", "")
     if not email:
@@ -10585,19 +10600,24 @@ def _render_monthly_trend_summary(email: str) -> None:
     st.caption(f"💡 {_gap['tip']}")
 
 
-def _render_indicator_stewardship(email: str) -> None:
+def _render_indicator_stewardship(email: str, _has_history: bool = False) -> None:
     """Laudon Ch.6 Phase 2, C7 -- indicator stewardship register (the
     "draft information policy generator" half of C7 is deferred to its own
     scoping pass). Flags this account's own indicator names reused across
     assessments with inconsistent target/baseline values -- never picks a
     "correct" one, only surfaces the inconsistency. Renders nothing when
-    there's nothing to flag or the warehouse tables don't exist yet."""
+    the warehouse tables don't exist yet or the account has no trend
+    history at all (nothing to reassure about yet); shows a quiet
+    reassurance line -- not silence -- when there IS history and it's
+    clean, matching _render_monthly_trend_summary's own no-gap pattern."""
     try:
         from utils.indicator_stewardship import find_indicator_inconsistencies
     except Exception:
         return
     findings = find_indicator_inconsistencies(email)
     if not findings:
+        if _has_history:
+            st.caption("🗂️ Indicator stewardship: no naming inconsistencies found across your saved indicators.")
         return
     st.markdown("#### 🗂️ Indicator stewardship register")
     st.caption(
@@ -12537,10 +12557,12 @@ def render_screen_3():
         st.info("Enter your email to see your trends history.")
         _render_email_gate_inline("_trends")
     else:
+        _trend_history = _load_trend_history(_trends_email)
+        _has_trend_history = _trend_history is not None and not _trend_history.empty
         _render_monthly_trend_summary(_trends_email)
-        _render_indicator_stewardship(_trends_email)
+        _render_indicator_stewardship(_trends_email, _has_history=_has_trend_history)
         _render_policy_generator(_trends_email)
-        render_trends_view(_load_trend_history(_trends_email))
+        render_trends_view(_trend_history)
 
 
 # ---------------------------------------------------------------------------
@@ -12831,7 +12853,13 @@ def _render_warehouse_slice_dice() -> None:
     )
     _rows = slice_by(_slice_choice)
     if not _rows:
-        return  # No warehouse data yet (or not populated) -- silent, not an error.
+        # Migration 0055 (the star schema this reads) has been live in
+        # production since 2026-08-04, so an empty result here now reflects
+        # a genuinely under-10 bucket for this dimension, not an unmigrated
+        # environment -- worth a caption, same as the benchmark feature's
+        # own "insufficient sample" convention, instead of staying silent.
+        st.caption(f"Not enough portfolio-wide data yet for a {_dim_label[_slice_choice].lower()} slice (need ≥10 assessments per bucket).")
+        return
     st.markdown("#### Portfolio-wide warehouse slice")
     st.caption(
         "Aggregated across every scored assessment on ImpactProof, not just this account's "
@@ -15383,7 +15411,23 @@ def _render_outcome_followup_banner(email: str) -> None:
                     record_response(_fb["id"], email, _choice)
                 except Exception:
                     pass
-                st.success("Thanks — recorded.")
+                # Payoff for answering: this data previously only surfaced on the
+                # admin-only dashboard -- the people who actually supply it never
+                # saw anything back. Show their own band's real acceptance rate
+                # when there's enough sample to state one honestly.
+                _payoff = ""
+                try:
+                    from utils.outcomes import compute_acceptance_stats, MIN_BAND_SAMPLE
+                    for _row in compute_acceptance_stats():
+                        if _row.get("score_band") == _fb.get("score_band") and _row.get("acceptance_rate") is not None:
+                            _payoff = (
+                                f" Reports scoring in the **{_fb['score_band']}** band were accepted "
+                                f"by donors {_row['acceptance_rate']}% of the time (n={_row['n_decided']})."
+                            )
+                            break
+                except Exception:
+                    pass
+                st.success("Thanks — recorded." + _payoff)
                 st.rerun()
         with _oc2:
             if st.button("Skip", key=f"_outcome_skip_{_fb['id']}"):
