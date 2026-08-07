@@ -6978,6 +6978,16 @@ def render_screen_1():
                                             )
                                     except Exception:
                                         pass
+                                    def _irc_to_str(val):
+                                        """Coerce any extracted value to a plain string safe for text widgets."""
+                                        if isinstance(val, list):
+                                            return ", ".join(str(v) for v in val if v not in (None, "", "Not found"))
+                                        if isinstance(val, dict):
+                                            return ", ".join(f"{k}: {v}" for k, v in val.items())
+                                        if val is None:
+                                            return ""
+                                        return str(val)
+
                                     import json as _ijson3
                                     _irc_raw = (_irc_resp.content[0].text if _irc_resp.content else "").strip()
                                     if _irc_raw.startswith("```"):
@@ -7092,16 +7102,6 @@ def render_screen_1():
                                     _em  = _irc_data.get("extraction_metadata", {})
                                     _irc_filled = 0
                                     _skipped = []
-
-                                    def _irc_to_str(val):
-                                        """Coerce any extracted value to a plain string safe for text widgets."""
-                                        if isinstance(val, list):
-                                            return ", ".join(str(v) for v in val if v not in (None, "", "Not found"))
-                                        if isinstance(val, dict):
-                                            return ", ".join(f"{k}: {v}" for k, v in val.items())
-                                        if val is None:
-                                            return ""
-                                        return str(val)
 
                                     def _irc_set(key, val):
                                         nonlocal _irc_filled
