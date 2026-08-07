@@ -11136,7 +11136,7 @@ def _score_report_from_document(document_text: str, api_key: str, email: str = "
         return None, [], [], "No results found in document."
 
     input_df, statuses = _batch_results_to_portfolio_df(raw_results)
-    _, warnings = _evaluate_portfolio(input_df)
+    _, warnings, _ = _evaluate_portfolio(input_df)
 
     # Run evaluation per row
     evaluations = []
@@ -11380,17 +11380,22 @@ def _portfolio_row_to_submission(row: dict) -> dict:
 def _evaluate_portfolio(df):
     """Evaluate each row of a portfolio DataFrame.
 
-    Returns (results_df, warnings) where results_df is sorted by
-    confidence_score ascending (weakest indicators first).
+    Returns (results_df, warnings, raw_pairs) where results_df is sorted by
+    confidence_score ascending (weakest indicators first), and raw_pairs is
+    the unsorted list of (submission, evaluation) dicts per successfully-
+    evaluated row -- callers that need to persist results (save_audit(),
+    save_all_files(), record_assessment_facts()) use raw_pairs; callers that
+    only need the display table or validation warnings can ignore it.
     """
     import pandas as pd
 
     required = [c[0] for c in _PORTFOLIO_COLUMNS if c[1]]
     missing_cols = [c for c in required if c not in df.columns]
     if missing_cols:
-        return None, [f"Missing required column(s): {', '.join(missing_cols)}"]
+        return None, [f"Missing required column(s): {', '.join(missing_cols)}"], []
 
     rows = []
+    raw_pairs = []
     warnings = []
     for i, row in df.iterrows():
         row_dict = row.to_dict()
@@ -11398,6 +11403,7 @@ def _evaluate_portfolio(df):
         try:
             sub = _portfolio_row_to_submission(row_dict)
             ev = _evaluator.evaluate_submission(sub)
+            raw_pairs.append((sub, ev))
             conf_comp = ev.get("confidence_components", {})
             clar_comp = ev.get("clarity_components", {})
             sub_scores = {
@@ -11429,10 +11435,10 @@ def _evaluate_portfolio(df):
             warnings.append(f"{label}: could not be evaluated ({exc})")
 
     if not rows:
-        return None, warnings or ["No rows could be evaluated."]
+        return None, warnings or ["No rows could be evaluated."], []
 
     results_df = pd.DataFrame(rows).sort_values("confidence_score", ascending=True).reset_index(drop=True)
-    return results_df, warnings
+    return results_df, warnings, raw_pairs
 
 
 def _portfolio_heatmap_chart(results_df):
@@ -12303,9 +12309,16 @@ def render_screen_3():
                 df = None
 
             if df is not None:
-                results_df, warnings = _evaluate_portfolio(df)
+                results_df, warnings, raw_pairs = _evaluate_portfolio(df)
                 st.session_state["portfolio_results"] = results_df
                 st.session_state["portfolio_warnings"] = warnings
+                # A fresh ref_id + raw (sub, ev) pairs per upload, kept in
+                # session_state alongside the display table so the opt-in
+                # save checkbox further down (re-rendered on every rerun,
+                # not just this upload) still has something to save.
+                _port_upload_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                st.session_state["portfolio_ref_id"] = f"IMP-{_port_upload_ts}"
+                st.session_state["portfolio_raw_pairs"] = raw_pairs
                 if _csvpf_email:
                     record_check(_csvpf_email)
                     try:
@@ -12313,6 +12326,28 @@ def render_screen_3():
                         log_audit_run(_csvpf_email, st.session_state.get("donor_selected", ""))
                     except Exception:
                         pass
+                    # Trends history + Ch.6 anonymous facts (indicator
+                    # stewardship register, warehouse) -- unconditional for
+                    # every scored row, matching Screen 2's own per-slot
+                    # scoring loop exactly. Previously CSV Portfolio never
+                    # reached either: rows scored here were invisible to
+                    # Screen 3's Trends section and the stewardship
+                    # register, even though the exact same evaluator call
+                    # populates both when run from Screen 2.
+                    for _pf_sub, _pf_ev in raw_pairs:
+                        try:
+                            save_all_files(_pf_sub, _pf_ev, email=_csvpf_email)
+                        except Exception:
+                            import logging as _pf_logging
+                            _pf_logging.error("save_all_files failed for a CSV Portfolio row", exc_info=True)
+                        try:
+                            from utils.assessment_facts import record_assessment_facts
+                            record_assessment_facts(
+                                _csvpf_email, _pf_sub, _pf_ev,
+                                ref_id=st.session_state["portfolio_ref_id"],
+                            )
+                        except Exception:
+                            pass
 
         results_df = st.session_state.get("portfolio_results")
         warnings = st.session_state.get("portfolio_warnings") or []
@@ -12385,6 +12420,43 @@ def render_screen_3():
                 )
             else:
                 st.caption("PDF: install xhtml2pdf to enable one-click PDF download.")
+
+            # Opt-in saved audit history -- same checkbox, same save_audit()
+            # call, same rate-limit/messaging convention as Screen 2's
+            # equivalent. The whole upload saves as ONE audits row (all N
+            # rows together), matching how a multi-result Screen 1
+            # submission already saves as a single row -- audits.
+            # submissions_json/evaluations_json are already documented as
+            # "a run's worth together," not per-result, so no new schema or
+            # batch-semantics decision was needed here. This is what makes
+            # a CSV Portfolio upload show up in My Audits and the Agency
+            # Dashboard's heatmap/client assignment, same as any other
+            # saved audit.
+            _pf_email = st.session_state.get("user_email", "")
+            _pf_raw_pairs = st.session_state.get("portfolio_raw_pairs") or []
+            _pf_ref_id = st.session_state.get("portfolio_ref_id", "")
+            if _pf_email and _pf_raw_pairs and _pf_ref_id:
+                st.checkbox(
+                    "💾 Save this portfolio to my private history (encrypted at rest)",
+                    key="save_portfolio_audit_consent",
+                    help="Stored in your account only. View, re-download, or delete anytime "
+                         "from My Audits in the sidebar -- also populates the Agency Dashboard's "
+                         "client heatmap.",
+                )
+                _pf_saved_key = f"_audit_saved_{_pf_ref_id}"
+                if st.session_state.get("save_portfolio_audit_consent") and not st.session_state.get(_pf_saved_key):
+                    if not _safe_rate_limit_ok(_pf_email, "save_audit", max_count=10, window_seconds=3600):
+                        st.warning("You've saved a lot of audits in the last hour — please wait a bit before saving more.")
+                    else:
+                        _pf_subs = [s for s, _ in _pf_raw_pairs]
+                        _pf_evs = [e for _, e in _pf_raw_pairs]
+                        if save_audit(_pf_email, _pf_subs, _pf_evs, _pf_ref_id):
+                            st.session_state[_pf_saved_key] = True
+                            _safe_log_access(_pf_email, "assessment_created", resource_type="audit", resource_id=_pf_ref_id)
+                            st.success(f"✓ Saved all {len(_pf_raw_pairs)} indicators to your private history as one portfolio audit.")
+                        else:
+                            st.warning(f"Could not save this portfolio right now — your downloads above still work. "
+                                       f"({last_audit_error()})")
 
     st.divider()
     st.markdown(f"### {_TREND_COPY['header']}")
