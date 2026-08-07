@@ -7473,12 +7473,15 @@ def render_screen_1():
             _render_tab1_slot(slot)
 
         # --- v3.3: auto-advance to Logframe tab when tab1 complete ---
-        _t1_done = all([
-            _ss_str("result_statement").strip(),
-            _ss_str("target_group").strip(),
-            _ss_str("timeframe").strip(),
-            _ss_str("geographic_scope").strip(),
-        ])
+        # Checks every active slot, not just slot 1 -- previously a 2nd+
+        # result could be left completely blank and still pass this gate,
+        # silently shipping an incomplete determination for every result
+        # after the first in a multi-result submission.
+        _t1_done = all(
+            _ss_str(f"{_field}{_slot_suffix(sl)}").strip()
+            for sl in range(1, active + 1)
+            for _field in ("result_statement", "target_group", "timeframe", "geographic_scope")
+        )
         if _t1_done:
             try:
                 _q_ev = _evaluator.evaluate_submission(_build_submission_from_session(1))
@@ -7574,11 +7577,12 @@ def render_screen_1():
             _render_tab2_slot(slot)
 
         # --- v3.3: next button / auto-advance to Evidence tab when logframe complete ---
-        _t2_done = all([
-            _ss_str("logframe_indicator").strip(),
-            _ss_str("logframe_target").strip(),
-            _ss_str("logframe_achievement").strip(),
-        ])
+        # Same all-active-slots fix as _t1_done above.
+        _t2_done = all(
+            _ss_str(f"{_field}{_slot_suffix(sl)}").strip()
+            for sl in range(1, active + 1)
+            for _field in ("logframe_indicator", "logframe_target", "logframe_achievement")
+        )
         # IRC users OR users who ticked "fill later" may advance with blank logframe fields.
         _fill_later_any = any(
             st.session_state.get(f"logframe_fill_later{_slot_suffix(sl)}", False)
@@ -7657,7 +7661,11 @@ def render_screen_1():
     elif _cur_tab == 3:
         st.caption("Final check: See your submission the way your donor will see it — and close any gaps before they do.")
 
-        _REQUIRED_FIELDS_B = [
+        # Built across every active slot, not just slot 1 -- same fix as
+        # _t1_done/_t2_done/mandatory above. A slot suffix of "" for slot 1
+        # keeps the exact same keys/labels as before for the common
+        # single-result case.
+        _BASE_FIELDS_B = [
             ("result_statement",     "Result statement (Tab 1)"),
             ("target_group",         "Target group (Tab 1)"),
             ("timeframe",            "Timeframe (Tab 1)"),
@@ -7665,10 +7673,15 @@ def render_screen_1():
             ("evidence_description", "Evidence description (Tab 3)"),
             ("evidence_type",        "Evidence type (Tab 3)"),
         ]
-        _TAB_IDX_B = {
-            "result_statement": 0, "target_group": 0, "timeframe": 0, "geographic_scope": 0,
-            "evidence_description": 2, "evidence_type": 2,
-        }
+        _REQUIRED_FIELDS_B = []
+        _TAB_IDX_B = {}
+        for _slot_b in range(1, active + 1):
+            _sfx_b = _slot_suffix(_slot_b)
+            _slot_label = "" if active == 1 else f" — Result {_slot_b}"
+            for _fk, _fl in _BASE_FIELDS_B:
+                _key_b = f"{_fk}{_sfx_b}"
+                _REQUIRED_FIELDS_B.append((_key_b, f"{_fl}{_slot_label}"))
+                _TAB_IDX_B[_key_b] = 0 if _fk in ("result_statement", "target_group", "timeframe", "geographic_scope") else 2
         # Child safeguarding / do-no-harm are surfaced here as a completion nudge
         # (still counted in the progress bar and the incomplete-fields expander
         # below), but deliberately do NOT hard-block "Get Determination" --
@@ -7805,17 +7818,23 @@ def render_screen_1():
             type="primary",
             use_container_width=True,
         ):
+            # Checks every active slot, not just slot 1 -- previously a
+            # 2nd+ result could be left completely blank and still pass
+            # this gate, silently scoring an incomplete determination for
+            # every result after the first in a multi-result submission.
             mandatory = [
-                st.session_state.get("result_statement", ""),
-                st.session_state.get("target_group", ""),
-                st.session_state.get("timeframe", ""),
-                st.session_state.get("geographic_scope", ""),
-                st.session_state.get("evidence_description", ""),
+                st.session_state.get(f"{_field}{_slot_suffix(sl)}", "")
+                for sl in range(1, active + 1)
+                for _field in ("result_statement", "target_group", "timeframe", "geographic_scope", "evidence_description")
             ]
-            ev_type = st.session_state.get("evidence_type", "")
-            ev_other = _ss_str("evidence_type_other").strip()
-            if ev_type == "Other" and not ev_other:
-                st.warning("Please specify your evidence type in Tab 3 — Evidence & Verification.")
+            _other_missing_slots = [
+                sl for sl in range(1, active + 1)
+                if st.session_state.get(f"evidence_type{_slot_suffix(sl)}", "") == "Other"
+                and not _ss_str(f"evidence_type_other{_slot_suffix(sl)}").strip()
+            ]
+            if _other_missing_slots:
+                _slot_ref = "Result" if active == 1 else f"Result {_other_missing_slots[0]}"
+                st.warning(f"Please specify {_slot_ref}'s evidence type in Tab 3 — Evidence & Verification.")
             elif not all(mandatory) or _missing_b_hard:
                 _missing_labels = ", ".join(lbl for _, lbl in _missing_b_hard) or "required fields"
                 st.warning(f"Please complete the following before running the check: {_missing_labels}.")
