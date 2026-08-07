@@ -5741,8 +5741,18 @@ def render_billing_page():
         _renewal = f" · active until **{paid_until}**" if paid_until else ""
         st.success(f"**Plan:** {plan}{_renewal}")
         if subscription_status == "attention":
-            st.warning("Your last renewal charge failed. Please update your payment method "
-                       "to avoid losing access when your current period ends.")
+            # Same event as the top-priority lifecycle banner
+            # (_render_trigger_payment_recovery) shown elsewhere in the app --
+            # kept consistent in tone/action (reassurance + same WhatsApp
+            # support link) so a user who sees this on Billing after already
+            # dismissing that banner isn't given different guidance here.
+            st.warning(
+                "Your last renewal charge didn't go through. Your access continues during "
+                "Paystack's retry window, but update your payment method when you get a "
+                "chance to avoid losing access when the retries run out."
+            )
+            from utils.whatsapp import build_wa_url as _bill_build_wa_url
+            st.markdown(f"[Message us on WhatsApp for help]({_bill_build_wa_url('payment_support', user_email=email)})")
     else:
         _checks_used = user.get("free_checks_used", 0)
         st.info("**Plan:** Free")
@@ -10282,7 +10292,12 @@ def render_screen_2():
             }
             _s2_email     = st.session_state.get("user_email", "")
             _s2_wa_key    = "wa_s2_weak_clicked"
-            if st.button("📱 Book a free first review with the founder",
+            # Streamlit's link_button opens wa.me directly in a new tab with no
+            # server round-trip, so there's no way to fire notify_founder only
+            # once the WhatsApp message is actually sent -- this button IS the
+            # notification. Copy says so directly rather than implying the
+            # "Open WhatsApp" link below is the real trigger.
+            if st.button("📱 Notify the founder for a free first review",
                          key="wa_weak_review_btn", type="primary",
                          use_container_width=True):
                 from utils.whatsapp import notify_founder
@@ -10291,8 +10306,8 @@ def render_screen_2():
             if st.session_state.get(_s2_wa_key):
                 from utils.whatsapp import build_wa_url
                 _s2_wa_url = build_wa_url("weak_result_review", _s2_email, _s2_rd)
-                st.link_button("Open WhatsApp to send →", _s2_wa_url, use_container_width=True)
                 st.success("✓ The founder has been notified — you'll hear back within 24 hours.")
+                st.link_button("Also message them directly on WhatsApp →", _s2_wa_url, use_container_width=True)
             st.caption("Download your report above and share it before the call.")
 
     _render_tutorial(3)
@@ -15214,6 +15229,11 @@ def _render_admin_crm_behavioral_dashboard() -> None:
             st.metric(seg_name, len(rows))
 
     # -- Churn rates --
+    # Plain thresholds, not a statistical model -- this dashboard is a "wall
+    # of numbers" an admin has to eyeball otherwise; flagging just points at
+    # what's worth a second look. CHURN_FLAG_THRESHOLD is deliberately loose
+    # (30%) since these rates are computed from small, still-early cohorts.
+    _CHURN_FLAG_THRESHOLD = 0.30
     st.markdown("**Churn**")
     _churn_cols = st.columns(2)
     _behav_churn = data["behavioral_churn"]
@@ -15221,9 +15241,13 @@ def _render_admin_crm_behavioral_dashboard() -> None:
     with _churn_cols[0]:
         st.metric("Behavioural churn rate",
                   f"{_behav_churn * 100:.1f}%" if _behav_churn is not None else "Insufficient sample")
+        if _behav_churn is not None and _behav_churn >= _CHURN_FLAG_THRESHOLD:
+            st.caption(f"⚠ above {_CHURN_FLAG_THRESHOLD * 100:.0f}%")
     with _churn_cols[1]:
         st.metric("Revenue churn rate",
                   f"{_rev_churn * 100:.1f}%" if _rev_churn is not None else "Insufficient sample")
+        if _rev_churn is not None and _rev_churn >= _CHURN_FLAG_THRESHOLD:
+            st.caption(f"⚠ above {_CHURN_FLAG_THRESHOLD * 100:.0f}%")
 
     # -- CLTV by segment --
     st.markdown("**CLTV by segment**")
@@ -15232,8 +15256,10 @@ def _render_admin_crm_behavioral_dashboard() -> None:
         st.caption("No CLTV data yet — configure knowledge/cltv_assumptions.yaml and/or wait for more accounts.")
     else:
         _cltv_rows = [
-            {"segment": seg, "average_cltv_ghs": round(v["average_cltv_pesewas"] / 100, 2),
-             "sample_size": v["sample_size"]}
+            {"segment": seg,
+             "average_cltv_ghs": round(v["average_cltv_pesewas"] / 100, 2),
+             "sample_size": v["sample_size"],
+             "flag": "⚠ costs more than it returns" if v["average_cltv_pesewas"] <= 0 else ""}
             for seg, v in _cltv_by_seg.items()
         ]
         st.dataframe(pd.DataFrame(_cltv_rows), use_container_width=True)
@@ -15262,11 +15288,21 @@ def _render_admin_crm_behavioral_dashboard() -> None:
     if not _cost_by_seg:
         st.caption("No API usage data logged yet.")
     else:
+        _seg_avgs = {seg: (sum(vals) / len(vals)) for seg, vals in _cost_by_seg.items()}
+        _cheapest_avg = min(_seg_avgs.values()) if _seg_avgs else 0
+        # Flags a segment costing meaningfully more than the cheapest segment
+        # to serve -- relative, not an absolute GHS threshold, since real
+        # per-call cost here is still driven by only 2 call sites (see
+        # docs/unit_economics.md's small-n caveat).
+        _COST_FLAG_MULTIPLIER = 1.5
         st.dataframe(
             pd.DataFrame([
-                {"segment": seg, "avg_cost_per_assessment_ghs": round((sum(vals) / len(vals)) / 100, 4),
-                 "sample_size": len(vals)}
-                for seg, vals in _cost_by_seg.items()
+                {"segment": seg,
+                 "avg_cost_per_assessment_ghs": round(avg / 100, 4),
+                 "sample_size": len(_cost_by_seg[seg]),
+                 "flag": (f"⚠ {avg / _cheapest_avg:.1f}x the cheapest segment"
+                          if _cheapest_avg > 0 and avg >= _cheapest_avg * _COST_FLAG_MULTIPLIER else "")}
+                for seg, avg in _seg_avgs.items()
             ]),
             use_container_width=True,
         )
