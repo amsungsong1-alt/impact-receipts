@@ -4731,23 +4731,33 @@ def _render_tab3_slot(slot: int):
             )
         st.markdown(
             "#### 📁 Upload Organisational Data Protection Policy "
-            "(optional — earns Governance Bonus)"
+            "(optional — strengthens your Governance-Adjusted Confidence)"
         )
         _dpp_file = st.file_uploader(
             "Upload your data protection policy (PDF or DOCX)",
             type=["pdf", "docx"],
             key=f"gov_dpp_upload{s}",
         )
+        # Corrected copy: the compliance layer's DPP bonus (evaluator.py's
+        # compute_compliance_layer(), +5 of a 0-24 compliance_score) feeds
+        # the separate "Governance-Adjusted Confidence" (0-100) metric shown
+        # on the result card -- it never touches confidence_score itself,
+        # which is what the pass/fail determination actually uses. The
+        # previous copy claimed a bonus "to your Confidence Score," which
+        # both named the wrong metric and implied it moves the real
+        # determination.
         if _dpp_file is not None:
             st.session_state["gov_dpp_uploaded"] = True
             st.caption(
-                "✅ Policy uploaded. **+5 Governance Bonus** applied to your "
-                "Confidence Score for this session."
+                "✅ Policy uploaded — full governance credit applied to your "
+                "Governance-Adjusted Confidence (shown on your result card). "
+                "This doesn't change your core Confidence Score or the pass/fail determination."
             )
         else:
             st.caption(
-                "Uploading your policy grants a +5 Governance Bonus to your "
-                "Confidence Score for this session."
+                "Uploading your policy earns full governance credit toward your "
+                "Governance-Adjusted Confidence (shown on your result card) — it "
+                "doesn't change your core Confidence Score or the pass/fail determination."
             )
     # --- END GOVERNANCE & COMPLIANCE LAYER ---
 
