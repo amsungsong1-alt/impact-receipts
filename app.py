@@ -793,6 +793,39 @@ Return exactly this structure. Do not add or remove keys.
 
 IMPORTANT: For each field in field_sources, set "page" to the 1-based page number in the document where that content was found. If the page cannot be determined, use 0. Use "confidence": "high" if the value was explicitly stated, "medium" if inferred, "low" if uncertain.'''
 
+# Appended to INSTANT_CHECK_SYSTEM_PROMPT (never sent alone) when the user
+# requests more than one result. The base prompt above exhaustively specifies
+# a SINGLE flat result_basics/logframe_linkage/evidence_verification object
+# and never mentions a "results" array anywhere -- asking for multiple
+# results only via a user-message prefix, while the system prompt (the
+# stronger, more detailed instruction) kept insisting on the single-object
+# shape, meant the model reliably defaulted back to extracting one result
+# regardless of how many were requested. This makes multi-result the
+# system-level instruction too, so there's one consistent format to follow
+# instead of two competing ones.
+_IRC_MULTI_RESULT_SYSTEM_ADDENDUM = '''
+
+MULTI-RESULT MODE OVERRIDE: The user is requesting MULTIPLE distinct results from this
+single document, not one. This replaces the single-object output format described above.
+Your entire response MUST be a single JSON object shaped exactly like this:
+
+{
+  "results": [
+    { "result_basics": {...}, "logframe_linkage": {...}, "evidence_verification": {...},
+      "funder_readiness_inputs": {...} },
+    { "result_basics": {...}, "logframe_linkage": {...}, "evidence_verification": {...},
+      "funder_readiness_inputs": {...} }
+  ]
+}
+
+Each object inside "results" follows exactly the same result_basics/logframe_linkage/
+evidence_verification/funder_readiness_inputs schema documented above -- do NOT return those
+keys at the top level of your response in this mode; they only ever appear nested inside each
+element of "results". Extract exactly as many distinct results as the user requests, one array
+element per result, each drawn from a different result/indicator described in the document.
+Do not merge multiple results into one object, and do not return only one result when more
+than one was requested and more than one genuinely appears in the document.'''
+
 _UX_TAB_NAMES = ["Your Result", "Logframe", "Evidence", "Review & Score"]
 
 # ---------------------------------------------------------------------------
@@ -6885,13 +6918,26 @@ def render_screen_1():
                                     # it presented as the exact same generic "couldn't extract" failure
                                     # this fix was meant to close.
                                     _irc_max_tokens = min(4096 + max(0, _irc_n_res - 1) * 2000, 8192)
+                                    # The base system prompt exhaustively specifies a single flat
+                                    # result_basics/logframe_linkage/evidence_verification object and
+                                    # never mentions a "results" array -- asking for multiple results
+                                    # only via a user-message prefix left that stronger, more detailed
+                                    # system-level instruction unchanged, and the model reliably kept
+                                    # returning just one result regardless of what was requested.
+                                    # Appending the override to the system prompt itself (only when
+                                    # actually requested) makes multi-result mode the authoritative
+                                    # instruction instead of a competing afterthought.
+                                    _irc_system_prompt = (
+                                        INSTANT_CHECK_SYSTEM_PROMPT + _IRC_MULTI_RESULT_SYSTEM_ADDENDUM
+                                        if _irc_n_res > 1 else INSTANT_CHECK_SYSTEM_PROMPT
+                                    )
 
                                     def _irc_call_api():
                                         try:
                                             _irc_api_result["resp"] = _irc_client.messages.create(
                                                 model="claude-sonnet-4-6",
                                                 max_tokens=_irc_max_tokens,
-                                                system=INSTANT_CHECK_SYSTEM_PROMPT,
+                                                system=_irc_system_prompt,
                                                 messages=_irc_msgs,
                                             )
                                         except Exception as _irc_api_exc:
@@ -6968,9 +7014,15 @@ def render_screen_1():
                                             + "; ".join(_irc_val_errors)
                                         )
 
-                                    # Multi-result: if response has a 'results' array, process each slot
+                                    # Multi-result: if response has a 'results' array, process each slot.
+                                    # >= 1, not > 1 -- if the model only found one genuinely distinct
+                                    # result for a 2-3 requested, it still wraps that one in "results"
+                                    # per the system-prompt override above; falling through to the
+                                    # single-result handler in that case would look for result_basics
+                                    # at the top level (which doesn't exist in this response shape) and
+                                    # silently extract nothing at all.
                                     _irc_results_arr = _irc_data.get("results")
-                                    if isinstance(_irc_results_arr, list) and len(_irc_results_arr) > 1:
+                                    if isinstance(_irc_results_arr, list) and len(_irc_results_arr) >= 1:
                                         # Multi-result path: set active_slots, fill each slot
                                         _n_extracted = min(len(_irc_results_arr), 6)
                                         st.session_state["active_slots"] = _n_extracted
