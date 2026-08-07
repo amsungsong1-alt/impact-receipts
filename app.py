@@ -12938,6 +12938,8 @@ def render_screen_4_agency_dashboard():
             "- **Systemic gaps panel** — your most recurring evidence weaknesses, ranked\n"
             "- **Portfolio trend lines** — readiness over time, across your whole book of work\n"
             "- **One-click Portfolio Readiness Report (PDF)** — for internal reporting or a funder\n\n"
+            "Builds from your **saved audit history** — check \"Save this audit to my private "
+            "history\" when you run a check (Screen 2) so results start populating this dashboard.\n\n"
             f"*{exchange_rates.format_amount(exchange_rates.convert_pesewas(PRICE_AGENCY_GHS, st.session_state.get('currency', 'GHS')), st.session_state.get('currency', 'GHS'))}/month*"
         ))
         return
@@ -12953,9 +12955,13 @@ def render_screen_4_agency_dashboard():
     audits_rows = list_audits_with_client(email, limit=200)
     if not audits_rows:
         st.info(
-            "No saved audits yet. Opt in to \"Save this audit to my private history\" on "
-            "Screen 2 to start building your portfolio."
+            "**Your Agency plan is active — this dashboard just needs its first saved audit.**\n\n"
+            "It builds entirely from your saved audit history: run a check, then check "
+            "\"Save this audit to my private history\" on the results screen before downloading. "
+            "Every opted-in audit from then on populates the heatmap, gaps panel, and trend lines here."
         )
+        if st.button("Run a check now →", key="agency_dash_run_check", type="primary"):
+            _go_to_screen(1)
         return
 
     with st.expander("🗂 Assign audits to clients", expanded=False):
