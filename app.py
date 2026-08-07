@@ -9726,14 +9726,28 @@ def render_screen_2():
                 # real round-trip read immediately after the write, same session, so a
                 # persistent failure (missing SUPABASE_DB_URL on this deployment, a schema
                 # mismatch, etc.) is visible right where the export just happened.
-                if not verify_ref_id(_ref_id):
-                    st.caption(
-                        "⚠ Verification record could not be saved for this export "
-                        "(the ?verify= lookup for this reference ID may not work). "
-                        "Your download itself is unaffected."
+                #
+                # Stashed into session_state, not just st.caption()'d inline, because
+                # st.download_button()'s return value is only True on the exact rerun
+                # triggered by the click -- a bare inline caption here would flash for one
+                # rerun and vanish on the next, easy to miss entirely.
+                if verify_ref_id(_ref_id):
+                    st.session_state["_last_export_verif_status"] = (_ref_id, True, "")
+                else:
+                    st.session_state["_last_export_verif_status"] = (
+                        _ref_id, False, "verify_ref_id() returned no row immediately after a successful-looking write"
                     )
             except Exception as _verif_exc:
-                st.caption(f"⚠ Verification record could not be saved: {type(_verif_exc).__name__}: {_verif_exc}")
+                st.session_state["_last_export_verif_status"] = (
+                    _ref_id, False, f"{type(_verif_exc).__name__}: {_verif_exc}"
+                )
+        _last_verif = st.session_state.get("_last_export_verif_status")
+        if _last_verif and _last_verif[0] == _ref_id and not _last_verif[1]:
+            st.warning(
+                f"⚠ **Verification record could not be saved for reference {_ref_id}** "
+                f"(the ?verify= lookup for this reference ID won't work). Your download "
+                f"itself is unaffected. Technical detail: {_last_verif[2]}"
+            )
     else:
         st.info("📄 **Your score is above.** Upgrade to download the Readiness Card.")
         _render_paywall(prompt_context="limit_hit")
