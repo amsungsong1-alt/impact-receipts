@@ -9954,8 +9954,9 @@ def render_screen_2():
             # C6 -- Laudon Ch.9, testimonial_ask lifecycle trigger: a
             # substantial score improvement on a revision is the best
             # conversion moment for social proof. Checked here (not in the
-            # general _render_lifecycle_triggers()) since it needs the
-            # just-computed delta, which only exists at this call site.
+            # general _eligible_lifecycle_triggers()/_render_trigger_*()
+            # functions) since it needs the just-computed delta, which
+            # only exists at this call site.
             try:
                 from utils.lifecycle_triggers import (
                     is_trigger_enabled, has_fired_recently, record_trigger_fired,
@@ -15284,69 +15285,96 @@ def _render_profile_capture_banner(email: str) -> None:
                 st.rerun()
 
 
-def _render_lifecycle_triggers(email: str) -> None:
-    """Laudon Ch.9, C6: deterministic lifecycle triggers -- checks the
-    current user's own customer_profiles row + behavioural segment against
-    utils.lifecycle_triggers.eligible_triggers(), and renders whichever of
-    first_assessment_no_engagement / org_emergent_detected / payment_recovery
-    apply (testimonial_ask is handled separately at the revision-delta-strip
-    call site, since it needs a just-computed delta this function doesn't
-    have; at_risk_reengagement never fires from Python at all -- see
-    utils/lifecycle_triggers.py's module docstring). Called once per page
-    load from main(), same pattern as the other banners."""
+def _eligible_lifecycle_triggers(email: str) -> set:
+    """Pure eligibility check, no rendering -- lets the single-banner
+    priority picker at the main() call site peek at lifecycle-trigger
+    eligibility the same way it peeks at outcome-followup/profile-capture,
+    without rendering (and thereby recording-as-fired) anything itself."""
     if not email:
-        return
+        return set()
     try:
         from utils.customer_profiles import get_customer_profile
         from utils.crm import compute_behavioral_segment
         from utils.mel_calendar import load_mel_calendar
-        from utils.lifecycle_triggers import eligible_triggers, record_trigger_fired
+        from utils.lifecycle_triggers import eligible_triggers
 
         profile = get_customer_profile(email)
         if not profile:
-            return
+            return set()
         segment = compute_behavioral_segment(profile, load_mel_calendar())
-        fired = eligible_triggers(email, profile, segment)
+        return eligible_triggers(email, profile, segment)
     except Exception:
-        return
+        return set()
 
-    if "first_assessment_no_engagement" in fired:
-        with st.container(border=True):
-            st.markdown("**You've run your first check — want a hand with the suggested fixes?**")
-            st.caption(
-                "Your first result usually has a few quick wins flagged. Head back to Screen 2 "
-                "to review them before you submit."
-            )
-        record_trigger_fired(email, "first_assessment_no_engagement")
 
-    if "org_emergent_detected" in fired:
-        with st.container(border=True):
-            st.markdown("**Looks like your organisation is growing into ImpactProof**")
-            st.caption(
-                "Multiple people or programmes from your organisation are using ImpactProof — "
-                "the Agency plan covers your whole team under one seat plan."
-            )
+def _render_trigger_payment_recovery(email: str) -> None:
+    with st.container(border=True):
+        st.markdown("**Your last renewal charge didn't go through**")
+        st.caption(
+            "Your access continues during Paystack's retry window — no need to worry about a "
+            "sudden lockout before a deadline. Update your payment method when you get a chance."
+        )
+        from utils.whatsapp import build_wa_url
+        _pr_wa_url = build_wa_url("payment_support", user_email=email)
+        st.markdown(f"[Message us on WhatsApp for help]({_pr_wa_url})")
+        # record_trigger_fired() only on an explicit dismiss, not on render --
+        # this banner is the current page's dominant content until the user
+        # actually acknowledges it, same convention as the outcome/profile
+        # banners' Save/Skip buttons. Previously recorded unconditionally
+        # right after rendering, so ANY other widget interaction anywhere on
+        # the page (a rerun this banner had no part in) could burn the
+        # trigger's cooldown (days, per utils/lifecycle_triggers.py) before
+        # the user had a real chance to read it.
+        if st.button("Got it", key="_lifecycle_payment_recovery_dismiss"):
+            from utils.lifecycle_triggers import record_trigger_fired
+            record_trigger_fired(email, "payment_recovery")
+            st.rerun()
+
+
+def _render_trigger_org_emergent(email: str) -> None:
+    with st.container(border=True):
+        st.markdown("**Looks like your organisation is growing into ImpactProof**")
+        st.caption(
+            "Multiple people or programmes from your organisation are using ImpactProof — "
+            "the Agency plan covers your whole team under one seat plan."
+        )
+        _oe1, _oe2 = st.columns([2, 1])
+        with _oe1:
             if st.button("See the Agency plan", key="_lifecycle_org_emergent_cta"):
+                from utils.lifecycle_triggers import record_trigger_fired
+                record_trigger_fired(email, "org_emergent_detected")
                 st.session_state["_show_pricing"] = True
                 st.rerun()
-        try:
-            from utils.whatsapp import notify_founder
-            notify_founder("org_emergent_lead", user_email=email)
-        except Exception:
-            pass
-        record_trigger_fired(email, "org_emergent_detected")
+        with _oe2:
+            if st.button("Dismiss", key="_lifecycle_org_emergent_dismiss"):
+                from utils.lifecycle_triggers import record_trigger_fired
+                record_trigger_fired(email, "org_emergent_detected")
+                st.rerun()
+    # Unlike record_trigger_fired() above, this stays unconditional on
+    # render, not gated on a click -- it's a founder-led-sales signal about
+    # a detected pattern, not something that depends on this user noticing
+    # the banner (see CLAUDE.md: "a founder-led-sales moment, not an email
+    # sequence"). Deliberately not deduplicated against the banner's own
+    # cooldown; utils.whatsapp.notify_founder() has no repeat-suppression of
+    # its own here, which is an accepted gap for now, not a fix in scope.
+    try:
+        from utils.whatsapp import notify_founder
+        notify_founder("org_emergent_lead", user_email=email)
+    except Exception:
+        pass
 
-    if "payment_recovery" in fired:
-        with st.container(border=True):
-            st.markdown("**Your last renewal charge didn't go through**")
-            st.caption(
-                "Your access continues during Paystack's retry window — no need to worry about a "
-                "sudden lockout before a deadline. Update your payment method when you get a chance."
-            )
-            from utils.whatsapp import build_wa_url
-            _pr_wa_url = build_wa_url("payment_support", user_email=email)
-            st.markdown(f"[Message us on WhatsApp for help]({_pr_wa_url})")
-        record_trigger_fired(email, "payment_recovery")
+
+def _render_trigger_first_assessment(email: str) -> None:
+    with st.container(border=True):
+        st.markdown("**You've run your first check — want a hand with the suggested fixes?**")
+        st.caption(
+            "Your first result usually has a few quick wins flagged. Head back to Screen 2 "
+            "to review them before you submit."
+        )
+        if st.button("Got it", key="_lifecycle_first_assessment_dismiss"):
+            from utils.lifecycle_triggers import record_trigger_fired
+            record_trigger_fired(email, "first_assessment_no_engagement")
+            st.rerun()
 
 
 def _check_cross_sell_recommendation(email: str) -> None:
@@ -15524,9 +15552,33 @@ def main():
         return
     _outcome_email = st.session_state.get("user_email", "")
     if _outcome_email:
-        _render_profile_capture_banner(_outcome_email)
-        _render_outcome_followup_banner(_outcome_email)
-        _render_lifecycle_triggers(_outcome_email)
+        # Only the single highest-priority eligible banner renders, not a
+        # stack of everything eligible at once -- a new account with a weak
+        # first result and a failed renewal could previously see up to 5
+        # bordered ask-boxes stacked above their own screen's content, in
+        # no particular order. Priority: payment recovery (money/access
+        # risk) > outcome follow-up > profile capture > org-emergent (sales
+        # signal) > first-assessment nudge.
+        _lifecycle_fired = _eligible_lifecycle_triggers(_outcome_email)
+        if "payment_recovery" in _lifecycle_fired:
+            _render_trigger_payment_recovery(_outcome_email)
+        else:
+            try:
+                from utils.outcomes import get_pending_followup as _peek_outcome
+                _pending_outcome = _peek_outcome(_outcome_email)
+            except Exception:
+                _pending_outcome = None
+            if _pending_outcome:
+                _render_outcome_followup_banner(_outcome_email)
+            else:
+                _profile_u = get_user(_outcome_email) or {}
+                _profile_pending = not (_profile_u.get("profile_completed_at") or _profile_u.get("profile_skipped"))
+                if _profile_pending:
+                    _render_profile_capture_banner(_outcome_email)
+                elif "org_emergent_detected" in _lifecycle_fired:
+                    _render_trigger_org_emergent(_outcome_email)
+                elif "first_assessment_no_engagement" in _lifecycle_fired:
+                    _render_trigger_first_assessment(_outcome_email)
         _check_cross_sell_recommendation(_outcome_email)
     try:
         screen = st.session_state["screen"]

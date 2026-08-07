@@ -4,8 +4,9 @@ lifecycle triggers. Small in number (TRIGGERS below), each individually
 enabled/disabled -- deliberately not a marketing-automation platform.
 
 Detection + logging only. This module never renders UI (that's app.py's
-job, via _render_lifecycle_triggers(email) calling eligible_triggers() and
-acting on the result) and never sends anything itself except one plain
+job, via _eligible_lifecycle_triggers(email) calling eligible_triggers()
+and app.py's per-trigger _render_trigger_*() functions acting on the
+result) and never sends anything itself except one plain
 backend call for org_emergent_detected: notify_founder() (server-
 initiated, no Streamlit dependency, safe to call from here). The other
 triggers' user-facing actions (banners, the testimonial ask, the payment-
