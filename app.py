@@ -14962,6 +14962,48 @@ def _render_admin_crm_segments() -> None:
         )
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_admin_behavioral_dashboard_data() -> dict:
+    """Every aggregate _render_admin_crm_behavioral_dashboard() needs, in one
+    cached bundle. Previously each of these ran fresh -- including an
+    O(accounts) loop calling compute_average_cost_per_assessment() once per
+    account for cost-to-serve -- on every single widget interaction
+    anywhere on the admin page, not just a reload of this section. The data
+    they all read (customer_profiles) is itself only refreshed hourly by a
+    separate Edge Function, so a 5-minute cache costs nothing in freshness."""
+    from utils.crm import (
+        build_behavioral_segments, compute_behavioral_churn_rate, compute_revenue_churn_rate,
+        compute_cltv_by_segment, list_recent_segment_transitions, compute_cohort_retention_curves,
+    )
+    from utils.customer_profiles import list_customer_profiles
+    from utils.api_pricing import compute_average_cost_per_assessment
+    from utils.cross_sell import list_pending_recommendations
+
+    segments = build_behavioral_segments()
+    cost_by_segment: dict[str, list[float]] = {}
+    for seg_name, rows in segments.items():
+        for row in rows:
+            avg_cost = compute_average_cost_per_assessment(row.get("email"))
+            if avg_cost is not None:
+                cost_by_segment.setdefault(seg_name, []).append(avg_cost)
+    try:
+        pending_recs = list_pending_recommendations()
+    except Exception:
+        pending_recs = []
+
+    return {
+        "segments": segments,
+        "behavioral_churn": compute_behavioral_churn_rate(),
+        "revenue_churn": compute_revenue_churn_rate(),
+        "cltv_by_segment": compute_cltv_by_segment(),
+        "profiles": list_customer_profiles(),
+        "cost_by_segment": cost_by_segment,
+        "transitions": list_recent_segment_transitions(days=90),
+        "retention_curves": compute_cohort_retention_curves(max_months=6),
+        "pending_cross_sell": pending_recs,
+    }
+
+
 def _render_admin_crm_behavioral_dashboard() -> None:
     """Laudon Ch.9, C5: analytical CRM surface -- segment distribution,
     transitions over time, churn + CLTV by segment, revenue concentration,
@@ -14973,18 +15015,13 @@ def _render_admin_crm_behavioral_dashboard() -> None:
     rest of _render_admin_view()."""
     try:
         import pandas as pd
-        from utils.crm import (
-            build_behavioral_segments, compute_behavioral_churn_rate, compute_revenue_churn_rate,
-            compute_cltv_by_segment, list_recent_segment_transitions, compute_cohort_retention_curves,
-        )
-        from utils.customer_profiles import list_customer_profiles
-        from utils.api_pricing import compute_average_cost_per_assessment
+        data = _fetch_admin_behavioral_dashboard_data()
     except Exception as exc:
         st.warning(f"Could not load the behavioural CRM dashboard. ({type(exc).__name__})")
         return
 
     # -- Segment distribution --
-    segments = build_behavioral_segments()
+    segments = data["segments"]
     st.markdown("**Segment distribution**")
     _seg_cols = st.columns(4)
     for i, (seg_name, rows) in enumerate(segments.items()):
@@ -14994,8 +15031,8 @@ def _render_admin_crm_behavioral_dashboard() -> None:
     # -- Churn rates --
     st.markdown("**Churn**")
     _churn_cols = st.columns(2)
-    _behav_churn = compute_behavioral_churn_rate()
-    _rev_churn = compute_revenue_churn_rate()
+    _behav_churn = data["behavioral_churn"]
+    _rev_churn = data["revenue_churn"]
     with _churn_cols[0]:
         st.metric("Behavioural churn rate",
                   f"{_behav_churn * 100:.1f}%" if _behav_churn is not None else "Insufficient sample")
@@ -15005,7 +15042,7 @@ def _render_admin_crm_behavioral_dashboard() -> None:
 
     # -- CLTV by segment --
     st.markdown("**CLTV by segment**")
-    _cltv_by_seg = compute_cltv_by_segment()
+    _cltv_by_seg = data["cltv_by_segment"]
     if not _cltv_by_seg:
         st.caption("No CLTV data yet — configure knowledge/cltv_assumptions.yaml and/or wait for more accounts.")
     else:
@@ -15018,7 +15055,7 @@ def _render_admin_crm_behavioral_dashboard() -> None:
 
     # -- Revenue concentration --
     st.markdown("**Revenue concentration**")
-    _profiles = list_customer_profiles()
+    _profiles = data["profiles"]
     _total_revenue = sum(p.get("lifetime_revenue_pesewas", 0) or 0 for p in _profiles)
     if _total_revenue <= 0:
         st.caption("No recorded revenue yet.")
@@ -15036,12 +15073,7 @@ def _render_admin_crm_behavioral_dashboard() -> None:
 
     # -- Cost-to-serve by segment --
     st.markdown("**Cost-to-serve by segment**")
-    _cost_by_seg: dict[str, list[float]] = {}
-    for seg_name, rows in segments.items():
-        for row in rows:
-            _avg_cost = compute_average_cost_per_assessment(row.get("email"))
-            if _avg_cost is not None:
-                _cost_by_seg.setdefault(seg_name, []).append(_avg_cost)
+    _cost_by_seg = data["cost_by_segment"]
     if not _cost_by_seg:
         st.caption("No API usage data logged yet.")
     else:
@@ -15056,7 +15088,7 @@ def _render_admin_crm_behavioral_dashboard() -> None:
 
     # -- Segment transitions over time --
     st.markdown("**Segment transitions (last 90 days)**")
-    _transitions = list_recent_segment_transitions(days=90)
+    _transitions = data["transitions"]
     if not _transitions:
         st.caption("No recorded segment transitions yet.")
     else:
@@ -15067,7 +15099,7 @@ def _render_admin_crm_behavioral_dashboard() -> None:
 
     # -- Cohort retention curves --
     st.markdown("**Cohort retention (by signup month)**")
-    _curves = compute_cohort_retention_curves(max_months=6)
+    _curves = data["retention_curves"]
     if not _curves:
         st.caption("No signup cohort data yet.")
     else:
@@ -15081,11 +15113,7 @@ def _render_admin_crm_behavioral_dashboard() -> None:
 
     # -- Cross-sell candidates (Laudon Ch.9, C7) --
     st.markdown("**Cross-sell candidates (who to call)**")
-    try:
-        from utils.cross_sell import list_pending_recommendations
-        _pending_recs = list_pending_recommendations()
-    except Exception:
-        _pending_recs = []
+    _pending_recs = data["pending_cross_sell"]
     if not _pending_recs:
         st.caption("No pending cross-sell recommendations.")
     else:
