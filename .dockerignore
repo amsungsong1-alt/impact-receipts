@@ -11,6 +11,7 @@ metrics_events.jsonl
 nginx/
 scripts/
 *.md
+!docs/privacy_notice.md
 .dockerignore
 Dockerfile
 docker-compose.yml

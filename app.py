@@ -5252,6 +5252,33 @@ def _render_verify_landing(ref_id: str) -> None:
     )
 
 
+def _render_privacy_landing() -> None:
+    """Landing for the Privacy Notice link (?privacy=1) -- renders
+    docs/privacy_notice.md's content, the same document already used
+    internally for compliance/customer questions about what happens to
+    uploaded data. Shown regardless of screen, same convention as
+    _render_unsubscribe_landing()/_render_verify_landing() above. Read from
+    disk at request time rather than duplicated as a Python string, so the
+    single source of truth stays the one file this repo already treats as
+    authoritative -- editing the page means editing that file, not app.py."""
+    st.markdown("### Privacy Notice")
+    try:
+        with open("docs/privacy_notice.md", encoding="utf-8") as _pn_f:
+            _pn_text = _pn_f.read()
+        # Drop the doc's own leading "# ImpactProof Privacy Notice" H1 --
+        # the st.markdown("### Privacy Notice") header above already serves
+        # that role, avoiding a duplicate title.
+        _pn_lines = _pn_text.splitlines()
+        if _pn_lines and _pn_lines[0].startswith("# "):
+            _pn_text = "\n".join(_pn_lines[1:])
+        st.markdown(_pn_text)
+    except FileNotFoundError:
+        st.warning(
+            "The Privacy Notice couldn't be loaded right now. For questions about what "
+            "happens to your data, contact support."
+        )
+
+
 # ============================================================
 # MATCH DAY — Patch 1: Scoreboard + Commentary ticker
 # ============================================================
@@ -6773,7 +6800,7 @@ def render_screen_1():
                     st.caption(
                         "🔒 Your document is sent to Anthropic's Claude API for extraction "
                         "(up to 60,000 characters). ImpactProof never stores the file itself — "
-                        "see our Privacy Notice for details."
+                        f"see our **[Privacy Notice]({APP_URL}/?privacy=1)** for details."
                     )
                     _irc_files = st.file_uploader(
                         "Upload report file(s) (or a previously downloaded draft.json)",
@@ -11760,7 +11787,7 @@ def _render_score_my_report_tab():
         "🔒 **Data processing notice:** Your document is sent to Anthropic's Claude API "
         "(claude-sonnet-4-6) for result extraction. Up to 60,000 characters of text are "
         "transmitted. ImpactProof does not store your document after your session ends — "
-        "see our Privacy Notice for what Anthropic does with it."
+        f"see our **[Privacy Notice]({APP_URL}/?privacy=1)** for what Anthropic does with it."
     )
     uploaded_doc = st.file_uploader(
         "Upload your donor report (Word or PDF)",
@@ -15383,6 +15410,10 @@ def main():
     _verify_ref_id_param = st.query_params.get("verify", "")
     if _verify_ref_id_param:
         _render_verify_landing(_verify_ref_id_param)
+        return
+    # Privacy Notice landing — shown regardless of screen
+    if st.query_params.get("privacy") == "1":
+        _render_privacy_landing()
         return
     # Hidden admin view — usage metrics, passphrase-gated
     if st.query_params.get("admin") == "1":
