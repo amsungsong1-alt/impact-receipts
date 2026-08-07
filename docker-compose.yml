@@ -5,6 +5,17 @@ services:
     env_file: .env
     expose:
       - "8501"
+    # save_all_files()/_load_trend_history() (app.py) read/write these three
+    # directories with plain relative paths -- without a volume they live
+    # only in the container's writable layer, and `docker compose up -d
+    # --build` recreates that layer from scratch on every deploy. Named
+    # volumes here mount just these three subdirectories, not all of /app,
+    # so a fresh image's code still comes from the image itself; only this
+    # data persists across redeploys.
+    volumes:
+      - trend-inputs:/app/inputs
+      - trend-evaluations:/app/evaluations
+      - trend-outputs:/app/outputs
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
       interval: 30s
@@ -40,3 +51,6 @@ services:
 volumes:
   certbot-etc:
   certbot-www:
+  trend-inputs:
+  trend-evaluations:
+  trend-outputs:
