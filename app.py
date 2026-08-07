@@ -6876,7 +6876,15 @@ def render_screen_1():
                                     # the JSON mid-object and surfacing as a generic "IRC couldn't
                                     # extract your document" parse failure, or silently returning
                                     # fewer results than requested.
-                                    _irc_max_tokens = min(4096 + max(0, _irc_n_res - 1) * 3000, 12000)
+                                    # Capped at 8192 -- the same ceiling _extract_all_results_from_document()
+                                    # (the other multi-result extraction call site, same model) already
+                                    # uses successfully. An earlier version of this fix capped at 12000,
+                                    # which is likely rejected outright by the API as exceeding this
+                                    # model's real max output tokens -- that failure happens at the API
+                                    # call itself, before there's any response body to recover from, so
+                                    # it presented as the exact same generic "couldn't extract" failure
+                                    # this fix was meant to close.
+                                    _irc_max_tokens = min(4096 + max(0, _irc_n_res - 1) * 2000, 8192)
 
                                     def _irc_call_api():
                                         try:
