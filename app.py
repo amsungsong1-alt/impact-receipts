@@ -6869,11 +6869,20 @@ def render_screen_1():
                                     _irc_timer_ph = st.empty()
                                     _irc_api_result = {}
 
+                                    # Each additional requested result needs its own full
+                                    # result_basics + logframe_linkage + evidence_verification
+                                    # object -- a flat 4096-token budget (sized for one result)
+                                    # was routinely too small for a 2-3 result request, truncating
+                                    # the JSON mid-object and surfacing as a generic "IRC couldn't
+                                    # extract your document" parse failure, or silently returning
+                                    # fewer results than requested.
+                                    _irc_max_tokens = min(4096 + max(0, _irc_n_res - 1) * 3000, 12000)
+
                                     def _irc_call_api():
                                         try:
                                             _irc_api_result["resp"] = _irc_client.messages.create(
                                                 model="claude-sonnet-4-6",
-                                                max_tokens=4096,
+                                                max_tokens=_irc_max_tokens,
                                                 system=INSTANT_CHECK_SYSTEM_PROMPT,
                                                 messages=_irc_msgs,
                                             )
@@ -6923,7 +6932,22 @@ def render_screen_1():
                                             _irc_raw = _irc_parts[1].lstrip("json\n").strip()
                                     if not _irc_raw:
                                         raise ValueError("Model returned an empty response. Try a different document or fill the form manually.")
-                                    _irc_data = _ijson3.loads(_irc_raw)
+                                    try:
+                                        _irc_data = _ijson3.loads(_irc_raw)
+                                    except _ijson3.JSONDecodeError:
+                                        # Multi-result requests can produce a longer response than
+                                        # max_tokens covers, truncating mid-object -- salvage every
+                                        # COMPLETE result object rather than failing the whole
+                                        # extraction outright (same recovery already used by the
+                                        # Score My Report batch pipeline's _recover_partial_json_results).
+                                        if _irc_n_res > 1:
+                                            _irc_recovered = _recover_partial_json_results(_irc_raw)
+                                            if _irc_recovered:
+                                                _irc_data = {"results": _irc_recovered}
+                                            else:
+                                                raise
+                                        else:
+                                            raise
                                     # C2 -- Laudon Ch.11, extraction/scoring separation formalized:
                                     # validate the extraction response's shape before any field
                                     # reaches session_state. Routes into the existing "parse"
@@ -6957,11 +6981,38 @@ def render_screen_1():
                                                 (f"logframe_target{_rs}",    _r_ll.get("original_target")),
                                                 (f"logframe_achievement{_rs}", _r_ll.get("actual_achievement")),
                                                 (f"evidence_description{_rs}", _r_ev3.get("evidence_description")),
+                                                (f"verifier{_rs}", _r_ev3.get("independent_verifier")),
                                             ]:
                                                 _sval = ", ".join(str(v) for v in _fv) if isinstance(_fv, list) else str(_fv or "").strip()
                                                 if _sval and _sval != "Not found":
                                                     st.session_state[_fk] = _sval
                                                     _total_filled += 1
+                                            # evidence_type/internal_review/external_review are
+                                            # selectbox-bound -- session_state must hold one of the
+                                            # widget's own options (or "Other" + its free-text
+                                            # sibling), never raw extracted text, matching the
+                                            # single-result path's fuzzy-match convention above.
+                                            _r_ev_type_raw = _irc_to_str(_r_ev3.get("evidence_type", ""))
+                                            _r_ev_mt = _irc_match_option(_r_ev_type_raw, EVIDENCE_TYPES)
+                                            if _r_ev_mt:
+                                                st.session_state[f"evidence_type{_rs}"] = _r_ev_mt
+                                                _total_filled += 1
+                                            elif _r_ev_type_raw and _r_ev_type_raw != "Not found":
+                                                st.session_state[f"evidence_type{_rs}"] = "Other"
+                                                st.session_state[f"evidence_type_other{_rs}"] = _r_ev_type_raw
+                                                _total_filled += 1
+                                            _r_ir_mt = _irc_match_option(_irc_to_str(_r_ev3.get("internal_review", "")), INTERNAL_REVIEW_OPTIONS)
+                                            if _r_ir_mt:
+                                                st.session_state[f"internal_review{_rs}"] = _r_ir_mt
+                                                _total_filled += 1
+                                            _r_er_mt = _irc_match_option(_irc_to_str(_r_ev3.get("external_review", "")), EXTERNAL_REVIEW_OPTIONS)
+                                            if _r_er_mt:
+                                                st.session_state[f"external_review{_rs}"] = _r_er_mt
+                                                _total_filled += 1
+                                            _r_ev_date = _irc_parse_date(_irc_to_str(_r_ev3.get("evidence_collection_date", "")))
+                                            if _r_ev_date:
+                                                st.session_state[f"evidence_date{_rs}"] = _r_ev_date
+                                                _total_filled += 1
                                         st.session_state["_irc_summary"] = {
                                             "filled": _total_filled,
                                             "skipped": "",
@@ -9494,17 +9545,26 @@ def render_screen_2():
 
     # (Unfair advantage message removed — council XVIII: marketing copy at result stage is noise)
 
-    # Primary download — 2–3 page Readiness Card (shareable with MEL lead / donor)
+    # Primary download — 2–3 page Readiness Card (shareable with MEL lead / donor).
+    # For a multi-result submission (n > 1, e.g. IRC's "extract N results" path),
+    # this is one PDF covering every result, one per page, rather than silently
+    # building from subs[0]/evs[0] only and dropping every result but the first.
     timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
     _report_allowed = st.session_state.get("_report_allowed", True)
-    # Include council assessment (Page 4) if one has been run for this result
-    _council_data = st.session_state.get("council_xxii_0")
-    # Build the card (primary) and the full analysis (secondary / Advanced exports)
-    _card_html   = _build_html_report_card(
-        subs[0], evs[0], timestamp,
-        field_sources=st.session_state.get("_irc_field_sources") if st.session_state.get("_irc_used") else None,
-        council_assessment=_council_data,
-    )
+    _irc_fs = st.session_state.get("_irc_field_sources") if st.session_state.get("_irc_used") else None
+    if n > 1:
+        _card_html = _build_combined_html_report_card(
+            subs, evs, timestamp,
+            field_sources_list=[_irc_fs if i == 0 else None for i in range(n)],
+            council_assessments=[st.session_state.get(f"council_xxii_{i}") for i in range(n)],
+        )
+    else:
+        # Include council assessment (Page 4) if one has been run for this result
+        _card_html = _build_html_report_card(
+            subs[0], evs[0], timestamp,
+            field_sources=_irc_fs,
+            council_assessment=st.session_state.get("council_xxii_0"),
+        )
     _card_pdf    = _html_to_pdf_bytes(_card_html)
     html_report  = _build_html_report(subs[0], evs[0], timestamp) if n == 1 else \
                    _build_combined_html_report(subs, evs, timestamp)
@@ -13427,6 +13487,40 @@ ImpactProof &middot; Built in Accra for MEL teams across West Africa &middot; {A
 </p>
 {_build_council_page_html(council_assessment, conf_score, clar_score, timestamp, P) if council_assessment else ""}
 </body></html>"""
+
+
+def _build_combined_html_report_card(submissions: list, evaluations: list, timestamp: str,
+                                      field_sources_list: list | None = None,
+                                      council_assessments: list | None = None) -> str:
+    """One Readiness Card PDF covering every result in a multi-result submission
+    (e.g. IRC's 'extract N results' path), each on its own page, rather than
+    forcing a choice between N separate downloads or silently dropping every
+    result but the first -- the primary Readiness Card button previously
+    always built from submissions[0]/evaluations[0] only, regardless of how
+    many results were actually scored. Reuses _build_html_report_card() per
+    result and stitches pages together, same pattern as
+    _build_combined_html_report() for the secondary/Advanced export."""
+    parts = []
+    for i, (sub, ev) in enumerate(zip(submissions, evaluations)):
+        _fs = field_sources_list[i] if field_sources_list and i < len(field_sources_list) else None
+        _ca = council_assessments[i] if council_assessments and i < len(council_assessments) else None
+        section = _build_html_report_card(sub, ev, timestamp, field_sources=_fs, council_assessment=_ca)
+        if i == 0:
+            parts.append(section)
+        else:
+            start = section.find("<!-- Result -->")
+            if start == -1:
+                _body_idx = section.find("<body>")
+                start = _body_idx + len("<body>") if _body_idx != -1 else 0
+            end = section.rfind("</body>")
+            insert_at = parts[0].rfind("</body>")
+            divider = (
+                f'<p style="page-break-before:always;"></p>'
+                f'<h1 style="color:#1B5E20;font-size:16px;margin:0 0 8px;">'
+                f'Result {i + 1} of {len(submissions)}</h1>'
+            )
+            parts[0] = parts[0][:insert_at] + divider + section[start:end] + parts[0][insert_at:]
+    return parts[0]
 
 
 def _build_html_report(submission: dict, evaluation: dict, timestamp: str, chart_id: str = "0") -> str:
