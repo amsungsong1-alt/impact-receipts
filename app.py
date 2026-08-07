@@ -2220,6 +2220,24 @@ def _reset_all_slots():
         st.session_state.pop(k, None)
 
 
+def _remove_last_slot() -> None:
+    """Removes the most-recently-added result slot and clears its fields --
+    previously active_slots only ever incremented, so a misclick on '＋ Add
+    Another Result,' or realizing mid-flow that a document only covers one
+    result, left no recourse short of 'Clear and start fresh' (which wipes
+    every slot, not just the extra one). No-ops at active_slots<=1 -- there
+    must always be at least one result."""
+    active = st.session_state.get("active_slots", 1)
+    if active <= 1:
+        return
+    s = _slot_suffix(active)
+    for k in _BASE_FORM_KEYS:
+        st.session_state.pop(f"{k}{s}", None)
+    for k in ["evidence_date", "uploaded_files", "draft_uploaded_filenames"]:
+        st.session_state.pop(f"{k}{s}", None)
+    st.session_state["active_slots"] = active - 1
+
+
 def _init_from_query_params() -> None:
     """Restore screen/tab from URL on first load. Skips Paystack callback URLs."""
     if st.session_state.get("_nav_initialized"):
@@ -4645,7 +4663,12 @@ def _render_tab3_slot(slot: int):
             "📋 Data Governance Checklist",
             expanded=_compliance_needed,
         ):
-            st.caption("⚠ Unanswered questions score as 'No' and reduce your Governance sub-score. Answer 'Not applicable' where it genuinely doesn't apply.")
+            st.caption(
+                "⚠ Unanswered questions score as 'No' and reduce your Governance sub-score. "
+                "Answer 'Not applicable' where it genuinely doesn't apply. Questions marked "
+                "**\\*** below are required for this result specifically, based on your "
+                "evidence type and result text."
+            )
             st.selectbox(
                 "Do you have documented consent from beneficiaries for their data "
                 "to be shared with the donor?",
@@ -4683,9 +4706,10 @@ def _render_tab3_slot(slot: int):
                 key=f"gov_compliance_law_status{s}",
             )
             st.selectbox(
-                "If this evidence includes beneficiary stories, photos, or testimony, "
-                "has it been reviewed for do-no-harm risks (identification, stigma, "
-                "retraumatization, or safety) before sharing with the donor?",
+                ("If this evidence includes beneficiary stories, photos, or testimony, "
+                 "has it been reviewed for do-no-harm risks (identification, stigma, "
+                 "retraumatization, or safety) before sharing with the donor?"
+                 + (" **\\***" if _safeguarding_triggered else "")),
                 options=[
                     "Select safeguarding status...",
                     "Yes — reviewed, no concerns identified",
@@ -4697,9 +4721,10 @@ def _render_tab3_slot(slot: int):
                 key=f"gov_safeguarding_status{s}",
             )
             st.selectbox(
-                "If minors may be involved in this evidence, has a child safeguarding "
-                "review been completed (organisational child safeguarding policy applied, "
-                "and guardian consent obtained where applicable)?",
+                ("If minors may be involved in this evidence, has a child safeguarding "
+                 "review been completed (organisational child safeguarding policy applied, "
+                 "and guardian consent obtained where applicable)?"
+                 + (" **\\***" if _minors_triggered else "")),
                 options=[
                     "Select child safeguarding status...",
                     "Yes — child safeguarding policy applied, guardian consent obtained where applicable",
@@ -6254,6 +6279,11 @@ def render_screen_0():
                 f"Standard applied: {_qc_scores.get('track_label', 'INGO standard')} "
                 f"(threshold {_qc_scores.get('threshold', 4.0)}/5.0)."
             )
+            st.caption(
+                "Carries your result statement, evidence type, and verifier into the full "
+                "form below — target group, timeframe, geography, and evidence description "
+                "weren't asked here, so you'll fill those in next."
+            )
             if st.button("Continue for full diagnosis →", key="qc_continue", use_container_width=True, type="primary"):
                 st.session_state["result_statement"] = _qc_scores["result"]
                 st.session_state["evidence_type"]    = _qc_scores["ev_type"]
@@ -6720,7 +6750,7 @@ def render_screen_1():
                 )
         # --- END IRC extraction quality panel ---
 
-        col_h, col_add = st.columns([5, 1])
+        col_h, col_add, col_remove = st.columns([4, 1, 1])
         with col_h:
             label = "Tell us about your result" if active == 1 else f"Tell us about your results ({active} added)"
             st.markdown(f"## {label}")
@@ -6730,6 +6760,16 @@ def render_screen_1():
                 if st.button("＋ Add Another Result", use_container_width=True,
                              help="Add up to 6 results to this submission."):
                     st.session_state["active_slots"] = active + 1
+                    st.rerun()
+        with col_remove:
+            # Previously the only recourse for a misclick, or realizing a
+            # document only covers fewer results than added, was "Clear and
+            # start fresh" -- which wipes every slot, not just the extra one.
+            if active > 1:
+                st.markdown("<div style='padding-top:22px'></div>", unsafe_allow_html=True)
+                if st.button("− Remove Last Result", use_container_width=True,
+                             help=f"Remove Result {active} and its fields. Results 1-{active - 1} are unaffected."):
+                    _remove_last_slot()
                     st.rerun()
 
         # --- UX: INSTANT REPORT CHECK (v3.2) ---
@@ -7653,6 +7693,11 @@ def render_screen_1():
                 st.warning(f"Evidence scores {_q_conf3:.1f}/5.0 on Confidence — strengthen your evidence description or add a verifier before submitting.")
         except Exception:
             pass
+        st.caption(
+            "This tab doesn't block \"Next\" the way Result and Logframe do — missing "
+            "evidence fields are instead flagged on the Review tab before you run your "
+            "determination, so you can see everything that needs attention in one place."
+        )
         _nb3, _pb3 = st.columns([3, 1])
         with _nb3:
             if st.button("Next: Review & Submit →", key="tab3_next_btn", type="primary", use_container_width=True):
@@ -7754,6 +7799,19 @@ def render_screen_1():
             with st.expander(f"⚠ {len(_missing_b)} required field(s) incomplete", expanded=True):
                 for _fk, _fl in _missing_b:
                     st.markdown(f"- {_fl}")
+                # The jump button only ever goes to the FIRST missing field's
+                # tab -- if the gaps span more than one tab, name them all up
+                # front so the user knows how many stops this will take
+                # rather than discovering it one click-fill-return cycle at
+                # a time.
+                _missing_tab_names = {0: "Your Result", 1: "Logframe", 2: "Evidence"}
+                _missing_tabs = sorted({_TAB_IDX_B[_fk] for _fk, _ in _missing_b if _fk in _TAB_IDX_B})
+                if len(_missing_tabs) > 1:
+                    st.caption(
+                        "Spans multiple tabs: "
+                        + ", ".join(_missing_tab_names.get(t, str(t)) for t in _missing_tabs)
+                        + ". The button below jumps to the first; you'll need to return here for the rest."
+                    )
                 if st.button("→ Fix: Jump to First Missing Field", key="jump_missing_b", type="primary"):
                     _first_b = _TAB_IDX_B[_missing_b[0][0]]
                     st.session_state["current_tab"] = _first_b
