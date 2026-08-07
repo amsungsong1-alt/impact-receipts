@@ -25,7 +25,19 @@ COPY . .
 
 # No reason for the Streamlit process to run as root in a container that
 # only serves HTTP on 8501 to Nginx over the internal Docker network.
-RUN useradd --create-home --shell /bin/bash appuser \
+#
+# inputs/evaluations/outputs are created here, before chown, specifically
+# for docker-compose.yml's named volumes mounted at those three paths:
+# Docker only auto-populates a *freshly created* named volume's ownership
+# from whatever already exists in the image at that path. These
+# directories are otherwise created lazily at runtime by save_all_files()
+# (os.makedirs(..., exist_ok=True)), so without pre-creating them here, a
+# brand-new volume mounts as an empty, root-owned directory -- unwritable
+# by appuser below, which silently broke every scoring run the moment the
+# volumes were introduced (save_all_files() failing with a PermissionError
+# it couldn't recover from).
+RUN mkdir -p inputs evaluations outputs \
+    && useradd --create-home --shell /bin/bash appuser \
     && chown -R appuser:appuser /app
 USER appuser
 

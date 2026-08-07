@@ -9488,7 +9488,19 @@ def render_screen_2():
                 for slot in range(1, active + 1):
                     sub = _build_submission_from_session(slot)
                     ev  = _evaluator.evaluate_submission(sub)
-                    save_all_files(sub, ev, email=st.session_state.get("user_email", ""))
+                    # Local-disk history/trends save -- best-effort, same
+                    # never-block-the-real-result convention as
+                    # record_assessment()/record_assessment_facts() right
+                    # below (both already guarded). This one wasn't, so a
+                    # filesystem/permission problem here (e.g. a freshly
+                    # mounted volume with the wrong ownership) took down the
+                    # entire scoring flow instead of just costing this one
+                    # user their Trends history.
+                    try:
+                        save_all_files(sub, ev, email=st.session_state.get("user_email", ""))
+                    except Exception:
+                        import logging as _sav_logging
+                        _sav_logging.error("save_all_files failed (Trends history not saved)", exc_info=True)
                     subs.append(sub)
                     evs.append(ev)
                     # D3 -- Laudon Ch.12, Implementation stage: record every
