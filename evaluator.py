@@ -1595,6 +1595,18 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict, accou
             "message": _dir_msg,
             "score_impact": f"+up to {_gain} on Confidence",
             "score_impact_value": _gain,
+            # Every confidence-axis fix below is answered on the Evidence &
+            # Verification tab (Screen 1 tab index 2) -- evidence_description/
+            # evidence_type, internal_review/external_review, provenance_*,
+            # and evidence_date all live there. Set explicitly here rather
+            # than left for the caller to infer from dimension/message text:
+            # a caller previously guessed this from keyword-scanning the
+            # message, which silently broke the moment message wording
+            # changed (e.g. "target group" tripping a "logframe" keyword
+            # match). This function already knows the answer; it shouldn't
+            # be re-derived downstream.
+            "target_tab": 2,
+            "field_label": "Evidence type & description",
         })
     elif direct_score < 2.0:
         _gain = round(2.0 - direct_score, 2)
@@ -1607,6 +1619,8 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict, accou
             ),
             "score_impact": f"+up to {_gain} on Confidence",
             "score_impact_value": _gain,
+            "target_tab": 2,
+            "field_label": "Evidence description",
         })
 
     if verify_score < (3 / 5) * 2.0:
@@ -1621,6 +1635,8 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict, accou
             ),
             "score_impact": f"+{gain} on Confidence",
             "score_impact_value": gain,
+            "target_tab": 2,
+            "field_label": "Internal review / External review / Verifier",
         })
 
     provenance_adjustment = confidence_components.get("provenance_adjustment", 0.0)
@@ -1637,6 +1653,8 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict, accou
                 ),
                 "score_impact": f"+up to {_gain} on Confidence",
                 "score_impact_value": _gain,
+                "target_tab": 2,
+                "field_label": "Data provenance / chain of custody",
             })
 
     if recency_score < (3 / 5) * 1.0:
@@ -1649,6 +1667,8 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict, accou
             ),
             "score_impact": f"+up to {_gain} on Confidence",
             "score_impact_value": _gain,
+            "target_tab": 2,
+            "field_label": "Evidence date",
         })
 
     # Clarity sub-scores
@@ -1688,6 +1708,12 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict, accou
             "message": _def_message,
             "score_impact": f"+{impact} on Clarity",
             "score_impact_value": impact,
+            # The only clarity fix answered on tab 0 (Your Result) rather
+            # than tab 2 -- this is the field the result_statement itself
+            # lives on. See the confidence-fixes' first target_tab comment
+            # above for why this is set explicitly rather than inferred.
+            "target_tab": 0,
+            "field_label": "Result statement",
         })
 
     if meas_score < 1.0:
@@ -1715,6 +1741,8 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict, accou
             "message": _meas_message,
             "score_impact": f"+up to {_gain} on Clarity",
             "score_impact_value": _gain,
+            "target_tab": 2,
+            "field_label": "Evidence description",
         })
 
     if integrity < 0.75:
@@ -1727,6 +1755,8 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict, accou
             ),
             "score_impact": f"+up to {_gain} on Clarity",
             "score_impact_value": _gain,
+            "target_tab": 2,
+            "field_label": "Evidence description",
         })
 
     if scope < 0.5:
@@ -1739,6 +1769,11 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict, accou
             ),
             "score_impact": f"+up to {_gain} on Clarity",
             "score_impact_value": _gain,
+            # target_group/geographic_scope live on tab 0 (Your Result), not
+            # tab 2 -- this is the one non-Definition clarity fix that isn't
+            # about the evidence description.
+            "target_tab": 0,
+            "field_label": "Target group / Geographic scope",
         })
 
     if gov_score < 0.5:
@@ -1751,6 +1786,8 @@ def get_what_to_fix(confidence_components: dict, clarity_components: dict, accou
             ),
             "score_impact": f"+up to {_gain} on Clarity",
             "score_impact_value": _gain,
+            "target_tab": 2,
+            "field_label": "Additional context (result owner & decision)",
         })
 
     fixes.sort(key=lambda x: x.get("score_impact_value", 0), reverse=True)
