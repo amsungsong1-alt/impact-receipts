@@ -9190,8 +9190,9 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     if gov < 0.6:
         st.warning(
             "⚠️ **Governance gap flagged.** Your data-compliance sub-score is low. "
-            "Return to the **Governance tab** on the form to complete the checklist — "
-            "this affects your Clarity score and Act 843 / NDPA compliance (Ghana)."
+            "Return to the **Evidence tab** (Tab 3 — the Data Governance Checklist is at "
+            "the bottom) to complete it — this affects your Clarity score and Act 843 / "
+            "NDPA compliance (Ghana)."
         )
 
     # Scoring explanation + weakness panel — skip for STRONG (nothing to fix)
@@ -9848,8 +9849,15 @@ def render_screen_2():
             st.warning(
                 f"⚠ **Verification record could not be saved for reference {_ref_id}** "
                 f"(the ?verify= lookup for this reference ID won't work). Your download "
-                f"itself is unaffected. Technical detail: {_last_verif[2]}"
+                f"itself is unaffected."
             )
+            # Raw exception text moved out of the plain-language warning above
+            # and into a collapsed expander -- same "Technical details (for
+            # support)" convention IRC's own failure message already uses,
+            # rather than surfacing a Python exception inline to a
+            # non-technical NGO officer.
+            with st.expander("Technical details (for support)", expanded=False):
+                st.code(_last_verif[2], language="text")
     else:
         st.info("📄 **Your score is above.** Upgrade to download the Readiness Card.")
         _render_paywall(prompt_context="limit_hit")
