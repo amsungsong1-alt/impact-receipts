@@ -1903,7 +1903,7 @@ h1, h2, h3, h4 {
   align-items: flex-start;
   justify-content: space-between;
   position: relative;
-  max-width: 730px;
+  max-width: 1100px;
   margin: 0 auto;
   width: 100%;
 }
@@ -2063,6 +2063,16 @@ h1, h2, h3, h4 {
   margin-bottom: 12px;
   display: inline-block;
   letter-spacing: 0.02em;
+}
+
+/* Streamlit's centered layout defaults the content column to ~730px with
+   large empty flanks on anything wider than a laptop -- widened here
+   rather than switching to layout="wide" in set_page_config, which would
+   also change sidebar-width defaults and other Streamlit internals well
+   beyond just this. .md-pitch-stages below is widened to match so the
+   progress strip's step row stays aligned with the page content under it. */
+.main .block-container {
+  max-width: 1100px;
 }
 
 /* Mobile-first improvements */
