@@ -13271,17 +13271,26 @@ def render_screen_4_agency_dashboard():
     if not _gaps:
         st.caption("Not enough data yet.")
     else:
+        # Severity badge from fail_pct -- same palette as everywhere else,
+        # so "below target in 80% of results" reads as urgently as a
+        # High-Risk score badge does elsewhere, not just bold text.
+        def _gap_severity_badge(fail_pct: float) -> str:
+            label = "High Risk" if fail_pct >= 60 else "Weak" if fail_pct >= 35 else "Acceptable"
+            bg, fg = _READINESS_CARD_SCORE_PALETTE[label]
+            return f"<span style='background:{bg};color:{fg};padding:2px 8px;border-radius:6px;font-size:0.75rem;font-weight:700;'>{fail_pct:.0f}% below target</span>"
+
         for g in _gaps[:5]:
             if g["n_evaluated"] < MIN_PORTFOLIO_SAMPLE:
                 st.caption(f"- **{g['dimension']}** — insufficient data (n={g['n_evaluated']}, need ≥{MIN_PORTFOLIO_SAMPLE})")
             elif g["dimension"] == "Verification" and g.get("verify_source_missing_pct", 0) > 0:
                 st.markdown(
                     f"- **{g['dimension']}** — missing verification source in "
-                    f"{g['verify_source_missing_pct']:.0f}% of results "
-                    f"({g['fail_pct']:.0f}% below target)"
+                    f"{g['verify_source_missing_pct']:.0f}% of results — "
+                    f"{_gap_severity_badge(g['fail_pct'])}",
+                    unsafe_allow_html=True,
                 )
             else:
-                st.markdown(f"- **{g['dimension']}** — below target in {g['fail_pct']:.0f}% of results")
+                st.markdown(f"- **{g['dimension']}** — {_gap_severity_badge(g['fail_pct'])}", unsafe_allow_html=True)
 
     st.divider()
     st.markdown("### Portfolio Readiness Over Time")
