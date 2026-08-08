@@ -5336,18 +5336,18 @@ def inject_matchday_css():
         padding:6px 10px; border-radius:6px; letter-spacing:1.5px; flex-shrink:0; }
     .md-var-text strong { font-size:1rem; }
     .md-var-text span { font-size:0.85rem; color:#aaa8a0; }
-    .md-pitch { background:#1a1a18; border-radius:0; padding:10px 16px;
+    .md-pitch { background:#fff; border-bottom:1px solid var(--border); border-radius:0; padding:10px 16px;
         margin:0; position:fixed; top:3.75rem; left:0; right:0; z-index:999999; }
     .md-pitch-stages { display:flex; align-items:flex-start; justify-content:space-between;
         position:relative; max-width:730px; margin:0 auto; width:100%; }
     .md-pitch-stages::before { content:""; position:absolute; top:16px; left:10%; right:10%;
-        height:2px; background:#333; z-index:0; }
+        height:2px; background:#E0E0E0; z-index:0; }
     .md-pstage { display:flex; flex-direction:column; align-items:center; gap:6px;
         flex:1; position:relative; z-index:1; cursor:help; }
-    .md-pstage .dot { width:32px; height:32px; border-radius:50%; background:#333;
-        color:#666; font-size:12px; font-weight:700; display:flex;
+    .md-pstage .dot { width:32px; height:32px; border-radius:50%; background:#EEEEEE;
+        color:#9E9E9E; font-size:12px; font-weight:700; display:flex;
         align-items:center; justify-content:center; }
-    .md-pstage .lbl { font-size:10px; color:#555; text-align:center; letter-spacing:.3px; }
+    .md-pstage .lbl { font-size:10px; color:var(--muted); text-align:center; letter-spacing:.3px; }
     .md-pstage.done .dot { background:#1B5E20; color:#fff; }
     .md-pstage.done .lbl { color:#1B5E20; }
     .md-pstage.active .dot { background:#8A6500; color:#fff; }
@@ -5361,7 +5361,7 @@ def inject_matchday_css():
     .md-fulltime p { margin:0; font-size:0.85rem; color:#aaa8a0; line-height:1.5; }
     .md-card { background:#f9f8f5; border:1px solid #e0ded8; border-radius:8px;
         padding:14px 16px; margin:8px 0; }
-    .stage-tip { font-size:10px; color:#aaa8a0; text-align:center;
+    .stage-tip { font-size:10px; color:var(--muted); text-align:center;
         margin-top:4px; padding:0 2px; line-height:1.3; }
     .md-tab-header { margin:10px 0 14px; }
     .md-tab-header .tab-num { font-size:11px; color:#888780; letter-spacing:.5px;
