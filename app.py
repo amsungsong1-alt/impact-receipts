@@ -1792,15 +1792,6 @@ h1, h2, h3, h4 {
   background: transparent !important;
 }
 
-/* Card container */
-.result-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 24px 28px;
-  margin-bottom: 20px;
-}
-
 /* Axis score badge */
 .axis-badge {
   padding: 10px 14px;
@@ -5750,37 +5741,38 @@ def render_billing_page():
     paid_until = user.get("paid_until", "")
     subscription_status = user.get("subscription_status", "")
 
-    st.markdown(f"**Account:** {email}")
-    if is_paid:
-        _renewal = f" · active until **{paid_until}**" if paid_until else ""
-        st.success(f"**Plan:** {plan}{_renewal}")
-        if subscription_status == "attention":
-            # Same event as the top-priority lifecycle banner
-            # (_render_trigger_payment_recovery) shown elsewhere in the app --
-            # kept consistent in tone/action (reassurance + same WhatsApp
-            # support link) so a user who sees this on Billing after already
-            # dismissing that banner isn't given different guidance here.
-            st.warning(
-                "Your last renewal charge didn't go through. Your access continues during "
-                "Paystack's retry window, but update your payment method when you get a "
-                "chance to avoid losing access when the retries run out."
+    with st.container(border=True):
+        st.markdown(f"**Account:** {email}")
+        if is_paid:
+            _renewal = f" · active until **{paid_until}**" if paid_until else ""
+            st.success(f"**Plan:** {plan}{_renewal}")
+            if subscription_status == "attention":
+                # Same event as the top-priority lifecycle banner
+                # (_render_trigger_payment_recovery) shown elsewhere in the app --
+                # kept consistent in tone/action (reassurance + same WhatsApp
+                # support link) so a user who sees this on Billing after already
+                # dismissing that banner isn't given different guidance here.
+                st.warning(
+                    "Your last renewal charge didn't go through. Your access continues during "
+                    "Paystack's retry window, but update your payment method when you get a "
+                    "chance to avoid losing access when the retries run out."
+                )
+                from utils.whatsapp import build_wa_url as _bill_build_wa_url
+                st.markdown(f"[Message us on WhatsApp for help]({_bill_build_wa_url('payment_support', user_email=email)})")
+        else:
+            _checks_used = user.get("free_checks_used", 0)
+            st.info("**Plan:** Free")
+            st.caption(f"Free checks used: {_checks_used}/{FREE_CHECKS_LIMIT}")
+            st.caption(
+                "Core scoring is unlimited and free either way. AI-assisted features "
+                "(Council Assessment, Score Chat) need a paid plan regardless of free "
+                "checks remaining, since they carry real per-call cost."
             )
-            from utils.whatsapp import build_wa_url as _bill_build_wa_url
-            st.markdown(f"[Message us on WhatsApp for help]({_bill_build_wa_url('payment_support', user_email=email)})")
-    else:
-        _checks_used = user.get("free_checks_used", 0)
-        st.info("**Plan:** Free")
-        st.caption(f"Free checks used: {_checks_used}/{FREE_CHECKS_LIMIT}")
-        st.caption(
-            "Core scoring is unlimited and free either way. AI-assisted features "
-            "(Council Assessment, Score Chat) need a paid plan regardless of free "
-            "checks remaining, since they carry real per-call cost."
-        )
-    if st.button("View plans →", key="billing_view_plans"):
-        st.session_state.pop("_show_billing", None)
-        st.query_params.pop("billing", None)
-        st.session_state["_show_pricing"] = True
-        st.rerun()
+        if st.button("View plans →", key="billing_view_plans"):
+            st.session_state.pop("_show_billing", None)
+            st.query_params.pop("billing", None)
+            st.session_state["_show_pricing"] = True
+            st.rerun()
 
     # --- Cancellation ---
     _sub_code = user.get("paystack_subscription_code", "")
@@ -5930,72 +5922,82 @@ def render_my_audits_page():
         _a_date = str(_a.get("created_at") or "")[:16].replace("T", " ")
         _a_conf = _a.get("primary_confidence_score")
         _a_clar = _a.get("primary_clarity_score")
-        st.markdown(f"**{_a.get('donor') or 'No donor specified'} · {_a.get('sector') or 'No sector'}** — {_a_date}")
-        if _a_conf is not None and _a_clar is not None:
-            st.caption(f"Confidence {_a_conf:.1f} · Clarity {_a_clar:.1f} · {_a.get('primary_verdict', '')}")
-        else:
-            st.caption(_a.get("primary_verdict", ""))
-
-        _mc1, _mc2 = st.columns(2)
-        with _mc1:
-            _pdf_key = f"_audit_pdf_{_a_id}"
-            if st.session_state.get(_pdf_key):
-                st.download_button(
-                    "⬇️ Download PDF", data=st.session_state[_pdf_key],
-                    file_name=f"readiness_card_{_a_id}.pdf", mime="application/pdf",
-                    key=f"my_audits_dl_{_a_id}", use_container_width=True,
-                )
-            elif st.button("Re-download PDF", key=f"my_audits_redl_{_a_id}", use_container_width=True):
-                _full = get_audit(email, _a_id)
-                _subs = (_full or {}).get("submissions") or []
-                _evs = (_full or {}).get("evaluations") or []
-                if _full and _subs and _evs:
-                    _ts = (_full.get("ref_id") or "").replace("IMP-", "")
-                    _redl_html = _build_html_report_card(_subs[0], _evs[0], _ts,
-                                                          field_sources=None, council_assessment=None)
-                    _redl_pdf = _html_to_pdf_bytes(_redl_html)
-                    if _redl_pdf:
-                        st.session_state[_pdf_key] = _redl_pdf
-                        st.rerun()
-                    else:
-                        st.warning("Could not regenerate this audit's PDF.")
-                else:
-                    st.warning("Could not load this audit's saved data.")
-        with _mc2:
-            if st.button("Delete", key=f"my_audits_delete_{_a_id}", use_container_width=True):
-                delete_audit(email, _a_id)
-                st.session_state.pop(f"_audit_pdf_{_a_id}", None)
-                st.rerun()
-
-        # D4b -- Laudon Ch.12, DSS view's "per-report deep dive": the same
-        # Intelligence/sensitivity computations shown live on Screen 2 (D1/D2),
-        # applied here to this saved audit's stored scores. Pure functions
-        # over already-decrypted, already-scored components -- no re-evaluation.
-        with st.expander("🔍 Full breakdown", expanded=False):
-            _full_bd = get_audit(email, _a_id)
-            _evs_bd = (_full_bd or {}).get("evaluations") or []
-            if not _evs_bd:
-                st.caption("Could not load this audit's saved scores.")
+        with st.container(border=True):
+            st.markdown(f"**{_a.get('donor') or 'No donor specified'} · {_a.get('sector') or 'No sector'}** — {_a_date}")
+            if _a_conf is not None and _a_clar is not None:
+                # Same badge idiom as Screen 2's axis badges -- a saved
+                # audit's score reads as the same color/weight everywhere
+                # in the app, not a plain caption line.
+                _conf_label, _ = _evaluator.interpret_score(_a_conf)
+                _clar_label, _ = _evaluator.interpret_score(_a_clar)
+                _bc1, _bc2 = st.columns(2)
+                with _bc1:
+                    st.markdown(_axis_badge_html(_conf_label, _a_conf, 5.0), unsafe_allow_html=True)
+                with _bc2:
+                    st.markdown(_axis_badge_html(_clar_label, _a_clar, 5.0), unsafe_allow_html=True)
+                st.caption(_a.get("primary_verdict", ""))
             else:
-                _ev0_bd = _evs_bd[0]
-                _cc_bd = _ev0_bd.get("confidence_components", {}) or {}
-                _cl_bd = _ev0_bd.get("clarity_components", {}) or {}
-                _weakest_bd = _evaluator.get_weakest_link(
-                    _ev0_bd.get("confidence_score", 0), _ev0_bd.get("clarity_score", 0), _cc_bd, _cl_bd)
-                if _weakest_bd.get("weakest_dimension"):
-                    st.markdown(f"**Weakest link:** {_weakest_bd['weakest_dimension']} "
-                                f"({_weakest_bd.get('weakest_pct', 0):.0f}% of target)")
-                    st.caption(_weakest_bd.get("gap_rationale", ""))
-                _sens_bd = _evaluator.compute_criterion_sensitivity(
-                    _ev0_bd.get("confidence_score", 0), _ev0_bd.get("clarity_score", 0), _cc_bd, _cl_bd)
-                _sens_bd_positive = [r for r in _sens_bd if r["delta"] > 0]
-                if _sens_bd_positive:
-                    st.markdown("**What would move the needle:**")
-                    for r in _sens_bd_positive:
-                        st.caption(f"- {r['dimension']}: +{r['delta']} to {r['axis']} total")
+                st.caption(_a.get("primary_verdict", ""))
+
+            _mc1, _mc2 = st.columns(2)
+            with _mc1:
+                _pdf_key = f"_audit_pdf_{_a_id}"
+                if st.session_state.get(_pdf_key):
+                    st.download_button(
+                        "⬇️ Download PDF", data=st.session_state[_pdf_key],
+                        file_name=f"readiness_card_{_a_id}.pdf", mime="application/pdf",
+                        key=f"my_audits_dl_{_a_id}", use_container_width=True,
+                    )
+                elif st.button("Re-download PDF", key=f"my_audits_redl_{_a_id}", use_container_width=True):
+                    _full = get_audit(email, _a_id)
+                    _subs = (_full or {}).get("submissions") or []
+                    _evs = (_full or {}).get("evaluations") or []
+                    if _full and _subs and _evs:
+                        _ts = (_full.get("ref_id") or "").replace("IMP-", "")
+                        _redl_html = _build_html_report_card(_subs[0], _evs[0], _ts,
+                                                              field_sources=None, council_assessment=None)
+                        _redl_pdf = _html_to_pdf_bytes(_redl_html)
+                        if _redl_pdf:
+                            st.session_state[_pdf_key] = _redl_pdf
+                            st.rerun()
+                        else:
+                            st.warning("Could not regenerate this audit's PDF.")
+                    else:
+                        st.warning("Could not load this audit's saved data.")
+            with _mc2:
+                if st.button("Delete", key=f"my_audits_delete_{_a_id}", use_container_width=True):
+                    delete_audit(email, _a_id)
+                    st.session_state.pop(f"_audit_pdf_{_a_id}", None)
+                    st.rerun()
+
+            # D4b -- Laudon Ch.12, DSS view's "per-report deep dive": the same
+            # Intelligence/sensitivity computations shown live on Screen 2 (D1/D2),
+            # applied here to this saved audit's stored scores. Pure functions
+            # over already-decrypted, already-scored components -- no re-evaluation.
+            with st.expander("🔍 Full breakdown", expanded=False):
+                _full_bd = get_audit(email, _a_id)
+                _evs_bd = (_full_bd or {}).get("evaluations") or []
+                if not _evs_bd:
+                    st.caption("Could not load this audit's saved scores.")
                 else:
-                    st.caption("Every criterion is already at or near its ceiling.")
-        st.divider()
+                    _ev0_bd = _evs_bd[0]
+                    _cc_bd = _ev0_bd.get("confidence_components", {}) or {}
+                    _cl_bd = _ev0_bd.get("clarity_components", {}) or {}
+                    _weakest_bd = _evaluator.get_weakest_link(
+                        _ev0_bd.get("confidence_score", 0), _ev0_bd.get("clarity_score", 0), _cc_bd, _cl_bd)
+                    if _weakest_bd.get("weakest_dimension"):
+                        st.markdown(f"**Weakest link:** {_weakest_bd['weakest_dimension']} "
+                                    f"({_weakest_bd.get('weakest_pct', 0):.0f}% of target)")
+                        st.caption(_weakest_bd.get("gap_rationale", ""))
+                    _sens_bd = _evaluator.compute_criterion_sensitivity(
+                        _ev0_bd.get("confidence_score", 0), _ev0_bd.get("clarity_score", 0), _cc_bd, _cl_bd)
+                    _sens_bd_positive = [r for r in _sens_bd if r["delta"] > 0]
+                    if _sens_bd_positive:
+                        st.markdown("**What would move the needle:**")
+                        for r in _sens_bd_positive:
+                            st.caption(f"- {r['dimension']}: +{r['delta']} to {r['axis']} total")
+                    else:
+                        st.caption("Every criterion is already at or near its ceiling.")
 
     # --- Logframe Library management ---
     st.markdown("#### Logframe Library")
@@ -13498,21 +13500,18 @@ Council output is AI-generated. Verify all content before submitting to a donor.
 </p>"""
 
 
-# Hoisted from _build_html_report_card()'s function body (below) to module
-# level so the Portfolio Readiness Report (_build_portfolio_readiness_report_html)
-# and _verification_summary_badge() can reuse them literally, rather than a
-# copy-pasted variant of the same palette (was re-typed 3x before this pass).
-# Deliberately NOT merged with diagnostics._BRAND_BADGE / _DIAGNOSTIC_BADGE --
-# that's a different keyspace (the 7-state diagnostic classification, solid
-# fill + white text) from this one (the 4-band Strong/Acceptable/Weak/
-# High-Risk axis label, pastel fill + dark text). Same "band" concept,
-# deliberately different visual treatment for different data.
-_READINESS_CARD_SCORE_PALETTE = {
-    "Strong":     ("#C8E6C9", "#1B5E20"),
-    "Acceptable": ("#FFF9C4", "#F57F17"),
-    "Weak":       ("#FFE0B2", "#E65100"),
-    "High Risk":  ("#FFCDD2", "#B71C1C"),
-}
+# Same Strong/Acceptable/Weak/High-Risk palette as diagnostics._BRAND_BADGE
+# (used by _axis_badge_html() for live on-screen badges) -- that one is
+# {bg,text} dict form for st.markdown rendering, this is (bg,fg) tuple form
+# for the standalone PDF-export HTML (_build_html_report_card() and
+# friends, rendered via xhtml2pdf, which never sees the Streamlit CSS
+# injection). Derived from _BRAND_BADGE rather than re-typed, so the two
+# consumption paths can never drift to different colors for the same band.
+# (Earlier in this pass this was wrongly believed to be a different
+# keyspace from _BRAND_BADGE and left as a duplicate literal -- it isn't;
+# diagnostics._DIAGNOSTIC_BADGE, the 7-state solid-fill dict, is the one
+# that's genuinely a different keyspace.)
+_READINESS_CARD_SCORE_PALETTE = {k: (v["bg"], v["text"]) for k, v in _BRAND_BADGE.items()}
 
 _READINESS_CARD_VERDICT_MAP = {
     "Strong KPI":          ("#C8E6C9","#1B5E20"),
