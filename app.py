@@ -4350,57 +4350,59 @@ def _render_tab2_slot(slot: int):
                         if _lf_result.get("justification"):
                             st.caption(_lf_result["justification"])
 
-        _irc_widget(
-            st.text_input,
-            "Logframe indicator",
-            f"logframe_indicator{s}", default="",
-            placeholder=_ph.get("logframe_indicator", "e.g., Indicator 1.2: Number of [target group] achieving [outcome]"),
-            help=(
-                "Copy the exact indicator name and code from your approved Technical Proposal or logframe. "
-                "If you cannot quote it, your donor cannot match your result to your commitment."
-            ),
-        )
-        _irc_widget(
-            st.text_input,
-            "Pre-evaluation / baseline value",
-            f"logframe_baseline{s}", default="",
-            placeholder=_ph.get("logframe_baseline", "e.g., [baseline value] ([year] [data source] baseline)"),
-            help=(
-                "The value of this indicator before the programme began (or at the last measurement point). "
-                "Required to compute % change from baseline and to validate the direction of change."
-            ),
-        )
-        _irc_widget(
-            st.text_input,
-            "Approved target",
-            f"logframe_target{s}", default="",
-            placeholder=_ph.get("logframe_target", "e.g., 60% increase by Q4 2025"),
-            help=(
-                "The target as approved in the original Technical Proposal. Donors compare achievements "
-                "against approved targets — not revised internal targets."
-            ),
-        )
-        _data_forthcoming = st.checkbox(
-            "Data not yet available for this indicator",
-            key=f"logframe_data_forthcoming{s}",
-            help=(
-                "Tick if measurement has not yet been collected. The gap will be disclosed in your "
-                "report rather than penalised — donors prefer honest disclosure to blank fields."
-            ),
-        )
-        if not _data_forthcoming:
+        with st.container(border=True):
+            st.markdown("**Indicator, baseline, target & achievement**")
             _irc_widget(
                 st.text_input,
-                "Actual achievement",
-                f"logframe_achievement{s}", default="",
-                placeholder=_ph.get("logframe_achievement", "e.g., [achieved value] by [date] — [X]% of target"),
+                "Logframe indicator",
+                f"logframe_indicator{s}", default="",
+                placeholder=_ph.get("logframe_indicator", "e.g., Indicator 1.2: Number of [target group] achieving [outcome]"),
                 help=(
-                    "The actual delivered number, ideally with % achievement vs original target. "
-                    "Must reconcile with your result statement above."
+                    "Copy the exact indicator name and code from your approved Technical Proposal or logframe. "
+                    "If you cannot quote it, your donor cannot match your result to your commitment."
                 ),
             )
-        else:
-            st.caption("✓ Noted — no achievement figure needed for now.")
+            _irc_widget(
+                st.text_input,
+                "Pre-evaluation / baseline value",
+                f"logframe_baseline{s}", default="",
+                placeholder=_ph.get("logframe_baseline", "e.g., [baseline value] ([year] [data source] baseline)"),
+                help=(
+                    "The value of this indicator before the programme began (or at the last measurement point). "
+                    "Required to compute % change from baseline and to validate the direction of change."
+                ),
+            )
+            _irc_widget(
+                st.text_input,
+                "Approved target",
+                f"logframe_target{s}", default="",
+                placeholder=_ph.get("logframe_target", "e.g., 60% increase by Q4 2025"),
+                help=(
+                    "The target as approved in the original Technical Proposal. Donors compare achievements "
+                    "against approved targets — not revised internal targets."
+                ),
+            )
+            _data_forthcoming = st.checkbox(
+                "Data not yet available for this indicator",
+                key=f"logframe_data_forthcoming{s}",
+                help=(
+                    "Tick if measurement has not yet been collected. The gap will be disclosed in your "
+                    "report rather than penalised — donors prefer honest disclosure to blank fields."
+                ),
+            )
+            if not _data_forthcoming:
+                _irc_widget(
+                    st.text_input,
+                    "Actual achievement",
+                    f"logframe_achievement{s}", default="",
+                    placeholder=_ph.get("logframe_achievement", "e.g., [achieved value] by [date] — [X]% of target"),
+                    help=(
+                        "The actual delivered number, ideally with % achievement vs original target. "
+                        "Must reconcile with your result statement above."
+                    ),
+                )
+            else:
+                st.caption("✓ Noted — no achievement figure needed for now.")
 
 
 _MONTH_NUM = {
@@ -8806,6 +8808,12 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         )
         if not _sens_positive:
             st.caption("Every criterion is already at or near its ceiling — no single change would move either total.")
+        elif st.session_state.get("lite_mode", False):
+            # Same fallback convention as every other chart in the app
+            # (subscore chart, evidence ladder, agency heatmap/trend chart) --
+            # this one was previously missing it.
+            for r in sorted(_sens_positive, key=lambda r: r["delta"], reverse=True):
+                st.caption(f"- {r['dimension']}: +{r['delta']} to {r['axis']} total")
         else:
             import plotly.graph_objects as go
             _dims    = [r["dimension"] for r in _sens_positive]
@@ -9278,7 +9286,17 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
         st.markdown(f"**Your indicator (as written):** {_your_indicator}")
         _maturity_rows = [{"Level": level, "Example wording": wording} for level, wording in maturity["rows"]]
         _maturity_rows[0]["Level"] = "👈 " + _maturity_rows[0]["Level"] + " — what you wrote"
-        st.table(_maturity_rows)
+        import pandas as pd
+        def _maturity_row_style(row):
+            # Highlight the "what you wrote" row (always index 0) the same
+            # gold used for an "active"/current step elsewhere in the app.
+            is_current = row.name == 0
+            style = "background-color:#FFF3CD;color:#8A6500;font-weight:600;" if is_current else ""
+            return [style] * len(row)
+        st.dataframe(
+            pd.DataFrame(_maturity_rows).style.apply(_maturity_row_style, axis=1),
+            use_container_width=True, hide_index=True,
+        )
         st.caption(
             f"Measurement score adjusted by **{maturity['adjustment']}** for this "
             "count-only indicator framing."
