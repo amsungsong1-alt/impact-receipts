@@ -1836,6 +1836,130 @@ h1, h2, h3, h4 {
   color: var(--brand-green);
 }
 
+/* Score summary card (render_scoreboard / _render_revision_delta_strip)
+   and the 4-step progress strip (render_pitch_strip) -- relocated from
+   the retired MATCH DAY skin, palette unified to brand green/gold. */
+.md-sb {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 0 0 16px 0;
+}
+.md-sb-head {
+  background: var(--brand-green);
+  color: #fff;
+  padding: 8px 16px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.md-sb-live { font-size: 10px; }
+.md-sb-body { display: grid; grid-template-columns: 1fr 1px 1fr; }
+.md-stat { padding: 18px 16px; text-align: center; }
+.md-stat .name { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.md-stat .val { font-size: 34px; font-weight: 600; line-height: 1; }
+.md-stat .sub { font-size: 11px; color: var(--muted); margin-top: 6px; }
+.md-div { background: var(--border); }
+.md-green { color: #1B5E20; } .md-amber { color: #8A6500; } .md-red { color: #B71C1C; }
+
+/* Diagnostic-in-progress panel (render_var_review) */
+.md-var {
+  background: var(--bg-card);
+  color: var(--body-text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px 20px;
+  margin: 16px 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.md-var-badge {
+  background: #8A6500;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 6px;
+  letter-spacing: 1.5px;
+  flex-shrink: 0;
+}
+.md-var-text strong { font-size: 1rem; }
+.md-var-text span { font-size: 0.85rem; color: var(--muted); }
+
+/* 4-step progress strip */
+.md-pitch {
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 10px 16px;
+  margin: 0;
+  position: fixed;
+  top: 3.75rem;
+  left: 0;
+  right: 0;
+  z-index: 999999;
+}
+.md-pitch-stages {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  position: relative;
+  max-width: 730px;
+  margin: 0 auto;
+  width: 100%;
+}
+.md-pitch-stages::before {
+  content: "";
+  position: absolute;
+  top: 16px;
+  left: 10%;
+  right: 10%;
+  height: 2px;
+  background: #E0E0E0;
+  z-index: 0;
+}
+.md-pstage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  position: relative;
+  z-index: 1;
+  cursor: help;
+}
+.md-pstage .dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #EEEEEE;
+  color: #9E9E9E;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.md-pstage .lbl { font-size: 10px; color: var(--muted); text-align: center; letter-spacing: 0.3px; }
+.md-pstage.done .dot { background: #1B5E20; color: #fff; }
+.md-pstage.done .lbl { color: #1B5E20; }
+.md-pstage.active .dot { background: #8A6500; color: #fff; }
+.md-pstage.active .lbl { color: #8A6500; font-weight: 600; }
+.md-pstage:hover .lbl { text-decoration: underline dotted; }
+.stage-tip {
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+  margin-top: 4px;
+  padding: 0 2px;
+  line-height: 1.3;
+}
+
 /* Verdict banner */
 .verdict-banner {
   background: #1B5E20;
@@ -5322,87 +5446,12 @@ def _render_privacy_landing() -> None:
 
 
 # ============================================================
-# MATCH DAY — Patch 1: Scoreboard + Commentary ticker
+# Score summary card, revision delta strip, and diagnostic-in-progress
+# panel (brand-styled -- class names below retain their "md-" prefix
+# from the original MATCH DAY skin this pass retired, since renaming
+# every call site's class attribute is out of scope for a pure palette
+# unification; the CSS itself now lives in the main CSS block above).
 # ============================================================
-
-def inject_matchday_css():
-    """Call ONCE per run, after st.set_page_config()."""
-    st.markdown("""
-    <style>
-    .md-ticker { background:#2C2C2A; color:#fff; border-radius:8px; padding:10px 14px;
-        font-size:14px; display:flex; align-items:center; gap:10px; margin:0 0 14px 0; }
-    .md-ticker .mic { background:#A32D2D; color:#fff; font-size:9px; font-weight:600;
-        padding:2px 6px; border-radius:4px; letter-spacing:.5px; flex-shrink:0; }
-    .md-ticker .txt { line-height:1.4; }
-    .md-sb { background:#fff; border:1px solid #d3d1c7; border-radius:8px;
-        overflow:hidden; margin:0 0 16px 0; }
-    .md-sb-head { background:#1B5E20; color:#fff; padding:8px 16px; font-size:11px;
-        letter-spacing:1px; text-transform:uppercase; display:flex;
-        justify-content:space-between; align-items:center; }
-    .md-sb-live { font-size:10px; }
-    .md-sb-body { display:grid; grid-template-columns:1fr 1px 1fr; }
-    .md-stat { padding:18px 16px; text-align:center; }
-    .md-stat .name { font-size:12px; color:#888780; margin-bottom:4px; }
-    .md-stat .val { font-size:34px; font-weight:600; line-height:1; }
-    .md-stat .sub { font-size:11px; color:#888780; margin-top:6px; }
-    .md-div { background:#d3d1c7; }
-    .md-green { color:#1B5E20; } .md-amber { color:#8A6500; } .md-red { color:#A32D2D; }
-    .md-var { background:#1a1a18; color:#fff; border-radius:8px;
-        padding:24px 20px; margin:16px 0; display:flex; align-items:center; gap:18px; }
-    .md-var-badge { background:#A32D2D; color:#fff; font-size:11px; font-weight:700;
-        padding:6px 10px; border-radius:6px; letter-spacing:1.5px; flex-shrink:0; }
-    .md-var-text strong { font-size:1rem; }
-    .md-var-text span { font-size:0.85rem; color:#aaa8a0; }
-    .md-pitch { background:#fff; border-bottom:1px solid var(--border); border-radius:0; padding:10px 16px;
-        margin:0; position:fixed; top:3.75rem; left:0; right:0; z-index:999999; }
-    .md-pitch-stages { display:flex; align-items:flex-start; justify-content:space-between;
-        position:relative; max-width:730px; margin:0 auto; width:100%; }
-    .md-pitch-stages::before { content:""; position:absolute; top:16px; left:10%; right:10%;
-        height:2px; background:#E0E0E0; z-index:0; }
-    .md-pstage { display:flex; flex-direction:column; align-items:center; gap:6px;
-        flex:1; position:relative; z-index:1; cursor:help; }
-    .md-pstage .dot { width:32px; height:32px; border-radius:50%; background:#EEEEEE;
-        color:#9E9E9E; font-size:12px; font-weight:700; display:flex;
-        align-items:center; justify-content:center; }
-    .md-pstage .lbl { font-size:10px; color:var(--muted); text-align:center; letter-spacing:.3px; }
-    .md-pstage.done .dot { background:#1B5E20; color:#fff; }
-    .md-pstage.done .lbl { color:#1B5E20; }
-    .md-pstage.active .dot { background:#8A6500; color:#fff; }
-    .md-pstage.active .lbl { color:#8A6500; font-weight:600; }
-    .md-pstage:hover .lbl { text-decoration: underline dotted; }
-    .md-fulltime { background:#2C2C2A; color:#fff; border-radius:8px;
-        padding:20px 20px 16px; margin:12px 0; text-align:center; }
-    .md-fulltime .whistle { font-size:10px; letter-spacing:1.5px; text-transform:uppercase;
-        color:#888780; margin-bottom:8px; }
-    .md-fulltime h3 { margin:0 0 8px; font-size:1.3rem; color:#8A6500; }
-    .md-fulltime p { margin:0; font-size:0.85rem; color:#aaa8a0; line-height:1.5; }
-    .md-card { background:#f9f8f5; border:1px solid #e0ded8; border-radius:8px;
-        padding:14px 16px; margin:8px 0; }
-    .stage-tip { font-size:10px; color:var(--muted); text-align:center;
-        margin-top:4px; padding:0 2px; line-height:1.3; }
-    </style>
-    """, unsafe_allow_html=True)
-
-
-MATCHDAY_COMMENTARY = {
-    "enter":    "Step 1 — Define your result: who benefited, what changed, where and when.",
-    "logframe": "Step 2 — Link your result to your approved logframe indicator and target.",
-    "evidence": "Step 3 — Document and verify your supporting evidence.",
-    "review":   "Step 4 — Review your scores and run the full diagnostic.",
-    "report":   "Diagnostic complete. Here are your Confidence and Clarity scores.",
-}
-
-
-def render_commentary(stage_key: str):
-    """Renders the one-line match commentary for the given stage."""
-    line = MATCHDAY_COMMENTARY.get(stage_key, "")
-    if not line:
-        return
-    st.markdown(
-        f'<div class="md-ticker"><span class="mic">STEP</span>'
-        f'<span class="txt">{line}</span></div>',
-        unsafe_allow_html=True,
-    )
 
 
 def _score_class(value, verified):
@@ -5532,40 +5581,6 @@ def render_pitch_strip(current_stage: str):
     st.markdown(
         f'<div class="md-pitch"><div class="md-pitch-stages">{cells}</div></div>'
         f'<div style="height:96px"></div>',
-        unsafe_allow_html=True,
-    )
-
-
-def _esc(s: str) -> str:
-    import html
-    return html.escape(str(s))
-
-
-def render_fulltime(confidence, clarity, summary):
-    """Final-result card. Render directly above your st.download_button().
-
-    confidence / clarity : final 0-100 scores (verified).
-    summary : a short honest sentence about the result.
-    """
-    conf_txt = "—" if confidence is None else str(int(round(confidence)))
-    clar_txt = "—" if clarity is None else str(int(round(clarity)))
-    st.markdown(f"""
-    <div class="md-fulltime">
-      <div class="whistle">YOUR RESULT</div>
-      <h3>Confidence {conf_txt} · Clarity {clar_txt}</h3>
-      <p>{_esc(summary)}</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def render_season_teaser():
-    """One-line hook seeding the Phase 2 'Integrity League'. Copy only."""
-    st.markdown(
-        '<div class="md-card" style="text-align:center;">'
-        '<h4 style="margin:0 0 4px 0;">Season record</h4>'
-        '<p style="font-size:12px;color:#888780;margin:0;">This match is logged to your '
-        'integrity record. Your rating rises only on verified evidence — never on volume. '
-        '(Coming soon.)</p></div>',
         unsafe_allow_html=True,
     )
 
@@ -15652,7 +15667,6 @@ def main():
     )
 
     st.markdown(CSS, unsafe_allow_html=True)
-    inject_matchday_css()
     # _restore_session_from_query_param() runs first -- it only reads/writes
     # user_email/is_paid directly (no dependency on _init_session_state()'s
     # defaults having run), and _init_session_state()'s personalization block
