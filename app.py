@@ -6323,10 +6323,12 @@ def render_screen_0():
 
         _qc_scores = st.session_state.get("_qc_last_scores")
         if _qc_scores:
-            st.success(
-                f"**Provisional scores** — Confidence: **{_qc_scores['c']}/5.0** ({_qc_scores['c_lbl']}) · "
-                f"Clarity: **{_qc_scores['cl']}/5.0** ({_qc_scores['cl_lbl']})"
-            )
+            st.markdown("**Provisional scores**")
+            _qc_bc1, _qc_bc2 = st.columns(2)
+            with _qc_bc1:
+                st.markdown(_axis_badge_html(_qc_scores["c_lbl"], _qc_scores["c"], 5.0), unsafe_allow_html=True)
+            with _qc_bc2:
+                st.markdown(_axis_badge_html(_qc_scores["cl_lbl"], _qc_scores["cl"], 5.0), unsafe_allow_html=True)
             st.caption(
                 f"Provisional only — Verification, Recency, and Clarity improve with full form data. "
                 f"Standard applied: {_qc_scores.get('track_label', 'INGO standard')} "
@@ -6421,7 +6423,7 @@ def render_screen_0():
             """
             <div style="border-left:4px solid #8A6500; border-radius:8px; padding:12px 16px; margin:10px 0; background:transparent;">
               <p style="margin:0; font-size:0.9rem; color:#212121;">
-                <strong>Donors now ask:</strong> What changed? How do you know? How strong is the evidence?
+                <strong style="color:#8A6500;">💬 Donors now ask:</strong> What changed? How do you know? How strong is the evidence?
                 What did you learn? &mdash; <em>This check tells you before they do.</em>
               </p>
             </div>
@@ -6432,7 +6434,7 @@ def render_screen_0():
             """
             <div style="border-left:4px solid #1565C0; border-radius:8px; padding:12px 16px; margin:10px 0; background:#F3F8FE;">
               <p style="margin:0 0 6px; font-size:0.9rem; color:#212121;">
-                <strong style="color:#1565C0;">Why not just use ChatGPT?</strong>
+                <strong style="color:#1565C0;">⚖️ Why not just use ChatGPT?</strong>
               </p>
               <p style="margin:0 0 4px; font-size:0.85rem; color:#374151;">
                 ChatGPT generates suggestions. ImpactProof makes determinations. The difference:
