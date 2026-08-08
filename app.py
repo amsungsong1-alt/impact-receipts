@@ -1889,10 +1889,13 @@ h1, h2, h3, h4 {
   border-radius: 0;
   padding: 10px 16px;
   margin: 0;
-  position: fixed;
+  /* sticky, not fixed: fixed positioning escapes the main-content column
+     entirely and paints over the full viewport width, including the
+     sidebar sitting beside it -- covering the Low-bandwidth-mode toggle
+     there. Sticky stays scoped to this element's own containing block
+     (the main content area), so it can never overlap a sibling column. */
+  position: sticky;
   top: 3.75rem;
-  left: 0;
-  right: 0;
   z-index: 999999;
 }
 .md-pitch-stages {
@@ -2090,8 +2093,6 @@ h1, h2, h3, h4 {
   /* Pitch strip: reduce padding on mobile so it stays compact */
   .md-pitch { padding: 6px 10px !important; }
   .md-pitch-stages { max-width: 100% !important; }
-  /* Sidebar: reduce push-down to match smaller strip height */
-  [data-testid="stSidebarUserContent"] { padding-top: 72px !important; }
 }
 /* Very narrow phones: hide pitch strip text labels, show dots only */
 @media (max-width: 420px) {
@@ -2166,11 +2167,9 @@ details summary, .stExpander summary {
     from { opacity: 0.5; }
     to   { opacity: 1; }
 }
-/* Push sidebar user content below the fixed pitch strip */
-[data-testid="stSidebarUserContent"] {
-    padding-top: 88px !important;
-}
-/* Keep sidebar collapse/expand toggle above pitch strip */
+/* Keep sidebar collapse/expand toggle above pitch strip -- harmless to
+   keep even now that the strip is sticky-scoped to main content rather
+   than fixed over the whole viewport (see .md-pitch above). */
 [data-testid="stSidebarCollapsedControl"],
 [data-testid="stSidebarCollapseButton"] {
     z-index: 9999999 !important;
@@ -5581,9 +5580,12 @@ def render_pitch_strip(current_stage: str):
         tip_html = f'<div class="stage-tip">{tip}</div>' if cls == "active" else ""
         cells += (f'<div class="md-pstage {cls}" title="{tip}"><div class="dot">{mark}</div>'
                   f'<div class="lbl">{lbl}</div>{tip_html}</div>')
+    # No manual spacer needed below -- unlike the old fixed positioning
+    # (which removed the strip from document flow entirely, requiring a
+    # placeholder div to reserve its space), a sticky element still
+    # occupies its own natural space in the layout at all times.
     st.markdown(
-        f'<div class="md-pitch"><div class="md-pitch-stages">{cells}</div></div>'
-        f'<div style="height:96px"></div>',
+        f'<div class="md-pitch"><div class="md-pitch-stages">{cells}</div></div>',
         unsafe_allow_html=True,
     )
 
