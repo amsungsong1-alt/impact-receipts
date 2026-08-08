@@ -1819,6 +1819,23 @@ h1, h2, h3, h4 {
   white-space: nowrap;
 }
 
+/* Screen 1's "Step N of 4" tab header (relocated from the retired
+   MATCH DAY skin -- was .md-tab-header) */
+.step-header { margin: 10px 0 14px; }
+.step-header .step-num {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: 2px;
+}
+.step-header .step-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--brand-green);
+}
+
 /* Verdict banner */
 .verdict-banner {
   background: #1B5E20;
@@ -5363,10 +5380,6 @@ def inject_matchday_css():
         padding:14px 16px; margin:8px 0; }
     .stage-tip { font-size:10px; color:var(--muted); text-align:center;
         margin-top:4px; padding:0 2px; line-height:1.3; }
-    .md-tab-header { margin:10px 0 14px; }
-    .md-tab-header .tab-num { font-size:11px; color:#888780; letter-spacing:.5px;
-        text-transform:uppercase; display:block; margin-bottom:2px; }
-    .md-tab-header .tab-name { font-size:1.05rem; font-weight:700; color:#1B5E20; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -6615,9 +6628,9 @@ def render_screen_1():
 
 
     st.markdown(
-        f'<div class="md-tab-header">'
-        f'<span class="tab-num">Step {_cur_tab + 1} of 4</span>'
-        f'<span class="tab-name">{_UX_TAB_NAMES[_cur_tab]}</span>'
+        f'<div class="step-header">'
+        f'<span class="step-num">Step {_cur_tab + 1} of 4</span>'
+        f'<span class="step-name">{_UX_TAB_NAMES[_cur_tab]}</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
