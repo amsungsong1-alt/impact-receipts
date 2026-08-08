@@ -33,6 +33,7 @@ from diagnostics import (
     _readiness_banner_html, get_diagnostic_state,
     _BRAND_BADGE, _VERDICT_CSS, _DIRECTNESS_TIPS, _VERIFICATION_TIPS,
     _RECENCY_TIPS, _CLARITY_TIPS, _SCORING_GUIDE, _axis_badge_html,
+    _delta_chip_html,
     _overview_score_values, _build_overview_chart_b64,
     DONOR_PROFILES, build_donor_crosswalk_html, get_bond_citation,
 )
@@ -1530,19 +1531,6 @@ SECTOR_PLACEHOLDERS = {
     },
 }
 
-def _render_readiness_banner(diag_state: str):
-    band = _READINESS_BAND.get(diag_state, "Needs Work")
-    style = _READINESS_STYLE[band]
-    _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
-    st.markdown(
-        f"<div class='readiness-banner' style='background:{style['bg']};{_pca}'>"
-        f"{style['icon']} {band} &mdash; {style['caption']}"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-    st.caption(f"{_LIMITS_DISCLAIMER} {_TRUTHFULNESS_DISCLAIMER}")
-
-
 INTERNAL_REVIEW_OPTIONS = [
     "Choose an option...",
     "Reviewed by MEL Officer",
@@ -1824,6 +1812,13 @@ h1, h2, h3, h4 {
   margin-bottom: 6px;
 }
 
+/* Inline score-change indicator (see diagnostics._delta_chip_html) */
+.delta-chip {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
 /* Verdict banner */
 .verdict-banner {
   background: #1B5E20;
@@ -1933,17 +1928,6 @@ h1, h2, h3, h4 {
   margin-bottom: 12px;
   display: inline-block;
   letter-spacing: 0.02em;
-}
-
-/* Top-line "is this good enough to submit?" banner */
-.readiness-banner {
-  padding: 14px 20px;
-  border-radius: 8px;
-  font-weight: 700;
-  font-size: 1.1rem;
-  margin-bottom: 12px;
-  color: #FFFFFF;
-  text-align: center;
 }
 
 /* Mobile-first improvements */
@@ -2950,7 +2934,7 @@ def _render_live_score_preview(slot: int = 1):
                                                 compliance_hard_gate=compliance_comp.get("child_safety_gap_unaddressed", False),
                                                 direction_mismatch_flag=ev.get("logframe_linkage", {}).get("direction_mismatch", False))
     if _live_diag_state != "INVALID INPUT":
-        _render_readiness_banner(_live_diag_state)
+        st.markdown(_readiness_banner_html(_live_diag_state), unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
     with c1:
@@ -13422,8 +13406,13 @@ Council output is AI-generated. Verify all content before submitting to a donor.
 
 # Hoisted from _build_html_report_card()'s function body (below) to module
 # level so the Portfolio Readiness Report (_build_portfolio_readiness_report_html)
-# can reuse them literally for visual parity, rather than a third copy-pasted
-# variant of the same palette.
+# and _verification_summary_badge() can reuse them literally, rather than a
+# copy-pasted variant of the same palette (was re-typed 3x before this pass).
+# Deliberately NOT merged with diagnostics._BRAND_BADGE / _DIAGNOSTIC_BADGE --
+# that's a different keyspace (the 7-state diagnostic classification, solid
+# fill + white text) from this one (the 4-band Strong/Acceptable/Weak/
+# High-Risk axis label, pastel fill + dark text). Same "band" concept,
+# deliberately different visual treatment for different data.
 _READINESS_CARD_SCORE_PALETTE = {
     "Strong":     ("#C8E6C9", "#1B5E20"),
     "Acceptable": ("#FFF9C4", "#F57F17"),
@@ -14497,13 +14486,6 @@ _VERIFICATION_SUMMARY_CSS = """
   @media print{ body{margin:20px;} *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;} }
 """
 
-_VERIFICATION_SUMMARY_BADGE_COLORS = {
-    "Strong":     ("#C8E6C9", "#1B5E20"),
-    "Acceptable": ("#FFF9C4", "#F57F17"),
-    "Weak":       ("#FFE0B2", "#E65100"),
-    "High Risk":  ("#FFCDD2", "#B71C1C"),
-}
-
 _VERIFICATION_SUMMARY_VERDICT_COLORS = {
     "Strong KPI — well-positioned for submission": "#1B5E20",
     "Misleading KPI — sharpen the definition before submission": "#E65100",
@@ -14527,7 +14509,10 @@ _REPORT_STATUS_COLORS = {
 
 
 def _verification_summary_badge(label: str, score: float, max_s: float) -> str:
-    bg, fg = _VERIFICATION_SUMMARY_BADGE_COLORS.get(label, ("#F5F5F5", "#212121"))
+    # _READINESS_CARD_SCORE_PALETTE (defined near _build_html_report_card) is
+    # the single source of truth for this Strong/Acceptable/Weak/High-Risk
+    # pastel palette -- was previously re-typed here as a 4th duplicate copy.
+    bg, fg = _READINESS_CARD_SCORE_PALETTE.get(label, ("#F5F5F5", "#212121"))
     _pca = "-webkit-print-color-adjust:exact;print-color-adjust:exact;"
     return (f"<div style='background:{bg};color:{fg};padding:8px 12px;"
             f"border-radius:8px;font-weight:700;font-size:0.85rem;display:inline-block;{_pca}'>"

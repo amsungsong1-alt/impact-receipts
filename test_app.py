@@ -1519,6 +1519,39 @@ def run_truthfulness_disclaimer():
     print("PASS: truthfulness disclaimer — present in the readiness banner HTML.")
 
 
+def run_delta_chip():
+    """diagnostics._delta_chip_html() -- Ch.3/UI-polish pass's one new visual
+    primitive. Confirms positive/negative/near-zero deltas each get the
+    correct arrow+color+sign, and that near-zero rounds to a neutral chip
+    rather than a false positive/negative."""
+    failures = []
+
+    _up = diagnostics._delta_chip_html(0.8)
+    if "▲" not in _up or "+0.8" not in _up or "#1B5E20" not in _up:
+        failures.append(f"positive delta should show ▲/+0.8/brand-green, got: {_up!r}")
+
+    _down = diagnostics._delta_chip_html(-0.3)
+    if "▼" not in _down or "-0.3" not in _down or "#B71C1C" not in _down:
+        failures.append(f"negative delta should show ▼/-0.3/red, got: {_down!r}")
+
+    _flat = diagnostics._delta_chip_html(0.0)
+    if "▬" not in _flat or "+" in _flat or "#616161" not in _flat:
+        failures.append(f"zero delta should show a neutral ▬ chip with no sign, got: {_flat!r}")
+
+    # A delta that rounds to zero at the given precision must also read as
+    # neutral, not a false positive from the unrounded sign.
+    _near_zero = diagnostics._delta_chip_html(0.04)
+    if "▬" not in _near_zero:
+        failures.append(f"a delta rounding to 0.0 should still show the neutral chip, got: {_near_zero!r}")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: delta chip — positive/negative/neutral deltas render the correct arrow, sign, and color.")
+
+
 def run_weakest_link():
     """evaluator.get_weakest_link() -- Laudon Ch.12 Intelligence-stage panel (D1).
     Confirms both gap directions, the balanced case (<0.5 gap), weakest-dimension
@@ -1758,6 +1791,7 @@ if __name__ == "__main__":
     run_compliance_layer()
     run_direction_mismatch_gate()
     run_truthfulness_disclaimer()
+    run_delta_chip()
     run_disaggregation_bonus_wiring()
     run_nesta_directness_mapping()
     run_weakest_link()

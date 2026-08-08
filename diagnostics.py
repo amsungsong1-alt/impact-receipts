@@ -615,6 +615,29 @@ def _axis_badge_html(label: str, score: float, max_score: float) -> str:
     )
 
 
+def _delta_chip_html(delta: float, decimals: int = 1) -> str:
+    """Small inline score-change indicator (e.g. next to a re-scored or
+    revised result) -- nothing today expresses a delta outside st.metric's
+    own delta= kwarg, which only works inside a metric widget, not inline in
+    markdown/HTML content (e.g. a My Audits list row). Same badge idiom as
+    _axis_badge_html above: a structural class for shape, inline style for
+    per-instance color. A near-zero delta (rounds to 0 at the given
+    precision) reads as neutral, not a false positive/negative."""
+    rounded = round(delta, decimals)
+    if rounded > 0:
+        arrow, color = "▲", "#1B5E20"
+    elif rounded < 0:
+        arrow, color = "▼", "#B71C1C"
+    else:
+        arrow, color = "▬", "#616161"
+    sign = "+" if rounded > 0 else ""
+    return (
+        f"<span class='delta-chip' style='color:{color};font-weight:700;'>"
+        f"{arrow} {sign}{rounded:.{decimals}f}"
+        f"</span>"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Overview score values + chart
 # ---------------------------------------------------------------------------
