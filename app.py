@@ -5825,7 +5825,19 @@ def render_billing_page():
             "Amount (GHS)": round((h.get("amount_pesewas") or 0) / 100, 2),
             "Status": h.get("status", ""),
         } for h in _history]
-        st.dataframe(_rows, use_container_width=True, hide_index=True)
+        import pandas as pd
+        _STATUS_COLORS = {
+            "success":  ("#C8E6C9", "#1B5E20"),
+            "failed":   ("#FFCDD2", "#B71C1C"),
+            "error":    ("#FFCDD2", "#B71C1C"),
+            "pending":  ("#FFE0B2", "#E65100"),
+            "attention": ("#FFE0B2", "#E65100"),
+        }
+        def _status_cell(v):
+            bg, fg = _STATUS_COLORS.get(str(v).lower(), ("#F5F5F5", "#616161"))
+            return f"background-color:{bg};color:{fg};"
+        _history_df = pd.DataFrame(_rows).style.map(_status_cell, subset=["Status"])
+        st.dataframe(_history_df, use_container_width=True, hide_index=True)
 
         # Laudon Ch.10, C4: a receipt an M&E officer can attach to a donor
         # grant line -- previously this table had no download of any kind.
@@ -12209,7 +12221,9 @@ def _render_score_my_report_tab():
                 "Auto-populated fields": auto_count,
                 "Not found fields": not_found,
             })
-        st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
+        _preview_df = pd.DataFrame(preview_rows)
+        st.dataframe(_style_score_column(_preview_df, ["Confidence", "Clarity"]),
+                     use_container_width=True, hide_index=True)
 
     # Downloads
     st.divider()
@@ -12507,8 +12521,9 @@ def render_screen_3():
                 st.altair_chart(_portfolio_heatmap_chart(results_df), use_container_width=True, key="portfolio_heatmap")
 
             st.markdown("#### Results table")
+            _results_table = results_df[["indicator_name", "confidence_score", "clarity_score", "verdict", "top_fix"]]
             st.dataframe(
-                results_df[["indicator_name", "confidence_score", "clarity_score", "verdict", "top_fix"]],
+                _style_score_column(_results_table, ["confidence_score", "clarity_score"]),
                 use_container_width=True,
             )
 
@@ -12650,7 +12665,19 @@ def _render_agency_heatmap(grouped_df, metric_col: str, title: str) -> None:
                     f"insufficient data (n={int(n)})" if n < MIN_PORTFOLIO_SAMPLE
                     else f"{pivoted.loc[r, c]:.1f}"
                 ) if n == n else ""  # n != n -> NaN (no data for this cell at all)
-        st.dataframe(display_df, use_container_width=True)
+
+        def _cell_style(v):
+            # Cells are pre-formatted strings ("3.7", "insufficient data
+            # (n=3)", or "") -- only a plain numeric string gets a color;
+            # the others already communicate their own status in text.
+            try:
+                label, _ = _evaluator.interpret_score(float(v))
+            except (TypeError, ValueError):
+                return ""
+            bg, fg = _READINESS_CARD_SCORE_PALETTE[label]
+            return f"background-color:{bg};color:{fg};"
+
+        st.dataframe(display_df.style.map(_cell_style), use_container_width=True)
         return
     import numpy as np
     import plotly.graph_objects as go
@@ -12772,7 +12799,7 @@ def _render_agency_mis_view(full_audits: list) -> None:
         _display = filtered[["ref_id", "client_name", "donor", "evidence_type",
                               "confidence_score", "clarity_score", "created_at"]].copy()
         _display.columns = ["Ref", "Client", "Donor", "Evidence type", "Confidence", "Clarity", "Date"]
-        st.dataframe(_display, use_container_width=True, hide_index=True)
+        st.dataframe(_style_score_column(_display, ["Confidence", "Clarity"]), use_container_width=True, hide_index=True)
 
     st.markdown("#### Evidence quality by client by quarter")
     st.caption("The MEL analogue of a sales forecast — average score per client, per quarter.")
@@ -12793,7 +12820,7 @@ def _render_agency_mis_view(full_audits: list) -> None:
             _report["avg_confidence"] = _report["avg_confidence"].round(2)
             _report["avg_clarity"] = _report["avg_clarity"].round(2)
             _report.columns = ["Client", "Quarter", "Avg Confidence", "Avg Clarity", "n"]
-            st.dataframe(_report, use_container_width=True, hide_index=True)
+            st.dataframe(_style_score_column(_report, ["Avg Confidence", "Avg Clarity"]), use_container_width=True, hide_index=True)
 
 
 def _render_agency_dss_view(full_audits: list) -> None:
@@ -12855,7 +12882,26 @@ def _render_agency_dss_view(full_audits: list) -> None:
         st.caption(f"No (criterion, client) cell has reached the ≥{MIN_PORTFOLIO_SAMPLE} sample size yet.")
     else:
         _pivot_df = pd.DataFrame(_pivot_rows).pivot(index="Criterion", columns="Client", values="Mean score")
-        st.dataframe(_pivot_df, use_container_width=True)
+
+        def _pivot_row_style(row):
+            # Each DIMENSION_MAP criterion has a DIFFERENT max_val (0.75-2.0,
+            # not a uniform 0-5 scale) -- unlike _style_score_column's
+            # interpret_score(), color here has to be computed as % of THIS
+            # row's own max, matching the same normalization
+            # compute_systemic_gaps()/get_weakest_link() already use.
+            _, _, max_val = _evaluator.DIMENSION_MAP.get(row.name, (None, None, None))
+            styles = []
+            for v in row:
+                if pd.isna(v) or not max_val:
+                    styles.append("")
+                    continue
+                pct = v / max_val
+                label = "Strong" if pct >= 0.9 else "Acceptable" if pct >= 0.7 else "Weak" if pct >= 0.5 else "High Risk"
+                bg, fg = _READINESS_CARD_SCORE_PALETTE[label]
+                styles.append(f"background-color:{bg};color:{fg};")
+            return styles
+
+        st.dataframe(_pivot_df.style.apply(_pivot_row_style, axis=1), use_container_width=True)
 
     _render_warehouse_slice_dice()
 
@@ -12893,7 +12939,8 @@ def _render_warehouse_slice_dice() -> None:
         "saved audits — buckets below 10 assessments are withheld."
     )
     import pandas as pd
-    st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+    st.dataframe(_style_score_column(pd.DataFrame(_rows), ["avg_confidence", "avg_clarity"]),
+                 use_container_width=True, hide_index=True)
 
 
 def _render_agency_ess_view(full_audits: list, email: str) -> None:
@@ -12932,9 +12979,10 @@ def _render_agency_ess_view(full_audits: list, email: str) -> None:
         st.metric("Submission-ready", f"{_pass_rate}%")
         st.caption(f"{int(_pass_mask.sum())} of {n} results meet the donor threshold.")
         with st.expander("View results"):
-            st.dataframe(df.assign(**{"Meets threshold": _pass_mask})[
+            _ess_df = df.assign(**{"Meets threshold": _pass_mask})[
                 ["ref_id", "client_name", "confidence_score", "clarity_score", "Meets threshold"]
-            ], use_container_width=True, hide_index=True)
+            ]
+            st.dataframe(_style_bool_column(_ess_df, "Meets threshold"), use_container_width=True, hide_index=True)
 
     with _p2:
         st.markdown("**Process**")
@@ -13459,6 +13507,58 @@ _READINESS_CARD_VERDICT_MAP = {
     "FUNDAMENTALLY WEAK":  ("#FFCDD2","#B71C1C"),
     "UNDEREVIDENCED":      ("#FFE0B2","#E65100"),
 }
+
+
+def _style_score_column(df, cols):
+    """Color one or more 0-5 confidence/clarity score columns by
+    evaluator.interpret_score()'s Strong/Acceptable/Weak/High-Risk band,
+    reusing _READINESS_CARD_SCORE_PALETTE -- a score reads the same color
+    in a dataframe as it does everywhere else in the app (Readiness Card,
+    verification summary). Blank/missing values are left unstyled rather
+    than guessing a band. `cols` may be a single column name or a list --
+    pass a list rather than chaining calls, since chaining would pass an
+    already-built Styler (no .style attribute of its own) into the next call."""
+    import pandas as pd
+    if isinstance(cols, str):
+        cols = [cols]
+
+    def _cell(v):
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return ""
+        label, _ = _evaluator.interpret_score(v)
+        bg, fg = _READINESS_CARD_SCORE_PALETTE[label]
+        return f"background-color:{bg};color:{fg};"
+
+    return df.style.map(_cell, subset=cols)
+
+
+def _style_flag_column(df, col: str):
+    """Color a text 'flag' column (empty string = nothing to flag, any other
+    text = a warning worth a second look) -- reuses the palette's High-Risk
+    red, matching the same semantic as the churn metrics' own ⚠ threshold
+    caption right above these tables in the admin dashboard."""
+    def _cell(v):
+        if not v:
+            return ""
+        bg, fg = _READINESS_CARD_SCORE_PALETTE["High Risk"]
+        return f"background-color:{bg};color:{fg};"
+
+    return df.style.map(_cell, subset=[col])
+
+
+def _style_bool_column(df, col: str, true_label: str = "Strong", false_label: str = "High Risk",
+                        highlight_false: bool = True):
+    """Color a boolean column using the same palette's endpoints as
+    _style_score_column. Set highlight_false=False for a flag where True is
+    genuinely good news but False is just "not yet," not a problem to flag
+    red (e.g. "agency_ready") -- leaves False cells unstyled in that case."""
+    def _cell(v):
+        if not v and not highlight_false:
+            return ""
+        bg, fg = _READINESS_CARD_SCORE_PALETTE[true_label if v else false_label]
+        return f"background-color:{bg};color:{fg};"
+
+    return df.style.map(_cell, subset=[col])
 
 
 def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str,
@@ -15149,7 +15249,7 @@ def _render_admin_crm_segments() -> None:
             st.caption("No accounts in this segment.")
             continue
         df = pd.DataFrame(rows)
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(_style_bool_column(df, "agency_ready", highlight_false=False), use_container_width=True)
         st.download_button(
             f"Download {seg_name} (CSV)",
             data=df.to_csv(index=False).encode("utf-8"),
@@ -15275,7 +15375,7 @@ def _render_admin_crm_behavioral_dashboard() -> None:
              "flag": "⚠ costs more than it returns" if v["average_cltv_pesewas"] <= 0 else ""}
             for seg, v in _cltv_by_seg.items()
         ]
-        st.dataframe(pd.DataFrame(_cltv_rows), use_container_width=True)
+        st.dataframe(_style_flag_column(pd.DataFrame(_cltv_rows), "flag"), use_container_width=True)
 
     # -- Revenue concentration --
     st.markdown("**Revenue concentration**")
@@ -15308,17 +15408,15 @@ def _render_admin_crm_behavioral_dashboard() -> None:
         # per-call cost here is still driven by only 2 call sites (see
         # docs/unit_economics.md's small-n caveat).
         _COST_FLAG_MULTIPLIER = 1.5
-        st.dataframe(
-            pd.DataFrame([
-                {"segment": seg,
-                 "avg_cost_per_assessment_ghs": round(avg / 100, 4),
-                 "sample_size": len(_cost_by_seg[seg]),
-                 "flag": (f"⚠ {avg / _cheapest_avg:.1f}x the cheapest segment"
-                          if _cheapest_avg > 0 and avg >= _cheapest_avg * _COST_FLAG_MULTIPLIER else "")}
-                for seg, avg in _seg_avgs.items()
-            ]),
-            use_container_width=True,
-        )
+        _cost_df = pd.DataFrame([
+            {"segment": seg,
+             "avg_cost_per_assessment_ghs": round(avg / 100, 4),
+             "sample_size": len(_cost_by_seg[seg]),
+             "flag": (f"⚠ {avg / _cheapest_avg:.1f}x the cheapest segment"
+                      if _cheapest_avg > 0 and avg >= _cheapest_avg * _COST_FLAG_MULTIPLIER else "")}
+            for seg, avg in _seg_avgs.items()
+        ])
+        st.dataframe(_style_flag_column(_cost_df, "flag"), use_container_width=True)
 
     # -- Segment transitions over time --
     st.markdown("**Segment transitions (last 90 days)**")
@@ -15384,7 +15482,14 @@ def _render_admin_outcome_stats() -> None:
     df["acceptance_rate"] = df["acceptance_rate"].apply(
         lambda r: f"{r}%" if r is not None else f"(fewer than {MIN_BAND_SAMPLE} decided)"
     )
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    # score_band is sourced from confidence_label at schedule_followup() time
+    # (app.py's readiness-card/excel download call sites), which is always
+    # one of _READINESS_CARD_SCORE_PALETTE's own keys -- same palette a
+    # score's own badge uses everywhere else.
+    def _band_cell(v):
+        bg, fg = _READINESS_CARD_SCORE_PALETTE.get(v, ("#F5F5F5", "#212121"))
+        return f"background-color:{bg};color:{fg};"
+    st.dataframe(df.style.map(_band_cell, subset=["score_band"]), use_container_width=True, hide_index=True)
     st.download_button(
         "Download acceptance stats (CSV)",
         data=pd.DataFrame(stats).to_csv(index=False).encode("utf-8"),
@@ -15419,7 +15524,12 @@ def _render_admin_rule_dispute_stats() -> None:
         "knowledge/rules/*.yaml; nothing here auto-tunes a rule."
     )
     df = pd.DataFrame(counts)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    # Already sorted descending by get_dispute_counts() -- a gradient (not a
+    # fixed threshold like the flag columns above) fits a ranked list better
+    # than a binary pass/fail color, letting the top-disputed rules stand out
+    # relative to the rest rather than against an arbitrary cutoff.
+    st.dataframe(df.style.background_gradient(subset=["count"], cmap="Reds"),
+                 use_container_width=True, hide_index=True)
     st.download_button(
         "Download rule dispute counts (CSV)",
         data=df.to_csv(index=False).encode("utf-8"),
