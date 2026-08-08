@@ -6150,9 +6150,9 @@ def render_screen_0():
         unsafe_allow_html=True,
     )
 
-    st.caption(
-        "Your scoring data stays in your browser — never stored on our servers."
-    )
+    # (The fuller version of this promise is in the "More about this tool"
+    # expander below -- was also stated here as a standalone caption, right
+    # above it, saying the same thing twice within a few lines of scroll.)
     # Pre-seed the scenario picker from the logged-in user's saved profile (once per
     # session, and only if the user hasn't already touched this widget) -- an account
     # with no profile, or an anonymous visitor, gets today's original default unchanged.
@@ -6192,13 +6192,21 @@ def render_screen_0():
             _go_to_screen(1)
 
     with st.expander("More about this tool"):
+        # Corrected from an absolute "we never store your data on our
+        # servers, nothing is kept" claim -- that was actually false for any
+        # logged-in user: the form auto-saves your in-progress draft to
+        # Supabase on every render (a few lines above this section, see the
+        # "Your progress auto-saves" caption) so a page refresh doesn't lose
+        # your work. True only for a logged-out/anonymous session.
         st.markdown(
             """
             <div style="border-radius:8px; background:#F1F8E9; border-left:4px solid #1B5E20;
                         padding:10px 16px; margin:10px 0; font-size:0.85rem; color:#374151;">
-              <strong style="color:#1B5E20;">🔒 Your data stays in your browser.</strong>
-              We never store your result statements, evidence, or uploaded documents on our servers.
-              Your session ends when you close the tab &mdash; nothing is kept.<br>
+              <strong style="color:#1B5E20;">🔒 Nothing is stored unless you're signed in.</strong>
+              Not logged in? Your result statements, evidence, and uploaded documents live only
+              in this session &mdash; close the tab and nothing is kept. Logged in? Your in-progress
+              draft auto-saves so a refresh doesn't lose your work &mdash; clear it anytime from
+              My Audits. We never log your result content in our anonymous usage metrics either way.<br>
               <strong style="color:#1B5E20;">&#10003; This is a self-check, not an audit.</strong>
               It helps you improve your result before submission.
             </div>
