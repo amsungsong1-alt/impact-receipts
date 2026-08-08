@@ -6509,16 +6509,24 @@ def render_screen_0():
             """,
             unsafe_allow_html=True,
         )
+        # Was two near-identical WhatsApp CTAs stacked with no separation --
+        # "Book a free first review" and a second "Chat on WhatsApp" button a
+        # few lines below it, both messaging the same founder. The second one
+        # was also silently mislabeled: it fired the "pricing_questions"
+        # context (whose founder-facing notify_label is "General pricing
+        # inquiry") even though its own caption was a general intro, not a
+        # pricing question. Merged into one CTA under the correct context.
         st.markdown(
             """
             <div class="gtm-card">
               <p><strong>Want a deeper check?</strong></p>
-              <p class="gtm-sub">I personally review results for MEL teams before their submission deadline.</p>
+              <p class="gtm-sub">I personally review results for MEL teams before their submission
+              deadline — MEL practitioner in Accra, built this to close a gap I kept hitting.
+              Questions welcome too.</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
-        # Landing review WhatsApp CTA — server-side notification (council XXIV)
         _lr_email  = st.session_state.get("user_email", "")
         _lr_wa_key = "wa_landing_review_clicked"
         if st.button("📱 Book a free first review with the founder",
@@ -6532,19 +6540,6 @@ def render_screen_0():
                            build_wa_url("landing_review", _lr_email),
                            use_container_width=True)
             st.success("✓ Notified — the founder will reach out within 24 hours.")
-
-        _pq2_email  = st.session_state.get("user_email", "")
-        _pq2_wa_key = "wa_s0_questions_clicked"
-        st.caption("💬 Questions? MEL practitioner in Accra, built this to close a gap I kept hitting.")
-        if st.button("Chat on WhatsApp →", key="wa_s0_questions_btn", use_container_width=True):
-            from utils.whatsapp import notify_founder
-            notify_founder("pricing_questions", user_email=_pq2_email)
-            st.session_state[_pq2_wa_key] = True
-        if st.session_state.get(_pq2_wa_key):
-            from utils.whatsapp import build_wa_url
-            st.link_button("Open WhatsApp +233 50 364 8195 →",
-                           build_wa_url("pricing_questions", _pq2_email),
-                           use_container_width=True)
 
         st.caption("📄 Already have a draft report? Use ⚡ Instant Report Check inside the form to upload it — AI pre-fills all fields. (Paid feature.)")
 
@@ -7934,22 +7929,19 @@ def render_screen_1():
                     st.rerun()
 
         # --- Score preview (unconditional — no email needed to see your own scores) ---
-        # Compute evaluation ONCE and cache; _render_live_score_preview reuses it (lean: no triple eval)
+        # Compute evaluation ONCE and cache; _render_live_score_preview reuses it (lean: no triple eval).
+        # The verdict itself is rendered once, by _render_live_score_preview()'s own
+        # readiness banner below -- that's the same multi-factor diagnostic
+        # (get_diagnostic_state(), which also checks compliance gates/direction-mismatch/
+        # beneficiary-voice, not just a raw percentage threshold) used everywhere else in
+        # the app. A second, simpler percentage-only success/warning/error banner used to
+        # render here too -- cut both because it was pure restatement AND because its
+        # cruder percentage-only logic could disagree with the authoritative diagnostic
+        # immediately below it.
         try:
             _tab3_sub = _build_submission_from_session(1)
             _tab3_ev  = _evaluator.evaluate_submission(_tab3_sub)
             st.session_state["_tab3_ev_cache"] = {"sub": _tab3_sub, "ev": _tab3_ev}
-            _banner_c  = round(_tab3_ev.get("raw_confidence_score", 0) * 20, 1)
-            _banner_cl = round(_tab3_ev.get("clarity_score", 0) * 20, 1)
-            if _banner_c >= 75 and _banner_cl >= 75:
-                st.success("✅ Strong Submission — Your result meets quality thresholds for donor submission.")
-                st.caption("Decision: Submission-ready — proceed to generate your Pre-Submission Readiness Card.")
-            elif _banner_c >= 50 or _banner_cl >= 50:
-                st.warning("⚠️ Submission Needs Work — Address the items below before submitting.")
-                st.caption("Decision: Needs work — address the top fix before generating your Readiness Card.")
-            else:
-                st.error("🔴 High Risk — Your donor will likely query or reject this result. Fix critical issues first.")
-                st.caption("Decision: High risk — act on all critical fixes before submission.")
         except Exception:
             st.session_state.pop("_tab3_ev_cache", None)
 
@@ -9523,29 +9515,6 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
             level = "low" if (raw_score / max_val) < 0.6 else "high"
             st.markdown(f"**{dim}:** {donor_map[dim][level]}")
 
-
-    with st.expander("Share this result", key=f"share_result_{card_idx}"):
-        def _share_icon(s):
-            return "✅" if s >= 4.0 else "⚠️" if s >= 3.0 else "🔴"
-        _tf = fixes[0]["message"] if fixes else "No major gaps — ready to refine."
-        _wa_text = (
-            f"📊 ImpactProof — Evidence Quality Check\n"
-            f"Confidence: {conf_score}/5.0 {_share_icon(conf_score)}  ·  "
-            f"Clarity: {clar_score}/5.0 {_share_icon(clar_score)}\n"
-            f"Top fix: {_tf}\n"
-            f"Verdict: {verdict}\n"
-            f"Checked with: ImpactProof ({APP_URL}/)"
-        )
-        _wa_url = "https://wa.me/?text=" + urllib.parse.quote(_wa_text)
-        st.markdown(
-            f'<a href="{_wa_url}" target="_blank" style="display:inline-block;'
-            f'background:#25D366;color:white;padding:8px 18px;border-radius:8px;'
-            f'text-decoration:none;font-weight:700;font-size:0.9rem;margin:4px 0;">'
-            f'📱 Send to WhatsApp</a>',
-            unsafe_allow_html=True,
-        )
-        st.caption("Opens WhatsApp — choose who to send to from your contacts.")
-        st.code(_wa_text, language=None)
 
     _render_review_handoff(submission, ev, card_idx)
 
