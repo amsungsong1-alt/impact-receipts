@@ -1889,13 +1889,15 @@ h1, h2, h3, h4 {
   border-radius: 0;
   padding: 10px 16px;
   margin: 0;
-  /* sticky, not fixed: fixed positioning escapes the main-content column
-     entirely and paints over the full viewport width, including the
-     sidebar sitting beside it -- covering the Low-bandwidth-mode toggle
-     there. Sticky stays scoped to this element's own containing block
-     (the main content area), so it can never overlap a sibling column. */
-  position: sticky;
+  /* Fixed (not sticky -- sticky didn't reliably engage in this Streamlit
+     version, presumably an intermediate wrapper breaking its containing-
+     block chain). --md-pitch-left is kept in sync with the sidebar's real
+     rendered width by render_pitch_strip()'s own injected script, so this
+     never extends under the sidebar the way a plain left:0 would. */
+  position: fixed;
   top: 3.75rem;
+  left: var(--md-pitch-left, 0px);
+  right: 0;
   z-index: 999999;
 }
 .md-pitch-stages {
@@ -2071,8 +2073,8 @@ h1, h2, h3, h4 {
    also change sidebar-width defaults and other Streamlit internals well
    beyond just this. .md-pitch-stages below is widened to match so the
    progress strip's step row stays aligned with the page content under it. */
-.main .block-container {
-  max-width: 1100px;
+[data-testid="stMainBlockContainer"] {
+  max-width: 1100px !important;
 }
 
 /* Mobile-first improvements */
@@ -2087,7 +2089,7 @@ h1, h2, h3, h4 {
     min-height: 44px !important;
     font-size: 16px !important;
   }
-  .main .block-container {
+  [data-testid="stMainBlockContainer"] {
     padding-left: 1rem !important;
     padding-right: 1rem !important;
   }
@@ -5590,13 +5592,48 @@ def render_pitch_strip(current_stage: str):
         tip_html = f'<div class="stage-tip">{tip}</div>' if cls == "active" else ""
         cells += (f'<div class="md-pstage {cls}" title="{tip}"><div class="dot">{mark}</div>'
                   f'<div class="lbl">{lbl}</div>{tip_html}</div>')
-    # No manual spacer needed below -- unlike the old fixed positioning
-    # (which removed the strip from document flow entirely, requiring a
-    # placeholder div to reserve its space), a sticky element still
-    # occupies its own natural space in the layout at all times.
+    # position:sticky (the prior approach) turned out not to reliably engage
+    # in this Streamlit version -- likely an intermediate wrapper somewhere
+    # between this element and its real scrolling ancestor breaks sticky's
+    # containing-block chain, and that ancestor isn't something this app's
+    # own CSS controls to debug/fix directly. position:fixed has no such
+    # ambiguity (always relative to the viewport), so this reverts to fixed
+    # -- but instead of the original left:0/right:0 (which is what covered
+    # the sidebar originally), the actual sidebar width is measured live via
+    # JS and written to a CSS variable the strip's `left` reads, so it can
+    # never extend under the sidebar regardless of collapsed/expanded state
+    # or viewport size. Needs its own spacer again since fixed removes the
+    # strip from normal document flow.
     st.markdown(
-        f'<div class="md-pitch"><div class="md-pitch-stages">{cells}</div></div>',
+        f'<div class="md-pitch"><div class="md-pitch-stages">{cells}</div></div>'
+        f'<div style="height:96px"></div>',
         unsafe_allow_html=True,
+    )
+    import streamlit.components.v1 as components
+    components.html(
+        """<script>
+        (function() {
+            var p = window.parent;
+            function sync() {
+                try {
+                    var sb = p.document.querySelector('[data-testid="stSidebar"]');
+                    var w = (sb && sb.offsetParent !== null) ? sb.offsetWidth : 0;
+                    p.document.documentElement.style.setProperty('--md-pitch-left', w + 'px');
+                } catch (e) {}
+            }
+            sync();
+            try {
+                var sb2 = p.document.querySelector('[data-testid="stSidebar"]');
+                if (sb2 && window.ResizeObserver) {
+                    new ResizeObserver(sync).observe(sb2);
+                }
+                p.window.addEventListener('resize', sync);
+            } catch (e) {}
+            setTimeout(sync, 300);
+            setTimeout(sync, 1000);
+        })();
+        </script>""",
+        height=1,
     )
 
 
