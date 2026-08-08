@@ -4046,13 +4046,19 @@ def _smart_extract_from_result(result_text: str, s: str) -> None:
         ]
         for _sk_name, _sk_kws in _SECTOR_KWORDS:
             if any(_kw in rt for _kw in _sk_kws):
-                st.session_state["sector"] = _sk_name
-                st.session_state["_sector_auto_inferred"] = True
                 # The "sector" selectbox is already instantiated earlier in this
                 # same script run (top of Screen 1, before the result-slot loop
-                # that reaches this code) -- writing its key now would raise
-                # StreamlitAPIException. Rerun so the fresh script pass starts
-                # with this value already set, before the widget is created.
+                # that reaches this code) -- writing st.session_state["sector"]
+                # directly here raises StreamlitAPIException immediately, before
+                # st.rerun() below ever runs. Reuse the same _irc_pending_global
+                # staging dict IRC extraction already uses for this exact hazard
+                # (consumed at the very top of render_screen_1(), before any
+                # widget on this screen renders) rather than inventing a
+                # separate one-off staging key.
+                st.session_state["_irc_pending_global"] = {
+                    **st.session_state.get("_irc_pending_global", {}), "sector": _sk_name,
+                }
+                st.session_state["_sector_auto_inferred"] = True
                 st.rerun()
 
     # ── DONOR (programme-level — keyword inference, never overwrites) ───────
@@ -4072,14 +4078,18 @@ def _smart_extract_from_result(result_text: str, s: str) -> None:
         ]
         for _dk_name, _dk_sigs in _DONOR_KWORDS:
             if any(_ds in rt for _ds in _dk_sigs):
-                st.session_state["donor_selected"] = _dk_name
-                st.session_state["_donor_auto_inferred"] = True
+                # Same widget-already-instantiated hazard/fix as "sector"
+                # above -- "donor_selected"/"donor_framework" are also
+                # rendered earlier in this run (the Context expander, before
+                # the result-slot loop), so they go through the same
+                # _irc_pending_global staging dict instead of being written
+                # directly here.
+                _pg = dict(st.session_state.get("_irc_pending_global", {}))
+                _pg["donor_selected"] = _dk_name
                 if _dk_name in DONOR_PROFILES and st.session_state.get("donor_framework", "Generic") == "Generic":
-                    st.session_state["donor_framework"] = _dk_name
-                # Same widget-already-instantiated hazard as "sector" above --
-                # "donor_selected"/"donor_framework" are also rendered earlier
-                # in this run (the Context expander, before the result-slot
-                # loop). Rerun rather than mutate post-instantiation.
+                    _pg["donor_framework"] = _dk_name
+                st.session_state["_irc_pending_global"] = _pg
+                st.session_state["_donor_auto_inferred"] = True
                 st.rerun()
 
 
