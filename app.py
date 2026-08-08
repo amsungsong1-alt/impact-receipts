@@ -2310,11 +2310,30 @@ _BASE_FORM_KEYS = [
 # the current session, consistent with the rest of the app's single-session model.
 _SUBMISSION_STATUS_OPTIONS = ["Draft", "In review", "Approved", "Returned"]
 _REVIEW_DECISION_OPTIONS = ["", "Approve", "Return for revision"]
+
+# Shared 5-band pastel (bg, fg) status palette -- every "workflow status"
+# badge in the app (submission review status here, the Verification
+# Summary/report export status near _REPORT_STATUS_COLORS, and the billing
+# page's payment status) was independently re-typing the same 4 hex pairs
+# under a different status vocabulary -- which turn out to be exactly
+# diagnostics._BRAND_BADGE's own Strong/Acceptable/Weak/High-Risk palette
+# (already the single source _READINESS_CARD_SCORE_PALETTE derives from
+# below), just under different key names. Derived here rather than
+# re-typed, plus one added "neutral" gray band _BRAND_BADGE has no
+# equivalent for (a Draft/not-yet-decided state, not a score band).
+_STATUS_BAND_COLORS = {
+    "neutral": ("#F5F5F5", "#616161"),
+    "pending": (_BRAND_BADGE["Acceptable"]["bg"], _BRAND_BADGE["Acceptable"]["text"]),
+    "success": (_BRAND_BADGE["Strong"]["bg"], _BRAND_BADGE["Strong"]["text"]),
+    "warning": (_BRAND_BADGE["Weak"]["bg"], _BRAND_BADGE["Weak"]["text"]),
+    "error":   (_BRAND_BADGE["High Risk"]["bg"], _BRAND_BADGE["High Risk"]["text"]),
+}
+
 _SUBMISSION_STATUS_COLORS = {
-    "Draft":      ("#F5F5F5", "#616161"),
-    "In review":  ("#FFF9C4", "#F57F17"),
-    "Approved":   ("#C8E6C9", "#1B5E20"),
-    "Returned":   ("#FFE0B2", "#E65100"),
+    "Draft":      _STATUS_BAND_COLORS["neutral"],
+    "In review":  _STATUS_BAND_COLORS["pending"],
+    "Approved":   _STATUS_BAND_COLORS["success"],
+    "Returned":   _STATUS_BAND_COLORS["warning"],
 }
 
 _BV_OPTIONS = [
@@ -5588,14 +5607,14 @@ def render_billing_page():
         } for h in _history]
         import pandas as pd
         _STATUS_COLORS = {
-            "success":  ("#C8E6C9", "#1B5E20"),
-            "failed":   ("#FFCDD2", "#B71C1C"),
-            "error":    ("#FFCDD2", "#B71C1C"),
-            "pending":  ("#FFE0B2", "#E65100"),
-            "attention": ("#FFE0B2", "#E65100"),
+            "success":   _STATUS_BAND_COLORS["success"],
+            "failed":    _STATUS_BAND_COLORS["error"],
+            "error":     _STATUS_BAND_COLORS["error"],
+            "pending":   _STATUS_BAND_COLORS["warning"],
+            "attention": _STATUS_BAND_COLORS["warning"],
         }
         def _status_cell(v):
-            bg, fg = _STATUS_COLORS.get(str(v).lower(), ("#F5F5F5", "#616161"))
+            bg, fg = _STATUS_COLORS.get(str(v).lower(), _STATUS_BAND_COLORS["neutral"])
             return f"background-color:{bg};color:{fg};"
         _history_df = pd.DataFrame(_rows).style.map(_status_cell, subset=["Status"])
         st.dataframe(_history_df, use_container_width=True, hide_index=True)
@@ -14396,10 +14415,10 @@ _REPORT_STATUS_OPTIONS = [
 ]
 
 _REPORT_STATUS_COLORS = {
-    "Draft – pending review":        ("#F5F5F5", "#616161"),
-    "Submitted for review":           ("#FFF9C4", "#F57F17"),
-    "Reviewed – changes requested":   ("#FFE0B2", "#E65100"),
-    "Approved – ready to submit":     ("#C8E6C9", "#1B5E20"),
+    "Draft – pending review":        _STATUS_BAND_COLORS["neutral"],
+    "Submitted for review":           _STATUS_BAND_COLORS["pending"],
+    "Reviewed – changes requested":   _STATUS_BAND_COLORS["warning"],
+    "Approved – ready to submit":     _STATUS_BAND_COLORS["success"],
 }
 
 
