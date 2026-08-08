@@ -2631,7 +2631,8 @@ _TUTORIAL_COPY = {
     1: {
         "title": "📝 Each field below contributes to your score.",
         "body": (
-            "Watch the **Submission Summary** panel (sidebar) update as you fill in each field.\n"
+            "Fields marked **\\*** are required to run a check; everything else strengthens your score "
+            "but won't block you. Watch the **Submission Summary** panel (sidebar) update as you fill in each field.\n"
             "The **Review & Submit** tab shows your live Confidence and Clarity scores with fix buttons — check it before submitting."
         ),
     },
@@ -3492,304 +3493,6 @@ def _build_submission_from_session(slot: int = 1) -> dict:
     }
 
 
-def _render_slot_fields(slot: int):
-    """Render all form fields for one result slot."""
-    s = _slot_suffix(slot)
-
-    for key, default in [
-        (f"evidence_type{s}", EVIDENCE_TYPES[0]),
-        (f"internal_review{s}", "Choose an option..."),
-        (f"external_review{s}", "Choose an option..."),
-        # --- GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
-        (f"gov_consent_status{s}", "Select consent status..."),
-        (f"gov_anonymization_status{s}", "Select anonymization status..."),
-        (f"gov_compliance_law_status{s}", "Select compliance status..."),
-        (f"gov_safeguarding_status{s}", "Select safeguarding status..."),
-        (f"gov_child_safeguarding_status{s}", "Select child safeguarding status..."),
-        (f"gov_secure_handling_status{s}", "Select secure handling status..."),
-        # --- END GOVERNANCE & COMPLIANCE LAYER (v3.2) ---
-        # --- REVIEW-HANDOFF LAYER (v3.6) ---
-        (f"review_status{s}", _SUBMISSION_STATUS_OPTIONS[0]),
-        (f"reviewer_decision{s}", _REVIEW_DECISION_OPTIONS[0]),
-        # --- END REVIEW-HANDOFF LAYER (v3.6) ---
-    ]:
-        if key not in st.session_state:
-            st.session_state[key] = default
-
-    _sector = st.session_state.get("sector", SECTOR_OPTIONS[0])
-    _ph_key = "Other" if _sector in ("Other", "(No sector selected)") else _sector
-    _ph = SECTOR_PLACEHOLDERS.get(_ph_key, SECTOR_PLACEHOLDERS["Other"])
-
-    st.text_area(
-        "Result statement",
-        key=f"result_statement{s}",
-        placeholder=_ph["result"],
-        height=100,
-        help="What did your project achieve? Include the action verb, number, target group, location, and timeframe.",
-    )
-    _rs = st.session_state.get(f"result_statement{s}", "")
-    if _rs and len(_rs.strip()) < 20:
-        st.warning("Result statement is very short. Include: action verb + number + population + timeframe.")
-    elif _rs and not any(c.isdigit() for c in _rs):
-        st.caption("Tip: Add a number (e.g., '500 farmers trained') — quantified claims score higher.")
-
-    st.markdown("#### Logframe Linkage")
-    st.caption(
-        "**Why this matters:** A real African consultancy had their final donor report "
-        "rejected 3 times in 2024 because results weren't tied to logframe indicators. "
-        "40+ hours of rework. We don't want that to happen to you."
-    )
-
-    _lf_api_key = _secret("ANTHROPIC_API_KEY")
-    if _lf_api_key:
-        with st.expander("🎯 AI Logframe Match — paste your indicators, get a suggested match", expanded=False):
-            st.caption(
-                "Paste your approved logframe indicators (one per line). The AI suggests which "
-                "one this result reports against — it never forces a match, and it only quotes "
-                "words already in your result statement or your pasted indicators."
-            )
-            st.text_area(
-                "Your logframe indicators (one per line)",
-                key=f"_lf_paste{s}", height=100,
-                placeholder=(
-                    "Indicator 1.2: Number of households with access to safe water\n"
-                    "Indicator 2.1: % of farmers applying climate-smart practices"
-                ),
-            )
-            if st.button("Match my result to an indicator", key=f"lf_match_btn{s}"):
-                _lf_rs = st.session_state.get(f"result_statement{s}", "")
-                _lf_raw = st.session_state.get(f"_lf_paste{s}", "")
-                _lf_indicators = [ln.strip() for ln in _lf_raw.splitlines() if ln.strip()]
-                if not _lf_rs.strip():
-                    st.warning("Enter a result statement above first.")
-                elif not _lf_indicators:
-                    st.warning("Paste at least one logframe indicator above.")
-                else:
-                    with st.spinner("Matching your result to an indicator…"):
-                        from council import match_logframe_indicator
-                        _lf_match = match_logframe_indicator(_lf_rs, _lf_indicators, _lf_api_key)
-                    st.session_state[f"_lf_match_result{s}"] = _lf_match
-                    if _lf_match.get("confidence_label") != "None" and _lf_match.get("best_match"):
-                        st.session_state[f"logframe_indicator{s}"] = _lf_match["best_match"]
-                        st.session_state["_irc_fill_version"] = st.session_state.get("_irc_fill_version", 0) + 1
-                    st.rerun()
-
-            _lf_result = st.session_state.get(f"_lf_match_result{s}")
-            if _lf_result:
-                _lf_cl = _lf_result.get("confidence_label", "None")
-                if _lf_cl == "None" or not _lf_result.get("best_match"):
-                    st.info("No confident match found — enter the indicator manually below.")
-                else:
-                    st.success(
-                        f"AI-suggested match ({_lf_cl.lower()} confidence) — confirm against "
-                        f"your approved logframe before submitting."
-                    )
-                    if _lf_result.get("justification"):
-                        st.caption(_lf_result["justification"])
-
-    _irc_widget(
-        st.text_input,
-        "Logframe indicator this result reports against",
-        f"logframe_indicator{s}", default="",
-        placeholder=_ph.get("logframe_indicator", "e.g., Indicator 1.2: Number of [target group] achieving [outcome]"),
-        help=(
-            "Copy the exact indicator name and code from your approved Technical Proposal or logframe. "
-            "If you cannot quote it, your donor cannot match your result to your commitment."
-        ),
-    )
-    _irc_widget(
-        st.text_input,
-        "Original target for this indicator (from logframe)",
-        f"logframe_target{s}", default="",
-        placeholder=_ph.get("logframe_target", "e.g., 250 youth trained by Q4 2025"),
-        help=(
-            "The target as approved in the original Technical Proposal. Donors compare achievements "
-            "against approved targets — not revised internal targets."
-        ),
-    )
-    _irc_widget(
-        st.text_input,
-        "Actual achievement (must match your result statement)",
-        f"logframe_achievement{s}", default="",
-        placeholder=_ph.get("logframe_achievement", "e.g., [Actual number] by [date] — [%] of original target"),
-        help=(
-            "The actual delivered number, ideally with % achievement vs original target. "
-            "Must reconcile with your result statement above."
-        ),
-    )
-
-    st.text_input(
-        "Target group", key=f"target_group{s}",
-        placeholder=_ph["target_group"],
-        help="Who specifically? Age group, gender, role, occupation. Avoid 'beneficiaries' alone — name the population.",
-    )
-
-    st.text_input(
-        "Timeframe", key=f"timeframe{s}",
-        placeholder="e.g., January - June 2025",
-        help="Specific dates or quarters. 'January–June 2025' is stronger than 'In 2025'.",
-    )
-
-    st.text_input(
-        "Geographic scope", key=f"geographic_scope{s}",
-        placeholder=_ph["geographic_scope"],
-        help="Districts, regions, or specific sites. 'Volta Region' beats 'rural areas'.",
-    )
-
-    st.text_area(
-        "Describe your supporting evidence", key=f"evidence_description{s}",
-        placeholder=_ph["evidence_description"],
-        height=120,
-        help="Describe the actual document or data: who collected it, how, and what's in it.",
-    )
-    _ed = st.session_state.get(f"evidence_description{s}", "")
-    if _ed and len(_ed.strip()) < 30:
-        st.warning("Evidence description is brief. Specify: who collected it, how, and what it contains.")
-
-    st.selectbox(
-        "Evidence type", key=f"evidence_type{s}",
-        options=EVIDENCE_TYPES,
-        help=EVIDENCE_TYPE_HELP,
-    )
-    ev_type = st.session_state.get(f"evidence_type{s}", EVIDENCE_TYPES[0])
-    ev_desc = st.session_state.get(f"evidence_description{s}", "")
-    _dl = _evaluator.get_directness_level(ev_type, ev_desc)
-    _ds = round((_dl / 5) * 2.0, 1)
-
-    if ev_type == "Other":
-        st.text_input("Specify evidence type", key=f"evidence_type_other{s}")
-
-    int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
-    st.selectbox(
-        "Internal review", key=f"internal_review{s}",
-        options=INTERNAL_REVIEW_OPTIONS,
-        help="Did anyone in your organization review or cross-check this data?",
-    )
-    int_rev = st.session_state.get(f"internal_review{s}", INTERNAL_REVIEW_OPTIONS[0])
-    _int_vl = _evaluator.get_verification_level(int_rev, "No external review", "")
-    _int_vs = round((_int_vl / 5) * 2.0, 1)
-    if _int_vs == 0:
-        st.warning("No internal review — adding a reviewer significantly strengthens Verification.")
-
-    if int_rev == "Other":
-        st.text_input("Specify internal reviewer", key=f"internal_review_other{s}")
-
-    ext_rev = st.session_state.get(f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0])
-    st.selectbox(
-        "External review", key=f"external_review{s}",
-        options=EXTERNAL_REVIEW_OPTIONS,
-        help="Did an outside party verify the data? Government, partner, auditor, or evaluator.",
-    )
-    ext_rev = st.session_state.get(f"external_review{s}", EXTERNAL_REVIEW_OPTIONS[0])
-    verifier_text = st.session_state.get(f"verifier{s}", "")
-    _full_vl = _evaluator.get_verification_level(int_rev, ext_rev, verifier_text)
-    _full_vs = round((_full_vl / 5) * 2.0, 1)
-    _added   = round(_full_vs - _int_vs, 1)
-    if ext_rev == "No external review":
-        st.warning("No external review — independent verification raises your score significantly.")
-
-    if ext_rev == "Other":
-        st.text_input("Specify external reviewer", key=f"external_review_other{s}")
-
-    # --- UX: CONDITIONAL FIELDS (v3.2) ---
-    if st.session_state.get(f"internal_review{s}") != "Not reviewed":
-        _irc_widget(
-            st.text_input, "Who verified this?", f"verifier{s}", default="",
-            placeholder=_ph.get("verifier", "e.g., District Agriculture Officer, partner org M&E lead, external evaluator"),
-            help="The person or organization that confirmed the data is accurate.",
-        )
-    # --- END UX: CONDITIONAL FIELDS (v3.2) ---
-
-    st.markdown("#### Reporting Period")
-    st.caption("The period this submission covers. Evidence dates outside this range trigger a flag.")
-    _rp_col_s, _rp_col_e = st.columns(2)
-    with _rp_col_s:
-        st.date_input(
-            "Reporting period start",
-            value=st.session_state.get(f"reporting_start{s}"),
-            key=f"reporting_start{s}",
-            help="When does the period this report covers begin?",
-        )
-    with _rp_col_e:
-        st.date_input(
-            "Reporting period end",
-            value=st.session_state.get(f"reporting_end{s}"),
-            key=f"reporting_end{s}",
-            help="When does the period this report covers end?",
-        )
-
-    st.date_input(
-        "When was this evidence collected?",
-        value=st.session_state.get(f"evidence_date{s}"),
-        key=f"evidence_date{s}",
-        help="When was the data collected? Use the most recent date if multiple sources.",
-    )
-    _ed = st.session_state.get(f"evidence_date{s}")
-    if _ed and hasattr(_evaluator, "get_recency_diagnostic"):
-        _rec_diag = _evaluator.get_recency_diagnostic(_ed)
-        if "0.4/1.0" in _rec_diag or "0.2/1.0" in _rec_diag:
-            st.warning(_rec_diag)
-        elif "0.6/1.0" in _rec_diag:
-            st.info(_rec_diag)
-        else:
-            st.success(_rec_diag)
-    _rp_s = st.session_state.get(f"reporting_start{s}")
-    _rp_e = st.session_state.get(f"reporting_end{s}")
-    if _ed and _rp_s and _rp_e and hasattr(_evaluator, "validate_reporting_period"):
-        _, _rp_msg, _rp_sev = _evaluator.validate_reporting_period(_ed, _rp_s, _rp_e)
-        if _rp_sev == "ERROR":
-            st.error(_rp_msg)
-        elif _rp_sev == "WARNING":
-            st.warning(_rp_msg)
-        elif _rp_msg:
-            st.success(_rp_msg)
-
-    st.markdown("#### Beneficiary Voice")
-    st.caption(
-        "Did the beneficiaries contribute to or validate this evidence?"
-    )
-    st.selectbox(
-        "How were beneficiary voices captured?",
-        key=f"beneficiary_voice{s}",
-        options=_BV_OPTIONS,
-        help=(
-            "Bond Evidence Principle 1 (2024 refresh): Voice & Inclusion. "
-            "The strongest evidence includes beneficiary perspectives, not just provider reports."
-        ),
-    )
-    _bv_sel_1 = st.session_state.get(f"beneficiary_voice{s}", "")
-    _BV_HIGH = {
-        "Direct beneficiary feedback collected (e.g., Lean Data survey, focus groups, NPS)",
-        "Beneficiary representatives consulted (community leaders, beneficiary committees)",
-    }
-    if _bv_sel_1 in _BV_HIGH:
-        st.text_input(
-            "Briefly describe the method — when conducted and approximately how many people participated",
-            key=f"bv_method_detail{s}",
-            placeholder="e.g., Phone survey with 120 farmers, March 2025",
-            help="Required to receive the full beneficiary voice bonus (≥20 characters).",
-        )
-        _bv_detail_1 = st.session_state.get(f"bv_method_detail{s}", "")
-        _bv_chars_1  = len(_bv_detail_1.strip())
-        if _bv_chars_1 >= 20:
-            st.caption("✓ Full beneficiary voice bonus unlocked: +0.5")
-        else:
-            st.caption(f"Add {20 - _bv_chars_1} more characters to unlock the full +0.5 bonus (currently +0.1).")
-
-    prev_files = st.session_state.get(f"draft_uploaded_filenames{s}", [])
-    if prev_files:
-        st.caption(
-            f"For security, browsers don't let us keep re-uploaded files between sessions — "
-            f"please re-attach: {', '.join(prev_files)}"
-        )
-    st.file_uploader(
-        "Attach supporting documents (optional)", key=f"uploaded_files_widget{s}",
-        accept_multiple_files=True,
-        type=["pdf", "docx", "xlsx", "csv", "jpg", "jpeg", "png", "txt"],
-        help="Attach raw evidence files — datasets, signed sheets, photos with metadata, partner letters.",
-    )
-
-
 # ---------------------------------------------------------------------------
 # Screen 1 — Tab helper functions (v3.3)
 # ---------------------------------------------------------------------------
@@ -4471,14 +4174,14 @@ def _render_tab3_slot(slot: int):
 
     # ── CORE (4 fields — always visible) ────────────────────────────────────
     _irc_widget(
-        st.text_area, "Describe your supporting evidence", f"evidence_description{s}", default="",
+        st.text_area, "Describe your supporting evidence *", f"evidence_description{s}", default="",
         placeholder=_ph["evidence_description"],
         height=120,
         help="Describe the actual document or data: who collected it, how, and what's in it.",
     )
     _ed_val = st.session_state.get(f"evidence_description{s}", "")
     if _ed_val and len(_ed_val.strip()) < 30:
-        st.warning("Evidence description is brief. Specify: who collected it, how, and what it contains.")
+        st.warning("Evidence description is brief — add more detail.")
     elif _ed_val:
         _smart_extract_ev_type(_ed_val, f"evidence_type{s}")  # auto-suggest type from keywords
     if _ed_val and _ed_val.strip():
@@ -4649,7 +4352,10 @@ def _render_tab3_slot(slot: int):
         int_rev = st.session_state.get(f"internal_review{s}", _INT_REVIEW_OPTS[0])
         _int_vl = _evaluator.get_verification_level(int_rev, "No external review", "")
         _int_vs = round((_int_vl / 5) * 2.0, 1)
-        if _int_vs == 0:
+        # Only warn once the user has actually chosen a real "no review"
+        # answer -- previously fired on the untouched "Choose an option..."
+        # placeholder too, scolding a blank form before anyone had touched it.
+        if _int_vs == 0 and int_rev != _INT_REVIEW_OPTS[0]:
             st.warning("No internal review — adding a reviewer strengthens Verification.")
         if int_rev == "Other":
             st.text_input("Specify internal reviewer", key=f"internal_review_other{s}")
@@ -4692,7 +4398,9 @@ def _render_tab3_slot(slot: int):
 
         st.divider()
         st.markdown("**Data Collection & Provenance**")
-        st.caption("📊 **Affects Verification score** — each 'Yes' adds up to +0.1 on Confidence. 'Not applicable' is neutral where it honestly doesn't apply.")
+        # Same Verification axis as the review section above -- not
+        # re-stated here, just the provenance-specific mechanic.
+        st.caption("Each 'Yes' adds up to +0.1. 'Not applicable' is neutral where it honestly doesn't apply.")
         _ev_type_prov = st.session_state.get(f"evidence_type{s}", "")
         _prov_keys = _PROVENANCE_FOR_EV_TYPE.get(_ev_type_prov, _PROVENANCE_ALL)
         # Auto-set non-applicable provenance questions to "Not applicable" to avoid
@@ -6749,25 +6457,28 @@ def render_screen_1():
             on_change=_on_org_type_change,
         )
 
-        # Sector selector always visible — gates placeholder quality for all fields below
-        st.selectbox(
-            "Sector (optional — tailors field examples)",
-            key="sector",
-            options=SECTOR_OPTIONS,
-            help="Select your sector to see sector-specific example placeholders in the evidence description field.",
-            on_change=lambda: st.session_state.pop("_sector_auto_inferred", None),
-        )
-        if st.session_state.get("_sector_auto_inferred"):
-            st.caption("⚡ Sector auto-detected from your result text — change here if incorrect.")
-        _sector_val = st.session_state.get("sector", SECTOR_OPTIONS[0])
-        if _sector_val == "Other":
-            st.text_input(
-                "Specify your sector",
-                key="sector_other",
-                placeholder="e.g., Disaster Response, Gender Equality, Financial Inclusion",
-            )
-
         with st.expander("Context — donor & project (optional)", expanded=not _has_prefill):
+            # Purely cosmetic (only tailors example placeholder text below) --
+            # moved in here so it doesn't sit at the same visual weight as
+            # Organisation type above, which actually sets the scoring
+            # threshold (4.0 vs 3.5-3.75).
+            st.selectbox(
+                "Sector (optional — tailors field examples)",
+                key="sector",
+                options=SECTOR_OPTIONS,
+                help="Select your sector to see sector-specific example placeholders in the evidence description field.",
+                on_change=lambda: st.session_state.pop("_sector_auto_inferred", None),
+            )
+            if st.session_state.get("_sector_auto_inferred"):
+                st.caption("⚡ Sector auto-detected from your result text — change here if incorrect.")
+            _sector_val = st.session_state.get("sector", SECTOR_OPTIONS[0])
+            if _sector_val == "Other":
+                st.text_input(
+                    "Specify your sector",
+                    key="sector_other",
+                    placeholder="e.g., Disaster Response, Gender Equality, Financial Inclusion",
+                )
+
             st.selectbox(
                 "Primary donor for this submission",
                 key="donor_selected",
