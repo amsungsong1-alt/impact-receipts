@@ -9272,7 +9272,12 @@ def _render_framework_crosswalk_section(submission: dict, evaluation: dict) -> N
         with _fwx_tab:
             _render_framework_crosswalk_tab(_fwx_fw)
 
-    _fwx_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Cached once per scoring run rather than recomputed here -- see the
+    # "_export_ref_timestamp" comment where it's set (render_screen_2())
+    # for why a fresh datetime.now() at render time desyncs the ref_id
+    # printed on the actual downloaded file from the one record_export()
+    # saves.
+    _fwx_timestamp = st.session_state.get("_export_ref_timestamp") or datetime.now().strftime("%Y%m%d_%H%M%S")
     _fwx_ref_id = f"FWX-{_fwx_timestamp}"
     _fwx_html = _build_framework_crosswalk_pdf_html(submission, evaluation, _fwx_results, _fwx_ref_id, _fwx_timestamp)
     _fwx_pdf = _html_to_pdf_bytes(_fwx_html)
@@ -9465,6 +9470,18 @@ def render_screen_2():
             st.session_state["evaluations"]        = evs
             st.session_state["submissions_snapshot"] = subs
             st.session_state["_assessment_ids"]      = _asm_ids
+            # Cached once per scoring run (this block only ever executes once,
+            # guarded by "if not st.session_state.get('evaluations')" above,
+            # then reused everywhere below -- readiness-card/crosswalk export
+            # timestamps used to be recomputed fresh via datetime.now() at
+            # render time instead, which meant the ref_id baked into the file
+            # a download_button actually sends to the browser (rendered on
+            # the PRIOR script run) didn't match the ref_id record_export()
+            # saved (computed fresh on the run download_button's return value
+            # goes True) -- so ?verify= always said "no record found" for a
+            # ref_id that was genuinely printed on a real, just-downloaded
+            # document. See the "still no record found" investigation.
+            st.session_state["_export_ref_timestamp"] = _asm_timestamp
             st.rerun()
         except Exception as exc:
             import logging as _logging
@@ -9585,7 +9602,17 @@ def render_screen_2():
     # For a multi-result submission (n > 1, e.g. IRC's "extract N results" path),
     # this is one PDF covering every result, one per page, rather than silently
     # building from subs[0]/evs[0] only and dropping every result but the first.
-    timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
+    #
+    # Cached once per scoring run (see "_export_ref_timestamp" above, set
+    # right after evaluations are computed) rather than recomputed fresh
+    # here on every rerun. Fixes the actual "?verify= says no record found"
+    # bug: st.download_button's data= reflects whatever this timestamp was
+    # on the PRIOR render, but its own "was it clicked" return value only
+    # goes True on a LATER, fresh rerun -- a timestamp computed fresh via
+    # datetime.now() on THAT later rerun would differ from the one baked
+    # into the file the browser actually downloaded, so record_export()
+    # was saving a ref_id that was never printed on any real document.
+    timestamp = st.session_state.get("_export_ref_timestamp") or datetime.now().strftime("%Y%m%d_%H%M%S")
     _report_allowed = st.session_state.get("_report_allowed", True)
     _irc_fs = st.session_state.get("_irc_field_sources") if st.session_state.get("_irc_used") else None
     if n > 1:
@@ -11887,6 +11914,14 @@ def _render_score_my_report_tab():
             "statuses": statuses,
             "doc_name": uploaded_doc.name,
             "org_name": org_name,
+            # Generated once here, not at render time below -- st.download_button's
+            # data= reflects whatever was rendered in the PRIOR script run, but its
+            # own "was it clicked" return value only goes True on a LATER, fresh
+            # rerun. A timestamp recomputed at render time would differ between
+            # those two runs, so record_export() would save a ref_id that was
+            # never actually printed on the file the user downloaded -- exactly
+            # the readiness-card verification bug this same fix addresses below.
+            "ts": datetime.now().strftime("%Y%m%d_%H%M"),
         }
         _smr_state = st.session_state["smr_results"]
 
@@ -11907,6 +11942,7 @@ def _render_score_my_report_tab():
     statuses   = _smr_state["statuses"]
     doc_name   = _smr_state.get("doc_name", "")
     org_name   = _smr_state.get("org_name", "") or org_name
+    _ts        = _smr_state.get("ts") or datetime.now().strftime("%Y%m%d_%H%M")
 
     n = len(evaluations)
     strong  = sum(1 for ev in evaluations if ev.get("confidence_score", 0) >= 4.0 and ev.get("clarity_score", 0) >= 4.0)
@@ -12015,7 +12051,9 @@ def _render_score_my_report_tab():
 
     # Downloads
     st.divider()
-    _ts = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M")
+    # _ts comes from _smr_state (cached once, see above) -- not recomputed
+    # here, which would desync from what's baked into the actual downloaded
+    # file (see the "ts" comment above for why).
     dl_c1, dl_c2 = st.columns(2)
 
     with dl_c1:
@@ -13082,7 +13120,14 @@ def render_screen_4_agency_dashboard():
 
     st.divider()
     st.markdown("### Export")
-    _port_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Cached in session_state, not recomputed on every rerun -- same
+    # download_button timing-gap fix as the readiness-card/crosswalk/audit-
+    # excel exports (see render_screen_2()'s "_export_ref_timestamp"
+    # comment): a fresh datetime.now() here would desync the ref_id printed
+    # on the actual downloaded PDF from the one record_export() saves.
+    _port_timestamp = st.session_state.setdefault(
+        "_port_report_timestamp", datetime.now().strftime("%Y%m%d_%H%M%S")
+    )
     _port_ref_id = f"PORT-{_port_timestamp}"
     _port_html = _build_portfolio_readiness_report_html(email, audits_rows, _gaps, _port_ref_id, _port_timestamp)
     _port_pdf = _html_to_pdf_bytes(_port_html)
