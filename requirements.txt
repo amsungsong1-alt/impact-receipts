@@ -17,18 +17,40 @@
 streamlit==1.58.0
 # Explicit pin, not just a top-level one: streamlit only declares
 # starlette>=0.40.0 (no ceiling), so an unpinned transitive install can pull
-# starlette's new 1.x line, which added a required thread_minimum_size kwarg
-# to GZipResponder.__init__() that streamlit's own vendored gzip middleware
-# (web/server/starlette/starlette_gzip_middleware.py) doesn't pass -- crashes
-# every request with "GZipResponder.__init__() missing 1 required keyword-
-# only argument: 'thread_minimum_size'". Verified compatible signature
-# directly against streamlit 1.58.0's actual call site before pinning this.
+# whatever the newest resolvable line is, with no guarantee it's been
+# verified against streamlit's own vendored usage.
+#
+# 2026-08-09: bumped 0.52.1 -> 1.0.1 for CVE-2026-48710 ("BadHost") -- a
+# Host-header parsing flaw affecting all starlette 0.8.3-1.0.0 (fixed in
+# 1.0.1) that's directly relevant here, not theoretical: streamlit 1.58.0
+# made Starlette/Uvicorn its default ASGI server (replacing Tornado), so
+# starlette is the actual layer parsing every inbound request's Host
+# header, not a dormant transitive dependency. Verified compatible before
+# bumping, specifically re-checking the exact incompatibility the
+# 2026-08-05 outage below describes: starlette 1.0.1's actual
+# GZipResponder.__init__(app, minimum_size, compresslevel=9) has no
+# thread_minimum_size parameter at all and matches streamlit's vendored
+# call site's args exactly -- read directly from both installed packages'
+# source, not inferred. Also boot-tested a real server (streamlit run)
+# under 1.0.1 and sent it a live HTTP request before pinning this.
+#
+# 2026-08-05 history (why this line is pinned explicit at all, not just
+# left at the floor): a fresh install previously pulled an earlier
+# starlette 1.x release whose GZipResponder.__init__() required a
+# thread_minimum_size kwarg streamlit's vendored gzip middleware didn't
+# pass, crashing every request with "GZipResponder.__init__() missing 1
+# required keyword-only argument: 'thread_minimum_size'". That specific
+# incompatibility doesn't exist in the 1.0.1 line pinned above (see the
+# signature comparison above) -- either fixed upstream in starlette
+# before 1.0.1, or specific to a narrower pre-1.0 range than "1.x" as
+# originally described here.
+#
 # This is also a live gap in this file's own "exact-pinned, reproducible"
 # goal above -- only top-level packages are pinned here, not the full
 # transitive closure, so this class of drift can still happen for any other
 # unlisted transitive dependency. A full pip-freeze-style lock file would
 # close that gap properly; not done here under a live production incident.
-starlette==0.52.1
+starlette==1.0.1
 anthropic==0.105.2
 python-dotenv==1.2.2
 PyMuPDF==1.27.2.3
