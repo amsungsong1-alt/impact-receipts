@@ -112,6 +112,19 @@ WA_CONTEXTS: dict[str, dict[str, str]] = {
             "My email: {email}"
         ),
     },
+    "concessional_pricing_request": {
+        # Fired server-side from the Billing page's "Request discounted
+        # pricing" form (app.py) -- notify-only, kept deliberately simple.
+        # The declared org type and note are visible in the ?admin=1
+        # dashboard's approval queue, not crammed into this WhatsApp
+        # message; approve/deny happens there, not over WhatsApp.
+        "notify_label": "Concessional pricing request (review in admin dashboard)",
+        "user_ack":     "Your discounted-pricing request is received — we'll review and reply within 24 hours.",
+        "wa_message_tpl": (
+            "Hi, I've requested concessional pricing on ImpactProof. "
+            "My email: {email}"
+        ),
+    },
 }
 
 # Generic auto-reply fallback when context keyword matching fails

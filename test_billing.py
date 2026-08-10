@@ -623,6 +623,98 @@ def run_data_deletion():
     print("PASS: data deletion — clear_user_draft/delete_wa_conversations scoped correctly to the target email.")
 
 
+def run_concessional_pricing():
+    """utils.db.request_concessional_pricing/set_user_concessional_status/
+    list_pending_concessional_requests -- the request -> admin-approval
+    flow for CBO/Government discounted pricing (supabase/migrations/0056).
+    _professional_checkout_params()'s branching (app.py) is tested
+    separately in test_security.py alongside this codebase's other
+    app.py-level regression tests."""
+    failures = []
+    original_get_client = db._get_client
+    fake_client = _FakeClient()
+    db._get_client = lambda: fake_client
+    try:
+        db.upsert_user("cbo@example.com")
+        # The real migration (0056) gives concessional_status a Postgres
+        # column DEFAULT 'none' -- the fake client here is a plain in-memory
+        # dict with no concept of column defaults, so a freshly-upserted row
+        # has no concessional_status key at all unless set explicitly. Set
+        # it to match what a real migrated row actually contains, since
+        # request_concessional_pricing()'s .eq("concessional_status", "none")
+        # safety filter (correctly) won't match an absent/None value.
+        _row(fake_client, "users", "cbo@example.com")["concessional_status"] = "none"
+
+        # Invalid org_type must no-op -- never persist a value outside
+        # CONCESSIONAL_ORG_TYPES.
+        if db.request_concessional_pricing("cbo@example.com", "Made-up org type", "note"):
+            failures.append("request_concessional_pricing should reject an org_type outside CONCESSIONAL_ORG_TYPES")
+        if db.get_user("cbo@example.com").get("concessional_status") not in (None, "none"):
+            failures.append("an invalid request must not move concessional_status off 'none'")
+
+        # Valid request.
+        if not db.request_concessional_pricing(
+            "cbo@example.com", "Community-Based Organisation (CBO)", "District-level CBO"
+        ):
+            failures.append("request_concessional_pricing should succeed for a valid org_type")
+        _row_after_request = db.get_user("cbo@example.com")
+        if _row_after_request.get("concessional_status") != "requested":
+            failures.append(f"expected concessional_status='requested', got {_row_after_request.get('concessional_status')!r}")
+        if _row_after_request.get("concessional_org_type") != "Community-Based Organisation (CBO)":
+            failures.append("request_concessional_pricing did not persist the declared org_type")
+        if not _row_after_request.get("concessional_requested_at"):
+            failures.append("request_concessional_pricing did not stamp concessional_requested_at")
+
+        # A second request while status is already 'requested' must no-op --
+        # the .eq("concessional_status", "none") filter in the update is
+        # what enforces this (defense in depth beyond app.py's own UI check).
+        db.request_concessional_pricing("cbo@example.com", "Government department / local authority", "")
+        if db.get_user("cbo@example.com").get("concessional_org_type") != "Community-Based Organisation (CBO)":
+            failures.append("a second request while status='requested' should not overwrite the original request")
+
+        # Shows up in the admin approval queue.
+        _pending = db.list_pending_concessional_requests()
+        if not any(r.get("email") == "cbo@example.com" for r in _pending):
+            failures.append("list_pending_concessional_requests did not include the pending request")
+
+        # Admin approves.
+        if not db.set_user_concessional_status("cbo@example.com", "approved", approved_by="admin@example.com"):
+            failures.append("set_user_concessional_status should succeed for a valid status")
+        _row_after_approval = db.get_user("cbo@example.com")
+        if _row_after_approval.get("concessional_status") != "approved":
+            failures.append("set_user_concessional_status did not persist 'approved'")
+        if _row_after_approval.get("concessional_approved_by") != "admin@example.com":
+            failures.append("set_user_concessional_status did not persist approved_by")
+        if not _row_after_approval.get("concessional_approved_at"):
+            failures.append("set_user_concessional_status did not stamp concessional_approved_at")
+
+        # No longer in the pending queue once decided.
+        if any(r.get("email") == "cbo@example.com" for r in db.list_pending_concessional_requests()):
+            failures.append("an approved account should no longer appear in list_pending_concessional_requests")
+
+        # Invalid status value must no-op.
+        if db.set_user_concessional_status("cbo@example.com", "maybe"):
+            failures.append("set_user_concessional_status should reject a status outside ('approved','denied')")
+
+        # No email -> no-op, no crash, for both functions.
+        try:
+            if db.request_concessional_pricing("", "Community-Based Organisation (CBO)", ""):
+                failures.append("request_concessional_pricing should no-op with no email")
+            if db.set_user_concessional_status("", "approved"):
+                failures.append("set_user_concessional_status should no-op with no email")
+        except Exception as exc:
+            failures.append(f"concessional-pricing functions raised with no email: {exc}")
+    finally:
+        db._get_client = original_get_client
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: concessional pricing — request/approve/deny round-trip, admin queue, invalid-input rejection verified.")
+
+
 if __name__ == "__main__":
     run_metering()
     run_set_user_plan()
@@ -631,3 +723,4 @@ if __name__ == "__main__":
     run_sessions()
     run_paystack_subscriptions()
     run_data_deletion()
+    run_concessional_pricing()

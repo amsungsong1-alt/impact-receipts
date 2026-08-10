@@ -315,6 +315,88 @@ def set_user_totp(email: str, encrypted_secret: str, enabled: bool) -> None:
         pass
 
 
+# Same two org-type strings app.py's own Screen 1 org-type selectbox uses --
+# concessional pricing is scoped to CBO/Government for now (see
+# supabase/migrations/0056's header for why National NGO's already-modeled
+# 30%-off tier is deliberately deferred, not overlooked).
+CONCESSIONAL_ORG_TYPES = (
+    "Community-Based Organisation (CBO)", "Government department / local authority",
+)
+
+
+def request_concessional_pricing(email: str, org_type: str, note: str = "") -> bool:
+    """User-initiated (Billing page 'Request discounted pricing' form), but
+    still routed through the service-role client like set_user_totp() above:
+    concessional_status/concessional_org_type/concessional_note/
+    concessional_requested_at are deliberately NOT in authenticated's
+    column-UPDATE grant (0056_users_concessional_pricing.sql) -- an
+    authenticated-client write would simply fail. app.py's form validates
+    org_type against CONCESSIONAL_ORG_TYPES server-side before calling this,
+    so this is the app recording a user-initiated request as a fact, not
+    the user editing their own row directly.
+
+    No-ops (returns False) on an invalid org_type or an account that
+    already has a request on file (status != 'none') -- callers should
+    check get_user(email)['concessional_status'] first to show the right
+    UI state, not rely on this to silently correct a stale render."""
+    if not email or org_type not in CONCESSIONAL_ORG_TYPES:
+        return False
+    try:
+        c = _get_service_client() or _get_client()
+        if not c:
+            return False
+        c.table("users").update({
+            "concessional_status": "requested",
+            "concessional_org_type": org_type,
+            "concessional_note": (note or "").strip()[:500],
+            "concessional_requested_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("email", email).eq("concessional_status", "none").execute()
+        return True
+    except Exception:
+        return False
+
+
+def set_user_concessional_status(email: str, status: str, approved_by: str = "") -> bool:
+    """Admin approve/deny action (app.py's ?admin=1 dashboard is the only
+    caller) -- the sole way concessional_status ever moves to 'approved' or
+    'denied'. Service-role client, same reasoning as set_user_totp() above.
+    approved_by is the acting admin's own email, a lightweight
+    accountability trail, not an authorization check itself (the admin RBAC
+    gate at the call site is what actually authorizes this)."""
+    if not email or status not in ("approved", "denied"):
+        return False
+    try:
+        c = _get_service_client() or _get_client()
+        if not c:
+            return False
+        c.table("users").update({
+            "concessional_status": status,
+            "concessional_approved_at": datetime.now(timezone.utc).isoformat(),
+            "concessional_approved_by": approved_by or "",
+        }).eq("email", email).execute()
+        return True
+    except Exception:
+        return False
+
+
+def list_pending_concessional_requests() -> list[dict]:
+    """Every account with concessional_status='requested', for the
+    ?admin=1 dashboard's approval queue. Service-role client (reads across
+    every account, same reasoning as list_all_users() above -- there's no
+    single "owner" row here). [] on any failure, same convention as every
+    other admin-facing list function in this file."""
+    try:
+        c = _get_service_client() or _get_client()
+        if not c:
+            return []
+        res = c.table("users").select(
+            "email, concessional_org_type, concessional_note, concessional_requested_at"
+        ).eq("concessional_status", "requested").execute()
+        return res.data or []
+    except Exception:
+        return []
+
+
 # Duplicated (not imported from app.py) to avoid a utils -> app import cycle --
 # app.py's ACCOUNT_SECTOR_OPTIONS is the UI-facing copy of this same list; keep
 # both in sync by hand if it ever changes.

@@ -56,6 +56,8 @@ try:
         save_user_draft, load_user_draft, clear_user_draft,
         get_payment_history, delete_wa_conversations, set_user_currency,
         set_user_totp,
+        request_concessional_pricing, set_user_concessional_status,
+        list_pending_concessional_requests, CONCESSIONAL_ORG_TYPES,
     )
     from utils.paystack import (
         initialize_payment, verify_payment, last_payment_error,
@@ -2719,6 +2721,37 @@ def _plan_code(secret_name: str) -> str:
     return _secret(secret_name)
 
 
+def _professional_checkout_params(email: str) -> tuple[str, int, str]:
+    """Returns (plan_code, price_ghs_pesewas, metadata_label) for the
+    Professional-tier Subscribe button. Concessional pricing (60% off,
+    CBO/Government accounts only, manual admin approval -- see
+    supabase/migrations/0056) is the ONLY thing that changes this from the
+    standard Professional monthly plan; approval status is never
+    self-declared or inferred, only set by utils.db.set_user_concessional_status()
+    from the ?admin=1 dashboard. Falls back to standard pricing on any
+    lookup failure -- a concessional-eligibility bug must never accidentally
+    give someone a higher price, only (at worst) miss giving them the
+    discount they're entitled to, which is the safe failure direction here."""
+    _standard = (_plan_code("PAYSTACK_PLAN_PROFESSIONAL_MONTHLY"), PRICE_MONTHLY_GHS, "monthly")
+    if not email:
+        return _standard
+    try:
+        _u = get_user(email) or {}
+        if _u.get("concessional_status") != "approved":
+            return _standard
+    except Exception:
+        return _standard
+    _concessional_code = _plan_code("PAYSTACK_PLAN_PROFESSIONAL_CONCESSIONAL")
+    if not _concessional_code:
+        # Approved but the Plan hasn't been provisioned in Paystack yet
+        # (see scripts/setup_paystack_plans.py) -- fall back rather than
+        # silently charging the standard price under the "concessional"
+        # label, which would desync the price actually charged from what
+        # the account was told they'd pay.
+        return _standard
+    return (_concessional_code, int(PRICE_MONTHLY_GHS * 0.4), "concessional")
+
+
 def _checkout_route_for_currency(currency: str) -> str:
     """Decides how a checkout for the given display currency is actually
     charged. GHS charges natively via Paystack. Every other currency
@@ -2766,12 +2799,15 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
     metrics.log_event("upgrade_prompt_shown", _metrics_session_id(), context=prompt_context)
     _log_upgrade_prompt_crm("upgrade_prompt_shown", prompt_context)
 
+    _pro_plan_code, _pro_price_ghs, _pro_label = _professional_checkout_params(email)
+    _pro_is_concessional = _pro_label == "concessional"
+
     _currency = _render_currency_selector("paywall_currency")
     _route = _checkout_route_for_currency(_currency)
     _disp_once = exchange_rates.format_amount(
         exchange_rates.convert_pesewas(PRICE_PER_CHECK_GHS, _currency), _currency)
     _disp_monthly = exchange_rates.format_amount(
-        exchange_rates.convert_pesewas(PRICE_MONTHLY_GHS, _currency), _currency)
+        exchange_rates.convert_pesewas(_pro_price_ghs, _currency), _currency)
     _disp_annual = exchange_rates.format_amount(
         exchange_rates.convert_pesewas(PRICE_ANNUAL_GHS, _currency), _currency)
     _disp_agency = exchange_rates.format_amount(
@@ -2820,17 +2856,19 @@ def _render_paywall(irc_context: bool = False, custom_message: str | None = None
                 st.error(f"Payment service unavailable. Try again shortly.{' (' + _detail + ')' if _detail else ''}")
     with _c2:
         st.markdown(f"**Professional:** {_disp_monthly}/month")
-        st.caption("Unlimited · Readiness Card PDF")
+        if _pro_is_concessional:
+            st.caption("✓ Concessional pricing approved · Unlimited · Readiness Card PDF")
+        else:
+            st.caption("Unlimited · Readiness Card PDF")
         if st.session_state.get("_pay_monthly_url"):
             st.link_button("Complete Payment →", st.session_state["_pay_monthly_url"],
                            use_container_width=True, type="primary")
         elif st.button("Subscribe Professional", key="pay_monthly", use_container_width=True, type="primary"):
             with st.spinner("Preparing payment link…"):
-                _plan_monthly = _plan_code("PAYSTACK_PLAN_PROFESSIONAL_MONTHLY")
                 _url = (
-                    initialize_subscription_payment(email, PRICE_MONTHLY_GHS, _plan_monthly, "monthly")
-                    if _plan_monthly else
-                    initialize_payment(email, PRICE_MONTHLY_GHS, "monthly")
+                    initialize_subscription_payment(email, _pro_price_ghs, _pro_plan_code, _pro_label)
+                    if _pro_plan_code else
+                    initialize_payment(email, _pro_price_ghs, _pro_label)
                 )
             if _url:
                 st.session_state["_pay_monthly_url"] = _url
@@ -4906,11 +4944,14 @@ def _complete_email_login(email: str) -> None:
     if _pending_ref:
         _pr = verify_payment(_pending_ref)
         if _pr.get("status") == "success":
-            _pr_days = 365 if _pr.get("plan") == "annual" else (30 if _pr.get("plan") in ("monthly", "agency") else 1)
+            _pr_days = 365 if _pr.get("plan") == "annual" else (30 if _pr.get("plan") in ("monthly", "agency", "concessional") else 1)
             mark_paid(email, days=_pr_days)
             if _pr.get("plan") == "agency":
                 set_user_plan(email, "agency")
-            elif _pr.get("plan") in ("monthly", "annual"):
+            elif _pr.get("plan") in ("monthly", "annual", "concessional"):
+                # Concessional accounts keep full Professional-tier feature
+                # access -- the discount is on price, not features (same
+                # reasoning as paystack-webhook/index.ts's labelToTier()).
                 set_user_plan(email, "professional")
             # "per_use" (or anything else) intentionally does not call
             # set_user_plan -- a one-off payment must not change tier.
@@ -5564,6 +5605,48 @@ def render_billing_page():
             st.query_params.pop("billing", None)
             st.session_state["_show_pricing"] = True
             st.rerun()
+
+    # --- Concessional pricing request (CBO/Government, manual admin approval) ---
+    # Shown for a non-paid account only -- an already-active standard
+    # subscriber would need to cancel and resubscribe once approved (see
+    # supabase/migrations/0056's header for why a mid-cycle downgrade isn't
+    # built in this pass). "denied" shows nothing, matching this codebase's
+    # existing low-drama convention for declined states elsewhere (e.g.
+    # cross-sell recommendations) -- no loud rejection messaging, no
+    # re-request path in v1.
+    _conc_status = user.get("concessional_status", "none")
+    if not is_paid and _conc_status == "none":
+        with st.expander("Are you a CBO or government agency? Request discounted pricing"):
+            st.caption(
+                "60% off Professional (GHS 20/month instead of GHS 50) for community-based "
+                "organisations and government agencies. Reviewed by a real person before it "
+                "activates — not automatic."
+            )
+            _conc_org_type = st.selectbox(
+                "Organisation type", list(CONCESSIONAL_ORG_TYPES), key="_conc_org_type_input",
+            )
+            _conc_note = st.text_area(
+                "Anything that helps us review this quickly? (optional)",
+                key="_conc_note_input", height=80,
+                placeholder="e.g., name of your organisation, district, or grant programme",
+            )
+            if st.button("Request discounted pricing", key="_conc_request_btn"):
+                if request_concessional_pricing(email, _conc_org_type, _conc_note):
+                    try:
+                        from utils.whatsapp import notify_founder
+                        notify_founder("concessional_pricing_request", user_email=email)
+                    except Exception:
+                        pass
+                    st.rerun()
+                else:
+                    st.warning("Could not submit your request right now — please try again shortly.")
+    elif _conc_status == "requested":
+        st.info("📋 Your discounted-pricing request is under review — we'll follow up within 24 hours.")
+    elif _conc_status == "approved":
+        st.success(
+            "✓ Concessional pricing approved. Subscribe to Professional above (or from "
+            "Pricing) to get GHS 20/month instead of GHS 50."
+        )
 
     # --- Cancellation ---
     _sub_code = user.get("paystack_subscription_code", "")
@@ -15058,6 +15141,36 @@ def _render_admin_view():
 
     _safe_log_access(_admin_gate_key, "admin_view_access")
 
+    # --- Concessional pricing requests (manual approval queue) ---
+    # First "admin takes a persisted action on one specific account" UI in
+    # this codebase -- see supabase/migrations/0056's header for why this
+    # exists as a request/approval flow rather than a self-service dropdown.
+    # Shown above the usage-metrics dashboard below: this is a real person
+    # waiting on a decision, not a passive read-only chart.
+    _conc_pending = list_pending_concessional_requests()
+    st.markdown(f"#### Concessional pricing requests ({len(_conc_pending)} pending)")
+    if not _conc_pending:
+        st.caption("No pending requests.")
+    else:
+        _admin_email = st.session_state.get("user_email", "")
+        for _req in _conc_pending:
+            _req_email = _req.get("email", "")
+            with st.container(border=True):
+                st.markdown(f"**{_req_email}** — {_req.get('concessional_org_type', '')}")
+                if _req.get("concessional_note"):
+                    st.caption(_req["concessional_note"])
+                st.caption(f"Requested: {str(_req.get('concessional_requested_at', ''))[:16].replace('T', ' ')}")
+                _ac1, _ac2 = st.columns(2)
+                with _ac1:
+                    if st.button("✓ Approve", key=f"_conc_approve_{_req_email}", type="primary", use_container_width=True):
+                        set_user_concessional_status(_req_email, "approved", approved_by=_admin_email)
+                        st.rerun()
+                with _ac2:
+                    if st.button("✕ Deny", key=f"_conc_deny_{_req_email}", use_container_width=True):
+                        set_user_concessional_status(_req_email, "denied", approved_by=_admin_email)
+                        st.rerun()
+    st.divider()
+
     summary = metrics.summarize()
     totals = summary["totals"]
     funnel = summary["funnel"]
@@ -15721,12 +15834,12 @@ def main():
         if _pay_result.get("status") == "success":
             _pay_email = (_pay_result.get("email") or st.session_state.get("user_email") or "").strip().lower()
             if _pay_email:
-                _days = 365 if _pay_result.get("plan") == "annual" else (30 if _pay_result.get("plan") in ("monthly", "agency") else 1)
+                _days = 365 if _pay_result.get("plan") == "annual" else (30 if _pay_result.get("plan") in ("monthly", "agency", "concessional") else 1)
                 upsert_user(_pay_email)
                 mark_paid(_pay_email, days=_days)
                 if _pay_result.get("plan") == "agency":
                     set_user_plan(_pay_email, "agency")
-                elif _pay_result.get("plan") in ("monthly", "annual"):
+                elif _pay_result.get("plan") in ("monthly", "annual", "concessional"):
                     set_user_plan(_pay_email, "professional")
                 st.session_state["user_email"] = _pay_email
                 st.session_state["is_paid"] = True

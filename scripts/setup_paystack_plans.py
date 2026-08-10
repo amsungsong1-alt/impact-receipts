@@ -1,22 +1,29 @@
 """
 scripts/setup_paystack_plans.py
 
-One-time setup script: creates the three Paystack Plan objects this app's
+One-time setup script: creates the Paystack Plan objects this app's
 subscription tiers need (Professional monthly, Professional annual, Agency
-monthly) and prints the resulting plan codes.
+monthly, Professional Concessional monthly) and prints the resulting plan
+codes.
 
 Run once:
     PAYSTACK_SECRET_KEY=sk_... python scripts/setup_paystack_plans.py
 
-Paste the three printed codes into Streamlit secrets as:
+Paste the printed codes into Streamlit secrets as:
     PAYSTACK_PLAN_PROFESSIONAL_MONTHLY
     PAYSTACK_PLAN_PROFESSIONAL_ANNUAL
     PAYSTACK_PLAN_AGENCY_MONTHLY
+    PAYSTACK_PLAN_PROFESSIONAL_CONCESSIONAL
 
 Re-running this script creates duplicate Plan objects in Paystack -- it is
 not idempotent and is not meant to run on every deploy. Paystack plans are
 immutable once created; to change a price, create a new plan and update the
 corresponding secret rather than editing an existing plan_code's amount.
+
+If you've already run this once and only need the new Concessional plan
+(e.g. adding concessional pricing to an existing deployment), comment out
+the first three PLANS entries below before running, so you don't create
+duplicate Professional/Agency plan objects.
 """
 from __future__ import annotations
 import os
@@ -33,6 +40,13 @@ PLANS = [
     ("Professional (monthly)", 5000, "monthly", "PAYSTACK_PLAN_PROFESSIONAL_MONTHLY"),
     ("Professional (annual)", 50000, "annually", "PAYSTACK_PLAN_PROFESSIONAL_ANNUAL"),
     ("Agency (monthly)", 20000, "monthly", "PAYSTACK_PLAN_AGENCY_MONTHLY"),
+    # 60% off Professional monthly (GHS 50 -> GHS 20), for CBO/Government
+    # accounts approved via the ?admin=1 dashboard's concessional-pricing
+    # request queue -- see supabase/migrations/0056 and
+    # knowledge/cltv_assumptions.yaml's already-modeled discount_pct.
+    # Never auto-applied: a discounted checkout only becomes available to an
+    # account after manual admin approval of an explicit request.
+    ("Professional Concessional (monthly)", 2000, "monthly", "PAYSTACK_PLAN_PROFESSIONAL_CONCESSIONAL"),
 ]
 
 

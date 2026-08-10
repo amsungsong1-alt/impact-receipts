@@ -442,6 +442,62 @@ def run_admin_crm_behavioral_dashboard():
     print("PASS: behavioural CRM dashboard (C5) -- renders without raising across seeded and empty data.")
 
 
+def run_concessional_checkout_params():
+    """app._professional_checkout_params() -- the branch point deciding
+    whether a Subscribe click gets the standard or concessional (CBO/
+    Government, admin-approved-only) Professional plan/price. The db-layer
+    request/approve/deny round-trip is tested in test_billing.py; this
+    covers just the branching logic itself, reusing _FakeAdminUsersClient
+    from the admin RBAC tests above since both only need get_user()."""
+    failures = []
+    import utils.db as db
+    original_get_client = db._get_client
+    original_plan_code = app._plan_code
+
+    rows = [
+        {"email": "approved@example.com", "concessional_status": "approved"},
+        {"email": "requested@example.com", "concessional_status": "requested"},
+        {"email": "standard@example.com", "concessional_status": "none"},
+        {"email": "legacy@example.com"},  # pre-migration row, no concessional_status key at all
+    ]
+    db._get_client = lambda: _FakeAdminUsersClient(rows)
+    # Fake plan codes for both tiers so the test doesn't depend on real
+    # PAYSTACK_PLAN_* secrets being configured in this environment.
+    app._plan_code = lambda secret_name: (
+        "PLN_concessional_fake" if "CONCESSIONAL" in secret_name else "PLN_standard_fake"
+    )
+    try:
+        _code, _price, _label = app._professional_checkout_params("approved@example.com")
+        if _label != "concessional" or _code != "PLN_concessional_fake":
+            failures.append(f"approved account should get concessional plan/label, got {(_code, _price, _label)!r}")
+        if _price != int(app.PRICE_MONTHLY_GHS * 0.4):
+            failures.append(f"concessional price should be 40% of PRICE_MONTHLY_GHS, got {_price!r}")
+
+        for _email in ("requested@example.com", "standard@example.com", "legacy@example.com", "unknown@example.com", ""):
+            _code, _price, _label = app._professional_checkout_params(_email)
+            if _label != "monthly" or _code != "PLN_standard_fake" or _price != app.PRICE_MONTHLY_GHS:
+                failures.append(f"{_email!r} (not approved) should get standard plan/price, got {(_code, _price, _label)!r}")
+
+        # If the concessional Plan hasn't been provisioned in Paystack yet
+        # (empty secret), an approved account must fall back to standard
+        # pricing, never silently charge the standard price under the
+        # "concessional" label.
+        app._plan_code = lambda secret_name: "" if "CONCESSIONAL" in secret_name else "PLN_standard_fake"
+        _code, _price, _label = app._professional_checkout_params("approved@example.com")
+        if _label != "monthly" or _price != app.PRICE_MONTHLY_GHS:
+            failures.append("an approved account should fall back to standard pricing when the concessional Plan isn't provisioned yet")
+    finally:
+        db._get_client = original_get_client
+        app._plan_code = original_plan_code
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: concessional checkout params -- approved accounts get the discounted plan, everyone else gets standard, unprovisioned Plan degrades safely.")
+
+
 if __name__ == "__main__":
     run_user_email_overwrite_guard()
     run_portfolio_heatmap_sample_gate()
@@ -451,3 +507,4 @@ if __name__ == "__main__":
     run_admin_rbac_gate()
     run_admin_rbac_gate_role_tier()
     run_admin_crm_behavioral_dashboard()
+    run_concessional_checkout_params()

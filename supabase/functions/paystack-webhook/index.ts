@@ -17,9 +17,10 @@
  * Environment variables (set via `supabase secrets set`, NOT the same store
  * as Streamlit's own secrets):
  *   PAYSTACK_SECRET_KEY                 Same key used by utils/paystack.py
- *   PAYSTACK_PLAN_PROFESSIONAL_MONTHLY  Plan codes from
- *   PAYSTACK_PLAN_PROFESSIONAL_ANNUAL     scripts/setup_paystack_plans.py
+ *   PAYSTACK_PLAN_PROFESSIONAL_MONTHLY       Plan codes from
+ *   PAYSTACK_PLAN_PROFESSIONAL_ANNUAL          scripts/setup_paystack_plans.py
  *   PAYSTACK_PLAN_AGENCY_MONTHLY
+ *   PAYSTACK_PLAN_PROFESSIONAL_CONCESSIONAL
  *   SUPABASE_URL                        Auto-available in Edge Functions
  *   SUPABASE_SERVICE_ROLE_KEY           Service role key for DB writes
  *
@@ -101,24 +102,31 @@ function addDaysIsoDate(days: number): string {
 }
 
 // planCodeToLabel: maps a Paystack Plan code back to our own plan label
-// ("monthly" | "annual" | "agency"), since Paystack's webhook payload
-// identifies the plan by its own opaque code, not our label.
+// ("monthly" | "annual" | "agency" | "concessional"), since Paystack's
+// webhook payload identifies the plan by its own opaque code, not our
+// label. concessional gets its own explicit branch (not a fallthrough to
+// "monthly") even though the two currently resolve to the same tier/period
+// below -- an explicit branch stays correct if that ever changes, instead
+// of silently relying on the coincidence.
 function planCodeToLabel(planCode: string): string {
   if (planCode && planCode === Deno.env.get("PAYSTACK_PLAN_AGENCY_MONTHLY")) return "agency";
   if (planCode && planCode === Deno.env.get("PAYSTACK_PLAN_PROFESSIONAL_ANNUAL")) return "annual";
+  if (planCode && planCode === Deno.env.get("PAYSTACK_PLAN_PROFESSIONAL_CONCESSIONAL")) return "concessional";
   if (planCode && planCode === Deno.env.get("PAYSTACK_PLAN_PROFESSIONAL_MONTHLY")) return "monthly";
   return "monthly"; // best-effort default for an unrecognized plan_code
 }
 
 function labelToPeriodDays(label: string): number {
   if (label === "annual") return 365;
-  if (label === "monthly" || label === "agency") return 30;
+  if (label === "monthly" || label === "agency" || label === "concessional") return 30;
   return 1; // "per_use" or unknown
 }
 
 function labelToTier(label: string): string | undefined {
   if (label === "agency") return "agency";
-  if (label === "monthly" || label === "annual") return "professional";
+  // Concessional accounts keep full Professional-tier feature access --
+  // the discount is on price, not features.
+  if (label === "monthly" || label === "annual" || label === "concessional") return "professional";
   return undefined; // "per_use" doesn't change the account's subscription tier
 }
 
