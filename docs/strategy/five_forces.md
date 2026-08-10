@@ -64,13 +64,17 @@ org-type thresholds) is patent-protected or technically hard to replicate. A wel
 team could rebuild the scoring logic in weeks.
 
 **What isn't easily replicated, but is untested as a real moat (Assumption):** calibration to
-specific funders and grant tiers. `donor_templates.py` carries real, citation-anchored guidance
-for exactly four donors (USAID ADS 201.3.5.7, FCDO Evaluation Policy January 2025 / EQuALS 2,
-GIZ Results-Based Monitoring, World Bank PDO-level results / IEG RAP standards), and the
-org-type thresholds are calibrated to real Ghana funding mechanisms (STAR-Ghana, District
-Assembly grants — see `competitive_strategy.md`). This calibration work is slow and requires
-domain access most software teams don't have. Whether that's a durable barrier or just a
-head-start has not been tested against an actual competitor attempt — **research needed.**
+specific funders and grant tiers. `donor_templates.py` covers 12 donors, five of them with
+real, citation-anchored guidance (USAID ADS 201.3.5.7, FCDO Evaluation Policy January 2025 /
+EQuALS 2, GIZ Results-Based Monitoring, World Bank PDO-level results / IEG RAP standards,
+Mastercard Foundation's Young Africa Works tracer-survey standard); the org-type thresholds
+are *presented to users* as calibrated to real Ghana funding mechanisms (STAR-Ghana, District
+Assembly grants — see `competitive_strategy.md`), but no source document ties the specific
+3.5/3.75/4.0 threshold values to either program — **this specific number-to-source link is
+itself Assumption, not Confirmed**, distinct from the donor citations above which do trace to
+a named instrument. This calibration work is slow and requires domain access most software
+teams don't have. Whether that's a durable barrier or just a head-start has not been tested
+against an actual competitor attempt — **research needed.**
 
 The other candidate barrier is a future validator relationship (a funder whose endorsement
 makes a score meaningful to third parties) — see `ecosystem_map.md`. This does not exist yet

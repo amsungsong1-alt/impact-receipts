@@ -52,11 +52,14 @@ structurally cannot offer.
 
 Ghana-specific calibration is real and load-bearing, not decorative.
 
-- Org-type-aware thresholds (CBO/Government 3.5, National NGO 3.75, INGO 4.0) are calibrated
-  to named, real funding mechanisms: the INGO track to USAID/FCDO/GIZ/Mastercard Foundation;
-  the community/national track to **STAR-Ghana and District Assembly grants** — a real Ghana
-  civil-society funder and Ghana's actual local-government funding structure. This is the
-  single most concrete Ghana-specific product-design fact in the codebase.
+- Org-type-aware thresholds (CBO/Government 3.5, National NGO 3.75, INGO 4.0) are *presented
+  to users* as calibrated to named, real funding mechanisms: the INGO track to
+  USAID/FCDO/GIZ/Mastercard Foundation; the community/national track to **STAR-Ghana and
+  District Assembly grants** — a real Ghana civil-society funder and Ghana's actual
+  local-government funding structure. The design intent is real and disclosed to users; the
+  specific 3.5/3.75/4.0 numbers themselves are not traced to a source document from either
+  program — **Assumption, not Confirmed** (see `five_forces.md`), on par with the rest of this
+  calibration work rather than a specially-verified exception to it.
   *[competitive_strategy.md / value_chain.md]*
 - Stated honestly, not omitted: the product itself discloses that the lower-threshold track
   still structurally favors organisations with formal documentation capacity — an equity

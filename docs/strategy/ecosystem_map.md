@@ -32,12 +32,15 @@ should be presented to a judge as a target ecosystem, not a partnership in progr
 
 ## Donor ecosystem
 
-**Confirmed, real product calibration:** `donor_templates.py` carries citation-anchored
-guidance for exactly four donors — USAID (ADS 201.3.5.7), FCDO (Evaluation Policy January
-2025, EQuALS 2), GIZ (Results-Based Monitoring), World Bank (PDO-level results, IEG RAP
-standards). This relationship is real but **one-directional**: ImpactProof reads and encodes
-donor standards; no donor currently reads ImpactProof's output back, or has endorsed it in any
-way.
+**Confirmed, real product calibration:** `donor_templates.py` covers 12 donors total. Five
+carry citation-anchored guidance to a specific named instrument — USAID (ADS 201.3.5.7), FCDO
+(Evaluation Policy January 2025, EQuALS 2), GIZ (Results-Based Monitoring), World Bank
+(PDO-level results, IEG RAP standards), and Mastercard Foundation (Young Africa Works'
+6-month employment tracer-survey standard, ≥60% coverage). The remaining seven (RVO, AfDB,
+EU/EuropeAid, KOICA, SIDA, SDC, Global Fund) carry correct but more general guidance, since no
+section-numbered public citation was found for them at write time. This relationship is real
+but **one-directional**: ImpactProof reads and encodes donor standards; no donor currently
+reads ImpactProof's output back, or has endorsed it in any way.
 
 This is the validator gap, and it deserves to be named plainly rather than implied away: the
 single most consequential relationship ImpactProof could form is a donor, or an impact-linked
