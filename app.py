@@ -15426,6 +15426,7 @@ def _render_outcome_followup_banner(email: str) -> None:
                 except Exception:
                     pass
                 st.success("Thanks — recorded." + _payoff)
+                st.session_state.pop("_top_banner_cache", None)
                 st.rerun()
         with _oc2:
             if st.button("Skip", key=f"_outcome_skip_{_fb['id']}"):
@@ -15433,6 +15434,7 @@ def _render_outcome_followup_banner(email: str) -> None:
                     skip_followup(_fb["id"], email)
                 except Exception:
                     pass
+                st.session_state.pop("_top_banner_cache", None)
                 st.rerun()
 
 
@@ -15472,6 +15474,7 @@ def _render_profile_capture_banner(email: str) -> None:
                 except Exception:
                     pass
                 st.success("Saved — thanks!")
+                st.session_state.pop("_top_banner_cache", None)
                 st.rerun()
         with _pcc2:
             if st.button("Skip", key="_profile_skip_btn"):
@@ -15480,23 +15483,28 @@ def _render_profile_capture_banner(email: str) -> None:
                     skip_profile_capture(email)
                 except Exception:
                     pass
+                st.session_state.pop("_top_banner_cache", None)
                 st.rerun()
 
 
-def _eligible_lifecycle_triggers(email: str) -> set:
+def _eligible_lifecycle_triggers(email: str, profile: dict | None = None) -> set:
     """Pure eligibility check, no rendering -- lets the single-banner
     priority picker at the main() call site peek at lifecycle-trigger
     eligibility the same way it peeks at outcome-followup/profile-capture,
-    without rendering (and thereby recording-as-fired) anything itself."""
+    without rendering (and thereby recording-as-fired) anything itself.
+    Pass an already-fetched `profile` (main() and
+    _check_cross_sell_recommendation() need the exact same customer_profiles
+    row) to skip a redundant get_customer_profile() round trip."""
     if not email:
         return set()
     try:
-        from utils.customer_profiles import get_customer_profile
         from utils.crm import compute_behavioral_segment
         from utils.mel_calendar import load_mel_calendar
         from utils.lifecycle_triggers import eligible_triggers
 
-        profile = get_customer_profile(email)
+        if profile is None:
+            from utils.customer_profiles import get_customer_profile
+            profile = get_customer_profile(email)
         if not profile:
             return set()
         segment = compute_behavioral_segment(profile, load_mel_calendar())
@@ -15526,6 +15534,7 @@ def _render_trigger_payment_recovery(email: str) -> None:
         if st.button("Got it", key="_lifecycle_payment_recovery_dismiss"):
             from utils.lifecycle_triggers import record_trigger_fired
             record_trigger_fired(email, "payment_recovery")
+            st.session_state.pop("_top_banner_cache", None)
             st.rerun()
 
 
@@ -15542,11 +15551,13 @@ def _render_trigger_org_emergent(email: str) -> None:
                 from utils.lifecycle_triggers import record_trigger_fired
                 record_trigger_fired(email, "org_emergent_detected")
                 st.session_state["_show_pricing"] = True
+                st.session_state.pop("_top_banner_cache", None)
                 st.rerun()
         with _oe2:
             if st.button("Dismiss", key="_lifecycle_org_emergent_dismiss"):
                 from utils.lifecycle_triggers import record_trigger_fired
                 record_trigger_fired(email, "org_emergent_detected")
+                st.session_state.pop("_top_banner_cache", None)
                 st.rerun()
     # Unlike record_trigger_fired() above, this stays unconditional on
     # render, not gated on a click -- it's a founder-led-sales signal about
@@ -15572,10 +15583,11 @@ def _render_trigger_first_assessment(email: str) -> None:
         if st.button("Got it", key="_lifecycle_first_assessment_dismiss"):
             from utils.lifecycle_triggers import record_trigger_fired
             record_trigger_fired(email, "first_assessment_no_engagement")
+            st.session_state.pop("_top_banner_cache", None)
             st.rerun()
 
 
-def _check_cross_sell_recommendation(email: str) -> None:
+def _check_cross_sell_recommendation(email: str, profile: dict | None = None) -> None:
     """Laudon Ch.9, C7: cross-sell logging. recommend() is behaviour-only
     (see utils/cross_sell.py). This function only ever records a
     recommendation for later evaluation on the admin dashboard's "who to
@@ -15583,14 +15595,17 @@ def _check_cross_sell_recommendation(email: str) -> None:
     the build prompt's own out-of-scope note, so this doesn't send anything
     to the user itself, except reusing the EXISTING upgrade-prompt event
     pipeline for the one case (upgrade_to_subscription) that already has a
-    live, tested user-facing surface elsewhere in the app."""
+    live, tested user-facing surface elsewhere in the app. Pass an already-
+    fetched `profile` (see _eligible_lifecycle_triggers()) to skip a
+    redundant get_customer_profile() round trip for the same row."""
     if not email:
         return
     try:
-        from utils.customer_profiles import get_customer_profile
         from utils.cross_sell import recommend, record_recommendation
 
-        profile = get_customer_profile(email)
+        if profile is None:
+            from utils.customer_profiles import get_customer_profile
+            profile = get_customer_profile(email)
         if not profile:
             return
         rec_type = recommend(profile)
@@ -15764,34 +15779,79 @@ def main():
         return
     _outcome_email = st.session_state.get("user_email", "")
     if _outcome_email:
-        # Only the single highest-priority eligible banner renders, not a
-        # stack of everything eligible at once -- a new account with a weak
-        # first result and a failed renewal could previously see up to 5
-        # bordered ask-boxes stacked above their own screen's content, in
-        # no particular order. Priority: payment recovery (money/access
-        # risk) > outcome follow-up > profile capture > org-emergent (sales
-        # signal) > first-assessment nudge.
-        _lifecycle_fired = _eligible_lifecycle_triggers(_outcome_email)
-        if "payment_recovery" in _lifecycle_fired:
-            _render_trigger_payment_recovery(_outcome_email)
-        else:
+        # This whole block used to run its full eligibility computation --
+        # _eligible_lifecycle_triggers() (2 DB round trips), get_pending_followup()
+        # (1), get_user() (1), _check_cross_sell_recommendation() (2, one of
+        # which re-fetched the exact same customer_profiles row
+        # _eligible_lifecycle_triggers() had just fetched) -- unconditionally on
+        # EVERY script rerun, not just the first page load. Streamlit reruns the
+        # whole script on nearly every widget interaction, so a logged-in user
+        # was paying 4-6 sequential Supabase round trips before the main screen
+        # even started rendering, on every single click, not only once per
+        # session -- this is what the sidebar-renders-instantly-but-the-main-
+        # content-stays-blank-for-3+-seconds report was actually seeing.
+        # Cached with a short TTL instead: the eligibility decision itself
+        # doesn't change from one click to the next a few seconds apart, so
+        # recomputing it that often was pure waste. Each banner's own Save/
+        # Skip/Dismiss/Got-it button explicitly clears this cache before its
+        # own st.rerun(), so a just-dismissed banner never lingers waiting for
+        # the TTL -- the TTL alone (60s) is only a safety net for a future
+        # button that forgets to invalidate it.
+        _TOP_BANNER_CACHE_TTL = 60
+        _tb_cache = st.session_state.get("_top_banner_cache")
+        _tb_fresh = (
+            _tb_cache and _tb_cache.get("email") == _outcome_email
+            and (time.time() - _tb_cache.get("computed_at", 0)) < _TOP_BANNER_CACHE_TTL
+        )
+        if not _tb_fresh:
+            # Only the single highest-priority eligible banner renders, not a
+            # stack of everything eligible at once -- a new account with a weak
+            # first result and a failed renewal could previously see up to 5
+            # bordered ask-boxes stacked above their own screen's content, in
+            # no particular order. Priority: payment recovery (money/access
+            # risk) > outcome follow-up > profile capture > org-emergent (sales
+            # signal) > first-assessment nudge.
             try:
-                from utils.outcomes import get_pending_followup as _peek_outcome
-                _pending_outcome = _peek_outcome(_outcome_email)
+                from utils.customer_profiles import get_customer_profile
+                _outcome_profile = get_customer_profile(_outcome_email)
             except Exception:
-                _pending_outcome = None
-            if _pending_outcome:
-                _render_outcome_followup_banner(_outcome_email)
+                _outcome_profile = None
+            _lifecycle_fired = _eligible_lifecycle_triggers(_outcome_email, profile=_outcome_profile)
+            _decision = None
+            if "payment_recovery" in _lifecycle_fired:
+                _decision = "payment_recovery"
             else:
-                _profile_u = get_user(_outcome_email) or {}
-                _profile_pending = not (_profile_u.get("profile_completed_at") or _profile_u.get("profile_skipped"))
-                if _profile_pending:
-                    _render_profile_capture_banner(_outcome_email)
-                elif "org_emergent_detected" in _lifecycle_fired:
-                    _render_trigger_org_emergent(_outcome_email)
-                elif "first_assessment_no_engagement" in _lifecycle_fired:
-                    _render_trigger_first_assessment(_outcome_email)
-        _check_cross_sell_recommendation(_outcome_email)
+                try:
+                    from utils.outcomes import get_pending_followup as _peek_outcome
+                    _pending_outcome = _peek_outcome(_outcome_email)
+                except Exception:
+                    _pending_outcome = None
+                if _pending_outcome:
+                    _decision = "outcome_followup"
+                else:
+                    _profile_u = get_user(_outcome_email) or {}
+                    _profile_pending = not (_profile_u.get("profile_completed_at") or _profile_u.get("profile_skipped"))
+                    if _profile_pending:
+                        _decision = "profile_capture"
+                    elif "org_emergent_detected" in _lifecycle_fired:
+                        _decision = "org_emergent"
+                    elif "first_assessment_no_engagement" in _lifecycle_fired:
+                        _decision = "first_assessment"
+            _check_cross_sell_recommendation(_outcome_email, profile=_outcome_profile)
+            _tb_cache = {"email": _outcome_email, "computed_at": time.time(), "decision": _decision}
+            st.session_state["_top_banner_cache"] = _tb_cache
+
+        _tb_decision = _tb_cache["decision"]
+        if _tb_decision == "payment_recovery":
+            _render_trigger_payment_recovery(_outcome_email)
+        elif _tb_decision == "outcome_followup":
+            _render_outcome_followup_banner(_outcome_email)
+        elif _tb_decision == "profile_capture":
+            _render_profile_capture_banner(_outcome_email)
+        elif _tb_decision == "org_emergent":
+            _render_trigger_org_emergent(_outcome_email)
+        elif _tb_decision == "first_assessment":
+            _render_trigger_first_assessment(_outcome_email)
     try:
         screen = st.session_state["screen"]
         {0: render_screen_0, 1: render_screen_1, 2: render_screen_2, 3: render_screen_3,
