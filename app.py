@@ -15613,6 +15613,21 @@ def main():
         page_icon="✅",
         layout="centered",
         initial_sidebar_state="collapsed",
+        # Overrides Streamlit's own default menu links (generic GitHub/docs
+        # URLs that have nothing to do with this product) with real support
+        # contact and product copy -- paired with toolbarMode="minimal" in
+        # .streamlit/config.toml, which drops the remaining dev/hosting-only
+        # items (Rerun, Settings, deployment status) entirely.
+        menu_items={
+            "Get Help": "mailto:info@impact-receipts.com",
+            "Report a bug": "mailto:info@impact-receipts.com",
+            "About": (
+                "**ImpactProof** — deterministic, rule-based evidence-quality "
+                "scoring for NGO/MEL donor reporting. Same inputs always "
+                "produce the same score; no AI judgement is involved in "
+                "setting it. Contact: info@impact-receipts.com"
+            ),
+        },
     )
 
     st.markdown(CSS, unsafe_allow_html=True)

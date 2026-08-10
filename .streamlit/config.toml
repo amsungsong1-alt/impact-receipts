@@ -3,6 +3,16 @@ headless = true
 enableCORS = false
 enableXsrfProtection = true
 
+[client]
+# Default is "auto" -- shows Streamlit's full menu (Rerun, Settings, Print,
+# Record a screencast, deployment status, "hosted with Streamlit" branding)
+# on every page load, which reads as generic framework chrome on a paying
+# product rather than deliberate UI. "minimal" drops the dev/hosting-status
+# items and leaves only what's set in st.set_page_config(menu_items=...) in
+# app.py's main() -- Get Help/Report a bug pointed at real support contact
+# instead of Streamlit's own GitHub, About replaced with real product copy.
+toolbarMode = "minimal"
+
 [theme]
 primaryColor = "#1B5E20"
 backgroundColor = "#FFFFFF"
