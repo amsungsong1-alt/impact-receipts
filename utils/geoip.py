@@ -24,7 +24,16 @@ _COUNTRY_TO_CURRENCY = {
     "LV": "EUR", "EE": "EUR", "CY": "EUR", "MT": "EUR", "HR": "EUR",
 }
 
-_DEFAULT_CURRENCY = "USD"
+# Ghana-first positioning (product scoped to Ghana for now, other Anglophone
+# West African countries -- Sierra Leone, Liberia, The Gambia -- planned for
+# later versions and not yet in _COUNTRY_TO_CURRENCY above): GHS, not USD, is
+# the right fallback for an unmapped country. A Sierra Leonean/Liberian/
+# Gambian visitor today sees a GHS-denominated price (still overridable via
+# the currency selector) rather than a USD one that implies a different,
+# not-yet-built market. Update this map directly once those countries get
+# their own currency in a future version, rather than relying on this
+# fallback long-term.
+_DEFAULT_CURRENCY = "GHS"
 
 
 def _secret_key() -> str:
@@ -82,10 +91,12 @@ def _country_from_ip(ip: str) -> str:
 
 def default_currency_from_ip() -> str:
     """Public entry point. Resolves the visitor's country from their IP and
-    maps it to a supported currency; falls back to USD on any failure or
-    unmapped country. Caches the result in st.session_state for the
-    duration of the session (per-visitor, not a shared st.cache_data
-    cache), so this only ever does the network round trip once per visit."""
+    maps it to a supported currency; falls back to GHS (the home-market
+    currency for this Ghana-first product, see _DEFAULT_CURRENCY above) on
+    any failure or unmapped country. Caches the result in st.session_state
+    for the duration of the session (per-visitor, not a shared
+    st.cache_data cache), so this only ever does the network round trip
+    once per visit."""
     try:
         import streamlit as st
         if "_geoip_default_currency" in st.session_state:

@@ -1,8 +1,13 @@
 """
 donor_templates.py — Donor-specific diagnostic language for Impact-Receipts v3.0.
 
-Covers USAID, FCDO, GIZ, World Bank. Each entry has "low" and "high" guidance
-keyed by sub-dimension name. Consumed by app.py Screen 2 diagnostic section.
+Covers 12 donors: USAID, FCDO, GIZ, World Bank, RVO, AfDB, EU/EuropeAid,
+Mastercard Foundation, KOICA, SIDA, SDC, Global Fund. Citation depth is uneven by design,
+not oversight -- USAID/FCDO/GIZ/World Bank/Mastercard Foundation cite exact
+instruments (e.g. ADS 201.3.5.7, FCDO Evaluation Policy Jan 2025); the rest
+use correct but more general guidance since no section-numbered public
+citation was found for them. Each entry has "low" and "high" guidance keyed
+by sub-dimension name. Consumed by app.py Screen 2 diagnostic section.
 """
 
 DONOR_DIAGNOSTICS = {
@@ -363,6 +368,40 @@ DONOR_DIAGNOSTICS = {
             ),
             "high": (
                 "Independent verification meets SDC evaluation quality standards."
+            ),
+        },
+    },
+    # Selectable in app.py's donor dropdown but previously had no entry here
+    # at all -- a real, active Ghana funder (malaria/TB/HIV grants) got
+    # silently zero donor-specific guidance. General tier (like AfDB/EU/SDC
+    # above): no section-numbered public citation found, so this stays at
+    # the same specificity as the other general-tier entries rather than
+    # inventing a precise instrument reference that isn't verified.
+    "Global Fund": {
+        "Directness": {
+            "low": (
+                "Global Fund grants are managed against a pre-agreed Performance Framework of "
+                "indicators tied to the grant's Programme Objectives — a result not traceable to "
+                "one of those indicators reads as off-framework. Fix: reference the specific "
+                "Performance Framework indicator this result reports against, not just the "
+                "activity that produced it."
+            ),
+            "high": (
+                "Evidence traces to a named Performance Framework indicator, consistent with "
+                "Global Fund grant reporting structure."
+            ),
+        },
+        "Verification": {
+            "low": (
+                "Global Fund grants are subject to periodic Data Quality Reviews (DQRs) and "
+                "Local Fund Agent (LFA) verification — self-reported figures with no independent "
+                "check are a common DQR finding. Fix: reference the DQR, LFA verification visit, "
+                "or independent data audit that covers this result, or name the verification step "
+                "planned before the next Progress Update and Disbursement Request (PU/DR)."
+            ),
+            "high": (
+                "Independent verification is consistent with Global Fund Data Quality Review "
+                "expectations."
             ),
         },
     },

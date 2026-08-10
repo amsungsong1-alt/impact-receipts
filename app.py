@@ -5373,6 +5373,11 @@ def render_pricing_page():
 
     st.markdown("## Pricing")
     st.caption("Determine your evidence readiness. Prove your impact. First 3 checks always free.")
+    st.caption(
+        "🇬🇭 Priced for Ghana's MEL sector — GHS, paid by mobile money, card, or bank. "
+        "Other currencies below are a reference preview (see the note under the tiers for "
+        "exactly how a non-GHS card is charged)."
+    )
 
     _currency = _render_currency_selector("pricing_page_currency")
     _route = _checkout_route_for_currency(_currency)
@@ -6008,6 +6013,25 @@ def render_screen_0():
         unsafe_allow_html=True,
     )
 
+    # ── Ghana proof-points strip ────────────────────────────────────────────
+    # These three facts were all real and already shipped -- separate
+    # evidence thresholds by org type (Screen 1's Fairness expander), GHS
+    # pricing (only visible after clicking into Pricing), Low-bandwidth mode
+    # (sidebar toggle, never mentioned here) -- but none of them were visible
+    # on the one page whose job is to earn the first click. Surfaced here
+    # instead of only one-or-more clicks deep.
+    st.markdown(
+        """
+        <p style="font-size:0.8rem;color:#1B5E20;margin:0 0 14px;line-height:1.5;">
+          🇬🇭 <strong>Built for Ghana:</strong> separate evidence thresholds for
+          CBOs/District Assembly grantees, National NGOs, and INGOs — not one bar
+          for everyone. Priced in GHS from GHS 50/month, paid by mobile money or
+          card. Works on a slow connection too (Low-bandwidth mode, sidebar).
+        </p>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # ── Two-path choice cards ──────────────────────────────────────────────
     st.markdown("")
     _path_col1, _path_col2 = st.columns(2, gap="medium")
@@ -6136,14 +6160,22 @@ def render_screen_0():
                 _go_to_screen(1, reset=False)
 
     # ── Case study trust element (compact) ────────────────────────────────
+    # Previously "Real case from 2024" naming no organisation, donor, or
+    # country -- an unverifiable specific claim, not a case study. Rewritten
+    # as the honest version of the same point: a recurring pattern from the
+    # founder's own MEL practice in Accra (see the "Built in Accra" founder
+    # note further down this page), not a single unattributed incident.
+    # Never invent a specific named client/report to make this sound more
+    # concrete -- that would trade one credibility problem for a worse one.
     st.markdown(
         """
         <div style="border-left:4px solid #8A6500;padding:8px 12px;margin:12px 0;background:transparent;">
           <p style="margin:0;font-size:0.85rem;color:#212121;">
-            <strong style="color:#1B5E20;">&#128204; Real case from 2024:</strong>
-            An African consultancy&rsquo;s final donor report was rejected three times
-            for missing M&amp;E data and logframe gaps. 40+ hours of senior staff rework.
-            ImpactProof catches these issues before they reach your donor.
+            <strong style="color:#1B5E20;">&#128204; What we kept seeing in Accra:</strong>
+            Donor reports going back three or more rounds of review for the same root causes
+            &mdash; missing M&amp;E data, logframe gaps &mdash; each round costing a MEL team
+            real, billable hours of senior staff rework. ImpactProof catches these before
+            they reach your donor, not after.
           </p>
         </div>
         """,

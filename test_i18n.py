@@ -114,13 +114,16 @@ def run_geoip():
         if geoip.default_currency_from_ip() != "GHS":
             failures.append("default_currency_from_ip should map GH -> GHS")
 
-        # 2. Unmapped country falls back to USD.
+        # 2. Unmapped country falls back to GHS -- Ghana-first positioning
+        # (product scoped to Ghana for now; Sierra Leone/Liberia/Gambia are
+        # unmapped today and planned for a future version, so they should
+        # see the home-market currency, not an unrelated USD default).
         st.session_state.clear()
         geoip._country_from_ip = lambda ip: "JP"
-        if geoip.default_currency_from_ip() != "USD":
-            failures.append("default_currency_from_ip should default to USD for an unmapped country")
+        if geoip.default_currency_from_ip() != "GHS":
+            failures.append("default_currency_from_ip should default to GHS for an unmapped country")
 
-        # 3. API/IP failure never raises, falls back to USD.
+        # 3. API/IP failure never raises, falls back to GHS.
         st.session_state.clear()
         geoip._visitor_ip = lambda: ""
         geoip._country_from_ip = lambda ip: (_ for _ in ()).throw(ConnectionError("down"))
@@ -129,8 +132,8 @@ def run_geoip():
         except Exception as exc:
             failures.append(f"default_currency_from_ip raised on failure: {exc!r}")
             result = None
-        if result != "USD":
-            failures.append(f"default_currency_from_ip should default to USD on failure, got {result!r}")
+        if result != "GHS":
+            failures.append(f"default_currency_from_ip should default to GHS on failure, got {result!r}")
 
         # 4. Result is cached in session_state for the rest of the session.
         st.session_state.clear()
@@ -151,7 +154,7 @@ def run_geoip():
         for f in failures:
             print("  -", f)
         raise SystemExit(1)
-    print("PASS: geoip — country-to-currency mapping, unmapped/failure fallback to USD, per-session caching.")
+    print("PASS: geoip — country-to-currency mapping, unmapped/failure fallback to GHS, per-session caching.")
 
 
 def run_roi_config():
