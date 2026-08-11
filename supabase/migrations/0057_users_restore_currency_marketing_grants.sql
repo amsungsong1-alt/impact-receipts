@@ -1,0 +1,21 @@
+-- 0057_users_restore_currency_marketing_grants.sql
+-- 0013_users_marketing_columns.sql and 0018_currency_fields.sql were written
+-- against this repo but never actually applied to the live database -- only
+-- discovered 2026-08-11 while verifying 0046_rls_users.sql's column-scoped
+-- UPDATE grant, whose original text referenced preferred_currency/
+-- marketing_opt_out as if they already existed. Both migrations have now
+-- been applied (via direct schema inspection + apply_migration, since
+-- neither showed up in supabase_migrations.schema_migrations under their
+-- own numbers -- they were pasted by hand originally, this repo's normal
+-- convention, and apparently never actually pasted). This migration is the
+-- follow-up 0046 skipped: preferred_currency (self-service currency choice)
+-- and marketing_opt_out (self-service unsubscribe preference) are both
+-- legitimately user-editable on their own row, same category as
+-- account_sector/country/draft_json already granted -- unlike
+-- unsubscribe_token (a security-sensitive lookup key) or
+-- day3_email_sent_at/day7_email_sent_at (internal drip bookkeeping), which
+-- stay out of the authenticated grant deliberately.
+grant update (preferred_currency, marketing_opt_out) on users to authenticated;
+
+-- DOWN (manual):
+-- revoke update (preferred_currency, marketing_opt_out) on users from authenticated;
