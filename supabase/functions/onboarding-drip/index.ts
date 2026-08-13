@@ -167,13 +167,25 @@ function upgradeOfferHtml(appUrl: string, token: string): string {
 
 async function sendResendEmail(toEmail: string, subject: string, html: string): Promise<boolean> {
   const apiKey = Deno.env.get("RESEND_API_KEY");
-  if (!apiKey) return false;
+  if (!apiKey) {
+    console.error("sendResendEmail: RESEND_API_KEY is not set");
+    return false;
+  }
   const resp = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({ from: fromAddress(), to: [toEmail], subject, html }),
-  }).catch(() => null);
-  return !!resp && (resp.status === 200 || resp.status === 201);
+  }).catch((err) => {
+    console.error(`sendResendEmail: fetch threw: ${err}`);
+    return null;
+  });
+  if (!resp) return false;
+  const ok = resp.status === 200 || resp.status === 201;
+  if (!ok) {
+    const bodyText = await resp.text().catch(() => "<unreadable body>");
+    console.error(`sendResendEmail: Resend returned ${resp.status}: ${bodyText}`);
+  }
+  return ok;
 }
 
 // ---------------------------------------------------------------------------
