@@ -129,7 +129,7 @@ function caseStudyHtml(appUrl: string, token: string): string {
     </a>
   </p>
   <p style='color:#424242;font-size:0.875rem;margin-top:24px;border-top:1px solid #eee;padding-top:12px;'>
-    ${APP_NAME} &middot; Built in Accra for MEL teams across West Africa
+    ${APP_NAME} &middot; Built in Accra, Ghana
   </p>
   ${unsubscribeFooter(appUrl, token)}
 </div>`;
@@ -159,7 +159,7 @@ function upgradeOfferHtml(appUrl: string, token: string): string {
     </a>
   </p>
   <p style='color:#424242;font-size:0.875rem;margin-top:24px;border-top:1px solid #eee;padding-top:12px;'>
-    ${APP_NAME} &middot; Built in Accra for MEL teams across West Africa
+    ${APP_NAME} &middot; Built in Accra, Ghana
   </p>
   ${unsubscribeFooter(appUrl, token)}
 </div>`;

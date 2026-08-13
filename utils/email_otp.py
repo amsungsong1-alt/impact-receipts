@@ -218,7 +218,7 @@ def send_results_email(
     </a>
   </p>
   <p style='color:#424242;font-size:0.875rem;margin-top:28px;border-top:1px solid #eee;padding-top:12px;'>
-    {_APP_NAME} &middot; Built in Accra for MEL teams across West Africa<br>
+    {_APP_NAME} &middot; Built in Accra, Ghana<br>
     <a href='{_app_url}/' style='color:#424242;'>
       {_APP_NAME}
     </a>
@@ -292,7 +292,7 @@ def send_case_study_email(to_email: str, unsubscribe_token: str = "") -> tuple[b
     </a>
   </p>
   <p style='color:#424242;font-size:0.875rem;margin-top:24px;border-top:1px solid #eee;padding-top:12px;'>
-    {_APP_NAME} &middot; Built in Accra for MEL teams across West Africa
+    {_APP_NAME} &middot; Built in Accra, Ghana
   </p>
   {_unsubscribe_footer(_app_url, unsubscribe_token)}
 </div>""",
@@ -348,7 +348,7 @@ def send_upgrade_offer_email(to_email: str, unsubscribe_token: str = "") -> tupl
     </a>
   </p>
   <p style='color:#424242;font-size:0.875rem;margin-top:24px;border-top:1px solid #eee;padding-top:12px;'>
-    {_APP_NAME} &middot; Built in Accra for MEL teams across West Africa
+    {_APP_NAME} &middot; Built in Accra, Ghana
   </p>
   {_unsubscribe_footer(_app_url, unsubscribe_token)}
 </div>""",
@@ -404,7 +404,7 @@ def send_welcome_email(to_email: str) -> tuple[bool, str]:
     ✓ Readiness Card PDF — shareable with your MEL lead
   </p>
   <p style='color:#424242;font-size:0.875rem;margin-top:24px;border-top:1px solid #eee;padding-top:12px;'>
-    {_APP_NAME} &middot; Built in Accra for MEL teams across West Africa
+    {_APP_NAME} &middot; Built in Accra, Ghana
   </p>
 </div>""",
             },

@@ -170,15 +170,21 @@ def run_roi_config():
     if roi_config.rejected_report_cost_range("XXX") != (12000, 17000):
         failures.append("rejected_report_cost_range should fall back to GHS for an unconfigured currency")
 
-    # 3. Estimated currencies carry a visible disclaimer; GHS does not.
+    # 3. Estimated day-rate currencies carry a visible day-rate disclaimer; GHS's
+    # sourced day rate does not. The rework-hours figure (REWORK_HOURS_LOW) is a
+    # separate, always-unsourced estimate and is disclaimed in every currency,
+    # GHS included -- that disclaimer is checked separately below.
     ngn_copy = roi_config.roi_copy("NGN")
-    if "estimated" not in ngn_copy.lower():
+    if "not yet independently sourced" not in ngn_copy.lower():
         failures.append("roi_copy('NGN') should disclose that its day-rate figure is estimated")
     ghs_copy = roi_config.roi_copy("GHS")
-    if "estimated" in ghs_copy.lower():
-        failures.append("roi_copy('GHS') should not carry an estimate disclaimer (it's sourced)")
+    if "not yet independently sourced" in ghs_copy.lower():
+        failures.append("roi_copy('GHS') should not carry a day-rate estimate disclaimer (it's sourced)")
     if "DevEx MEL Salary Survey" not in ghs_copy:
         failures.append("roi_copy('GHS') should keep citing its real source")
+    if f"{roi_config.REWORK_HOURS_LOW}+ hours of rework (estimated)" not in ghs_copy:
+        failures.append("roi_copy('GHS') should disclose that the rework-hours figure itself is "
+                         "estimated, independently of whether the day rate is sourced")
 
     # 4. No fabricated source citation for estimated currencies.
     for code, entry in roi_config.ROI_DAY_RATES.items():

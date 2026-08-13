@@ -74,7 +74,9 @@ ROI_DAY_RATES = {
     },
 }
 
-REWORK_HOURS_LOW = 40  # matches existing "40+ hours of rework" copy
+REWORK_HOURS_LOW = 40  # estimated — not independently sourced (unlike the day-rate
+                        # figures above, none of which carry a "source" field for this
+                        # number); flagged as such wherever it's rendered, see roi_copy()
 
 # Derived so that GHS 1,200-1,800/day reproduces the existing shipped
 # "GHS 12,000-17,000" rework-cost band exactly. Applied uniformly to every
@@ -157,7 +159,8 @@ def roi_copy(currency: str, monthly_price_ghs_pesewas: int = 5000) -> str:
             f"{symbol} {entry['day_rate_low']:,}–{entry['day_rate_high']:,}/day. "
         )
     text += (
-        f"One rejected USAID, Mastercard Foundation, or FCDO report = {REWORK_HOURS_LOW}+ hours of rework. "
+        f"One rejected USAID, Mastercard Foundation, or FCDO report = {REWORK_HOURS_LOW}+ hours of rework "
+        "(estimated). "
         "ImpactProof catches the gaps donors flag — before your report goes out. "
         "Score every KPI in 60 seconds. Download a citable Readiness Card with a reference ID."
     )

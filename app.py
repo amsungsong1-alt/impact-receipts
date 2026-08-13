@@ -2539,7 +2539,7 @@ def _log_upgrade_prompt_crm(event_type: str, context: str) -> None:
 
 def _render_tagline_footer():
     st.markdown(
-        '<div class="trust-tagline">ImpactProof · Upload your report. Get a determination for every result. Submit with confidence. · Built in Accra 🇬🇭 · Deterministic scoring, AI-assisted, fabrication-proof</div>',
+        '<div class="trust-tagline">ImpactProof · Upload your report. Get a determination for every result. Submit with confidence. · Built in Accra 🇬🇭 · Deterministic scoring, AI-assisted, every number fact-checked against your submission</div>',
         unsafe_allow_html=True,
     )
     st.caption("We log anonymous usage counts only — never your results or documents.")
@@ -5980,7 +5980,7 @@ def _render_ph_landing():
         """
         <div style='text-align:center;padding:24px 0 8px;'>
           <p style='font-size:0.75rem;color:#8A6500;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin:0 0 8px;'>
-            Featured on Product Hunt 🎉
+            Welcome from Product Hunt 👋
           </p>
           <h1 style='color:#1B5E20;font-size:1.8rem;margin:0 0 8px;line-height:1.2;'>
             About to submit a result to your donor?
@@ -5989,7 +5989,7 @@ def _render_ph_landing():
             Run a 60-second evidence quality check first.
           </p>
           <p style='color:#616161;font-size:0.85rem;margin:0 0 24px;'>
-            For MEL officers, programme leads, and consultants — the people who answer for evidence quality. Reporting to FCDO, GIZ, World Bank, EU, and 7 more donors.
+            For MEL officers, programme leads, and consultants — the people who answer for evidence quality. Calibrated to USAID, FCDO, GIZ, World Bank, and 7 more donor standards.
           </p>
         </div>
         """,
@@ -6774,7 +6774,7 @@ def render_screen_1():
                                   is_still_paid(get_user(st.session_state.get("user_email",""))))
                 _irc_files = []
                 if not _irc_paid_flag:
-                    st.markdown("### Save 10+ minutes on every result:")
+                    st.markdown("### Skip the retyping:")
                     st.markdown(
                         "- **Upload your report** — AI reads it and pre-fills all form fields instantly\n"
                         "- **Fills every field your document contains** — skips only what isn't there, flags it clearly\n"
@@ -9702,6 +9702,10 @@ def render_screen_2():
             f'font-size:1.05rem;font-weight:700;color:{_bv_border};">'
             f'{_bv_sym} {_bv_msg}</div>',
             unsafe_allow_html=True,
+        )
+        st.caption(
+            "This is a heuristic pre-submission check, not a guarantee of donor acceptance — "
+            "your donor reviewer makes the final determination."
         )
         # Journey indicator — show INGO gap for CBO/National NGO users
         if _bv_track_label != "INGO standard":
@@ -13911,7 +13915,7 @@ Score generated: {timestamp}.
 </p>
 {_irc_note_html}
 <p style="color:#616161;font-style:italic;font-size:10px;border-top:1px solid #E0E0E0;margin-top:20px;padding-top:8px;">
-ImpactProof &middot; Built in Accra for MEL teams across West Africa &middot; {APP_URL.replace('https://','').rstrip('/')}
+ImpactProof &middot; Built in Accra, Ghana &middot; {APP_URL.replace('https://','').rstrip('/')}
 </p>
 {_build_council_page_html(council_assessment, conf_score, clar_score, timestamp, P) if council_assessment else ""}
 </body></html>"""
