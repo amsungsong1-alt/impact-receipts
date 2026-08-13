@@ -15321,6 +15321,22 @@ def _render_admin_crm_behavioral_dashboard() -> None:
         st.warning(f"Could not load the behavioural CRM dashboard. ({type(exc).__name__})")
         return
 
+    # Below the same MIN_CHURN_SAMPLE=10 near-empty-sample bar every other
+    # aggregate in this codebase uses (benchmark/outcome-acceptance/portfolio-
+    # heatmap/OLAP-slice), this dashboard is a wall of "Insufficient sample"/
+    # "No data yet" widgets, not a real analytical surface. Collapse it to one
+    # honest line by default -- still viewable on request, never deleted.
+    from utils.crm import MIN_CHURN_SAMPLE
+    _total_accounts = len(data["profiles"])
+    if _total_accounts < MIN_CHURN_SAMPLE:
+        st.caption(
+            f"📊 {_total_accounts} account(s) tracked — this dashboard activates automatically "
+            f"once there are {MIN_CHURN_SAMPLE}+ (same near-empty-sample bar as the benchmark "
+            f"and churn figures elsewhere in this app)."
+        )
+        if not st.checkbox("Show anyway", key="_admin_behavioral_dashboard_force_show"):
+            return
+
     # -- Segment distribution --
     segments = data["segments"]
     st.markdown("**Segment distribution**")
