@@ -96,7 +96,14 @@ equivalent) before rendering its output.
   `api_pricing.py` (real Anthropic API token/cost logging + `knowledge/model_pricing.yaml`'s
   hot-reloadable per-model rates — also a labeled placeholder, not a verified current price
   list), `lifecycle_triggers.py` (deterministic, individually-disableable Ch.9 C6 triggers),
-  `cross_sell.py` (behaviour-only Ch.9 C7 recommendation logging — never demographic).
+  `cross_sell.py` (behaviour-only Ch.9 C7 recommendation logging — never demographic),
+  `upload_guard.py` (Ch.8 C1 input controls: extension/size/magic-byte checks, never
+  sanitizes), `twofactor.py` (Ch.8 C3 mandatory TOTP for admin/owner accounts),
+  `supabase_auth.py` (Ch.8 C3: mints a real Supabase Auth session so `auth.uid()` resolves
+  for RLS, layered under this app's existing magic-link/OTP login, not replacing it),
+  `rls_coverage.py` (Ch.8 C3/C9: static RLS-coverage introspection over
+  `supabase/migrations/*.sql`, shared by the CI gate and the security-audit script — see
+  Security hardening below).
 
 ## Billing & auth
 
@@ -583,6 +590,60 @@ strategy discussion that proposed this feature turned out directionally right bu
 real new logic was needed, though no per-report→per-indicator refactor was, since a
 `submission` dict already models exactly one indicator.
 
+## Security hardening (Laudon Ch.8) — shipped and live, 2026-08-04
+
+Landed the same week as the Ch.6 data-foundations pass, ahead of the Ch.3 strategy docs, but was
+never added to this file's file map or the roadmap tracking — a real documentation-drift gap
+(caught during a later audit), not a sign the work doesn't exist. Nine modules, nine test files.
+
+- **C1 — upload input controls.** `utils/upload_guard.py::validate_upload()` runs before any
+  parser (pdfplumber/python-docx/python-pptx/pandas+openpyxl) touches uploaded bytes: extension
+  allowlist, size cap, magic-byte verification against the claimed type, and outright rejection
+  (never sanitization) of macro-bearing OOXML content. `test_document_retention.py` locks in the
+  actually-highest-value control here as a standing regression test: uploaded bytes are processed
+  in-memory only and never written to disk or Supabase Storage, verified by statically inspecting
+  every function that reads upload bytes (the shared parser + its four callers) for a disk-write
+  or `storage.from_(...)` call anywhere in the codebase — what's never written down can't leak.
+- **C2 — encryption backfill.** `scripts/backfill_encrypt_audits.py`, a one-time script encrypting
+  `audits`/`logframe_library_items` rows written before `utils/crypto.py`'s Fernet encryption
+  shipped, so no plaintext-era row survives unencrypted.
+- **C3 — real second factor + RLS that actually resolves identity.** This app's login was already
+  single-factor-by-possession (a magic link and a 6-digit code that land in the same inbox — one
+  factor, however it feels). `utils/twofactor.py` adds mandatory TOTP for `is_admin`/owner
+  accounts (`users.totp_secret`, Fernet-encrypted, `users.totp_enabled` — migration `0050`),
+  since a compromised email account would otherwise be sufficient to reach the admin dashboard.
+  Separately, `utils/supabase_auth.py` mints a real Supabase Auth session (admin `generate_link` +
+  anon `verify_otp`) right after this app's own OTP check succeeds, purely so `auth.uid()`
+  resolves for the RLS policies added across migrations `0041`–`0054`. `utils/db.py` gained
+  `_get_authed_client()`/`link_auth_user_id()` so "logged-in user acting on their own row" queries
+  attach a per-user JWT instead of the plain anon-key client, and columns not granted to the
+  `authenticated` role (`is_paid`, `plan`, `free_checks_used`, `totp_secret`/`totp_enabled`) are
+  written through the service-role client, since a valid JWT alone can't satisfy a column-level
+  `REVOKE`. `scripts/backfill_auth_users.py` mints an `auth.users` identity + `auth_user_id` link
+  for every pre-existing account, so `0046`/`0047` didn't have to wait for a natural re-login.
+  `utils/rls_coverage.py` statically parses `supabase/migrations/*.sql` in application order and
+  reconstructs each table's final RLS state (no staging Postgres project exists to introspect
+  `pg_tables`/`pg_policies` against live) — a table with RLS enabled but zero policies is treated
+  as a bug (silent deny-all breaks every legitimate caller) exactly like RLS being disabled is;
+  `test_rls_coverage.py` runs this as a CI gate.
+- **C4 — tamper-evident audit logging.** `access_log` (already append-only via GRANT scope, see
+  the opt-in-audit-persistence section above) gained a hash chain (migration
+  `0051_access_log_hash_chain.sql`, a Postgres `BEFORE INSERT` trigger). `scripts/
+  verify_audit_chain.py::verify_chain()` independently recomputes the same hash formula at read
+  time; a row where the recomputed hash disagrees with the stored one is exactly what a silent
+  edit/delete via a privileged credential bypassing `app_audits_rw`'s append-only grant would
+  produce.
+- **C9 — recurring internal audit.** `scripts/security_audit.py` — Laudon's own "list and rank
+  control weaknesses by probability and impact" framing, as a repeatable script rather than a
+  one-time document. Each check degrades independently (missing `SUPABASE_DB_URL`, or `gitleaks`/
+  `pip-audit` not on `PATH`, reports `SKIPPED`, not a failed run) and delegates RLS coverage to
+  the same `utils/rls_coverage.py` the CI gate uses, so there's one implementation, not two.
+
+`test_auth_wiring.py`/`test_supabase_auth.py` swap fake Supabase Auth admin/anon clients (the
+`auth.admin.generate_link`/`auth.verify_otp`/`auth.refresh_session`/`postgrest.auth` shapes) —
+the same swap-the-network-seam convention as `test_billing.py`'s fake Supabase client, applied to
+auth instead of table queries.
+
 ## Strategic positioning (Laudon Ch.3)
 
 `docs/strategy/` — seven documents (`five_forces.md`, `competitive_strategy.md`,
@@ -619,7 +680,7 @@ compresses all six into a five-slide, ~770-word argument that introduces zero ne
 
 ## Testing
 
-Twenty-three plain-`assert` golden-test files, no pytest, no network calls, no mocking framework
+Forty plain-`assert` golden-test files (10,362 lines total), no pytest, no network calls, no mocking framework
 (API-calling functions are tested by temporarily swapping `council._call_haiku`, or
 `utils.paystack.requests`/`utils.db._get_client`/`utils.auth._get_client`, for a fake;
 `test_audits.py`/`test_crm.py`/`test_outcomes.py`/`test_verification.py`/
@@ -698,6 +759,26 @@ python test_security.py         # app.py-level regression tests (user_email over
                                  # heatmap sample gate, Readiness Card crosswalk tags, verify landing page,
                                  # Agency Dashboard MIS/DSS/ESS views, Ch.9 C5 admin RBAC gate + the
                                  # behavioural CRM dashboard's render-without-raising)
+python test_upload_guard.py     # Ch.8 C1: extension/size/magic-byte checks, macro-bearing Office
+                                 # files rejected outright (never sanitized)
+python test_document_retention.py # Ch.8 C1: static source-inspection guard -- fails if any upload
+                                 # code path starts writing bytes to disk/Storage instead of memory
+python test_twofactor.py        # Ch.8 C3: TOTP secret generation/verification (pyotp, no fake needed)
+python test_supabase_auth.py    # Ch.8 C3: generate_link/verify_otp JWT-minting flow, fake Supabase
+                                 # Auth client (admin + anon shapes)
+python test_auth_wiring.py      # Ch.8 C3: the missing link between session-minting and RLS actually
+                                 # resolving identity -- per-user JWT attachment, auth_user_id
+                                 # population, service-role writes for ungranted columns
+python test_rls_coverage.py     # Ch.8 C3/C9 CI gate: statically parses supabase/migrations/*.sql in
+                                 # order and fails on any table with RLS enabled but zero policies
+                                 # (a silent deny-all), or no RLS at all
+python test_verify_audit_chain.py # Ch.8 C4: tamper-evident access_log hash chain, recomputed
+                                 # independently of the Postgres trigger that writes it
+python test_backfill_encrypt_audits.py # Ch.8 C2: one-time backfill encrypting pre-Fernet plaintext
+                                 # audits/logframe_library_items rows
+python test_security_audit.py   # Ch.8 C9: severity ranking + report exit code for the internal
+                                 # security-audit script (the checks themselves reuse already-tested
+                                 # logic or shell out to external tools this suite never calls)
 ```
 
 All must pass before pushing a change that touches scoring, AI post-processing, metrics,
