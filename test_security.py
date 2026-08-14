@@ -498,6 +498,55 @@ def run_concessional_checkout_params():
     print("PASS: concessional checkout params -- approved accounts get the discounted plan, everyone else gets standard, unprovisioned Plan degrades safely.")
 
 
+def run_head_tail_truncate():
+    """_head_tail_truncate() -- IRC/Audit My Report's extraction-text budget
+    keeps the document's head AND tail instead of a pure head cut, since
+    donor reports routinely put annexes/appendices (which the extraction
+    prompt explicitly asks the model to read) at the end."""
+    failures = []
+
+    # 1. Under the limit -- no-op, byte-identical.
+    short = "x" * 100
+    if app._head_tail_truncate(short, 60000) != short:
+        failures.append("text under max_chars should be returned unchanged")
+
+    # 2. Exactly at the limit -- still a no-op.
+    exact = "y" * 60000
+    if app._head_tail_truncate(exact, 60000) != exact:
+        failures.append("text exactly at max_chars should be returned unchanged")
+
+    # 3. Over the limit -- both head and tail are preserved, and the total
+    # length stays close to max_chars (the omission marker adds a little).
+    head_marker = "HEAD_START_" + ("a" * 50000)
+    tail_marker = ("b" * 50000) + "_TAIL_END"
+    long_text = head_marker + ("m" * 50000) + tail_marker
+    result = app._head_tail_truncate(long_text, 60000, tail_chars=15000)
+    if "HEAD_START_" not in result:
+        failures.append("truncated result should still contain the document's head")
+    if "_TAIL_END" not in result:
+        failures.append("truncated result should still contain the document's tail -- "
+                         "this is the actual annex/appendix-preserving fix")
+    if len(result) > 60000 + 200:  # small allowance for the omission marker text
+        failures.append(f"truncated result should stay close to max_chars, got {len(result)} chars")
+    if "m" * 100 in result:  # the omitted middle should genuinely be gone
+        failures.append("middle content should be omitted, not just the head/tail reordered")
+
+    # 4. Degenerate case: tail_chars >= max_chars still returns something
+    # sane (the last max_chars characters) rather than raising or returning
+    # something longer than requested.
+    degenerate = app._head_tail_truncate(long_text, 1000, tail_chars=5000)
+    if len(degenerate) != 1000:
+        failures.append(f"tail_chars >= max_chars should still cap total length at max_chars, got {len(degenerate)}")
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: head-tail truncate -- under/at-limit no-ops, over-limit keeps both head and tail "
+          "(annex-preserving), degenerate tail_chars stays capped at max_chars.")
+
+
 if __name__ == "__main__":
     run_user_email_overwrite_guard()
     run_portfolio_heatmap_sample_gate()
@@ -508,3 +557,4 @@ if __name__ == "__main__":
     run_admin_rbac_gate_role_tier()
     run_admin_crm_behavioral_dashboard()
     run_concessional_checkout_params()
+    run_head_tail_truncate()

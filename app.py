@@ -1115,6 +1115,27 @@ def _extract_report_fields(uploaded_file):
     return _match_fields_from_text(text)
 
 
+def _head_tail_truncate(text: str, max_chars: int, tail_chars: int = 15000) -> str:
+    """Keeps the first (max_chars - tail_chars) characters plus the last
+    tail_chars, instead of a pure head cut. Donor reports routinely put
+    annexes/appendices -- which INSTANT_CHECK_SYSTEM_PROMPT's Rule 13
+    explicitly asks the model to read for the donor-readiness fields
+    (learning/limitations/disaggregation) -- at the END of the document,
+    where a pure head-truncation silently drops them before the model ever
+    sees them. Same total character budget as before (no extra API cost),
+    just a smarter split of it. No-ops when the document already fits."""
+    if len(text) <= max_chars:
+        return text
+    head_chars = max_chars - tail_chars
+    if head_chars <= 0:
+        return text[-max_chars:]
+    return (
+        text[:head_chars]
+        + "\n\n[... middle content omitted to fit extraction limits ...]\n\n"
+        + text[-tail_chars:]
+    )
+
+
 def _irc_extract_combined(doc_files, progress_cb=None):
     """Extract and combine text + rule-based fields from one or more uploaded files.
 
@@ -6971,9 +6992,10 @@ def render_screen_1():
                                             f"FOCUS INSTRUCTION: The user wants to extract the result about: {_irc_hint1}\n"
                                             f"Prioritise this result statement over others in the document.\n\n"
                                         ) if _irc_hint1 else ""
+                                    _irc_full_text_truncated = _head_tail_truncate(_full_text, 60000)
                                     _irc_msgs = [{"role": "user", "content": [
                                         *([{"type":"text","text":f"Field examples for better extraction:\n{_fewshot_str}"}] if _fewshot_str else []),
-                                        {"type":"text","text":f"{_hint_prefix}Extract all fields from this report:\n\n{_full_text[:60000]}"}
+                                        {"type":"text","text":f"{_hint_prefix}Extract all fields from this report:\n\n{_irc_full_text_truncated}"}
                                     ]}]
                                     # Run the AI call in a background thread so we can
                                     # show a live elapsed-time indicator while it works.
@@ -7026,7 +7048,7 @@ def render_screen_1():
                                     # routinely wrong for bigger reports, so scale the stated
                                     # range with the actual text length sent to the API instead
                                     # of quoting one fixed estimate for every document size.
-                                    _irc_text_len = len(_full_text[:60000])
+                                    _irc_text_len = len(_irc_full_text_truncated)
                                     if _irc_text_len < 10000:
                                         _irc_eta = "usually 10-30s"
                                     elif _irc_text_len < 30000:
@@ -11120,7 +11142,7 @@ def _extract_all_results_from_document(document_text: str, api_key: str,
     import anthropic as _anthr
     import json as _json
 
-    text = document_text[:max_chars]
+    text = _head_tail_truncate(document_text, max_chars)
     try:
         client = _anthr.Anthropic(api_key=api_key)
         resp = client.messages.create(
