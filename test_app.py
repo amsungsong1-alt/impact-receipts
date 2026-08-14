@@ -1701,6 +1701,22 @@ def run_data_quality_flags():
     if any("differ by more than 10x" in f["issue"] for f in clean_flags):
         failures.append("CASES['strong']'s normal 450->487 achievement incorrectly tripped the 10x check")
 
+    # 4. A Baseline report is exempt from the magnitude-mismatch check --
+    # it has no target to compare against by design, so the same 450 vs
+    # 45000 gap that correctly flags a progress report must NOT flag here.
+    base4 = dict(base3)
+    base4["submission_type"] = "Baseline report"
+    flags4 = evaluator.check_data_quality_flags(base4)
+    if any("differ by more than 10x" in f["issue"] for f in flags4):
+        failures.append(f"Baseline report should be exempt from the magnitude-mismatch check, got {flags4}")
+    # Same submission_type has no bearing on the OTHER checks -- exemption
+    # is scoped to the one check it's actually about, not a blanket skip.
+    base5 = dict(base)
+    base5["submission_type"] = "Baseline report"
+    flags5 = evaluator.check_data_quality_flags(base5)
+    if not any("identical" in f["issue"] for f in flags5):
+        failures.append("Baseline report should still trip the identical-baseline/achievement check")
+
     # Never raises on completely empty/missing fields.
     try:
         empty_flags = evaluator.check_data_quality_flags({})
@@ -1722,6 +1738,61 @@ def run_data_quality_flags():
         raise SystemExit(1)
     print("PASS: data quality flags — baseline/achievement duplicate, evidence/result mirroring, "
           "and target/achievement magnitude mismatch all detected; clean submissions stay flag-free.")
+
+
+def run_document_type_advisory():
+    """This rubric scores evidence for an ACHIEVED result -- a Project
+    proposal/Financial report/MEL plan isn't making that kind of claim, so
+    evaluate_submission() must surface an advisory for those types without
+    ever touching confidence_score/clarity_score. A progress report (or no
+    submission_type at all) must get no advisory and an unchanged score."""
+    failures = []
+
+    # 1. Non-results types get a non-empty advisory naming the document type.
+    for _bad_type in ("Project proposal", "Financial report", "MEL plan"):
+        _msg = evaluator.get_document_type_advisory(_bad_type)
+        if not _msg:
+            failures.append(f"expected a non-empty advisory for {_bad_type!r}, got {_msg!r}")
+        elif _bad_type not in _msg:
+            failures.append(f"advisory for {_bad_type!r} should name the document type, got {_msg!r}")
+
+    # 2. Results-type documents (and unset) get no advisory at all.
+    for _ok_type in ("Quarterly progress report", "Baseline report", "End-line evaluation", "", "Not specified"):
+        _msg = evaluator.get_document_type_advisory(_ok_type)
+        if _msg:
+            failures.append(f"expected no advisory for {_ok_type!r}, got {_msg!r}")
+
+    # 3. Wiring: evaluate_submission() surfaces it, and the score itself is
+    # byte-identical to the same submission with no submission_type at all --
+    # this is purely advisory, never a scoring change.
+    base = dict(CASES["strong"])
+    ev_no_type = evaluator.evaluate_submission(base)
+    if ev_no_type.get("document_type_advisory"):
+        failures.append("CASES['strong'] (no submission_type) should have no document_type_advisory")
+
+    base_proposal = dict(base)
+    base_proposal["submission_type"] = "Project proposal"
+    ev_proposal = evaluator.evaluate_submission(base_proposal)
+    if not ev_proposal.get("document_type_advisory"):
+        failures.append("evaluate_submission() did not surface document_type_advisory for a Project proposal")
+    if ev_proposal.get("confidence_score") != ev_no_type.get("confidence_score"):
+        failures.append(
+            f"confidence_score must be unaffected by submission_type, got "
+            f"{ev_proposal.get('confidence_score')} vs {ev_no_type.get('confidence_score')}"
+        )
+    if ev_proposal.get("clarity_score") != ev_no_type.get("clarity_score"):
+        failures.append(
+            f"clarity_score must be unaffected by submission_type, got "
+            f"{ev_proposal.get('clarity_score')} vs {ev_no_type.get('clarity_score')}"
+        )
+
+    if failures:
+        print("FAILED:")
+        for f in failures:
+            print("  -", f)
+        raise SystemExit(1)
+    print("PASS: document type advisory — Project proposal/Financial report/MEL plan flagged, "
+          "progress-report types silent, confidence_score/clarity_score always unaffected.")
 
 
 def run_hedge_language():
@@ -1797,4 +1868,5 @@ if __name__ == "__main__":
     run_weakest_link()
     run_criterion_sensitivity()
     run_data_quality_flags()
+    run_document_type_advisory()
     run_hedge_language()

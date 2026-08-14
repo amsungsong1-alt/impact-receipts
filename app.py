@@ -3863,6 +3863,28 @@ def _smart_extract_from_result(result_text: str, s: str) -> None:
                 st.session_state["_donor_auto_inferred"] = True
                 st.rerun()
 
+    # ── SUBMISSION TYPE (programme-level — keyword inference, never overwrites) ──
+    if st.session_state.get("submission_type") in (None, "", "Select submission type..."):
+        _SUBTYPE_KWORDS = [
+            ("Baseline report",       ["baseline"]),
+            ("Mid-term review",       ["mid-term review", "midterm review", "mid term review"]),
+            ("End-line evaluation",   ["end-line", "endline", "end line evaluation"]),
+            ("Final/closeout report", ["final report", "closeout", "close-out", "project closure"]),
+            ("Project proposal",      ["project proposal", "proposed activities", "this proposal"]),
+            ("Financial report",      ["financial report", "expenditure report", "budget report"]),
+            ("MEL plan",              ["mel plan", "m&e plan", "monitoring and evaluation plan", "performance monitoring plan"]),
+            ("Annual progress report",   ["annual report", "annual progress"]),
+            ("Quarterly progress report",["quarterly report", "quarterly progress", "q1 report", "q2 report", "q3 report", "q4 report"]),
+        ]
+        for _st_name, _st_kws in _SUBTYPE_KWORDS:
+            if any(_kw in rt for _kw in _st_kws):
+                # Same widget-already-instantiated hazard/fix as sector/donor above.
+                _pg = dict(st.session_state.get("_irc_pending_global", {}))
+                _pg["submission_type"] = _st_name
+                st.session_state["_irc_pending_global"] = _pg
+                st.session_state["_submission_type_auto_inferred"] = True
+                st.rerun()
+
 
 def _smart_extract_achievement(result_text: str, s: str) -> None:
     """Pre-fill logframe_achievement from result statement when the field is empty.
@@ -6639,6 +6661,20 @@ def render_screen_1():
                 index=0,
                 help="Choose which audit framework's standards are shown alongside each sub-score in the donor framework crosswalk.",
             )
+            st.selectbox(
+                "What type of document is this? (optional)",
+                key="submission_type",
+                options=["Select submission type..."] + list(SUBMISSION_CHECKLIST.keys()),
+                index=0,
+                help="A Baseline report has no target to compare against by design, and a "
+                     "Project proposal/Financial report/MEL plan isn't reporting an achieved "
+                     "result at all — setting this tailors the checks and scoring notes "
+                     "accordingly instead of judging every document by the same progress-report "
+                     "rubric. Auto-filled by Instant Report Check if you upload a document instead.",
+                on_change=lambda: st.session_state.pop("_submission_type_auto_inferred", None),
+            )
+            if st.session_state.get("_submission_type_auto_inferred"):
+                st.caption("⚡ Document type auto-detected from your upload — change here if incorrect.")
             st.text_input(
                 "Project name (optional — used to group/compare indicators in Trends over time)",
                 key="project_name",
@@ -8650,6 +8686,10 @@ def _render_result_card(submission: dict, ev: dict, card_idx: int = 0, donor: st
     st.markdown(f"**{snippet}**")
     st.divider()
 
+    _doc_type_advisory = ev.get("document_type_advisory", "")
+    if _doc_type_advisory:
+        st.warning(_doc_type_advisory)
+
     # Diagnostic state badge
     content_issues    = ev.get("content_issues", [])
     bv_voice_field    = submission.get("beneficiary_voice", "")
@@ -9670,6 +9710,9 @@ def render_screen_2():
     )
 
     if evs:
+        _bv_doc_advisory = evs[0].get("document_type_advisory", "")
+        if _bv_doc_advisory:
+            st.warning(_bv_doc_advisory)
         _bv_conf = evs[0].get("confidence_score", 0)
         _bv_clar = evs[0].get("clarity_score", 0)
         _bv_fixes = evs[0].get("fixes", [])
@@ -13538,6 +13581,12 @@ def _build_html_report_card(submission: dict, evaluation: dict, timestamp: str,
     diag_state = evaluation.get("diagnostic_state", "")
     ev_stmt    = _generate_evidence_statement(submission) if callable(globals().get("_generate_evidence_statement")) else ""
 
+    _doc_type_advisory = evaluation.get("document_type_advisory", "")
+    _doc_type_advisory_html = (
+        f'<p style="font-size:9px;color:#8A6500;background:#FFF9C4;border-left:3px solid #8A6500;'
+        f'padding:5px 8px;margin:0 0 10px;{P}">{_doc_type_advisory}</p>'
+    ) if _doc_type_advisory else ""
+
     # D1 -- Laudon Ch.12 pp.463-464, Intelligence stage panel, printed on the
     # exported card too, not just shown on screen.
     _weakest = evaluation.get("weakest_link", {})
@@ -13825,6 +13874,7 @@ No AI judgement applied to scores. Same inputs always produce the same result.
 <p style="font-size:9px;color:{vfg};background:{vbg};padding:3px 8px;display:inline-block;border-radius:3px;margin:0 0 10px;{P}">
 Evidence standard: <strong>{_card_track_label}</strong> &middot; threshold {_card_threshold}/5.0 &middot; {_card_org_type}
 </p>
+{_doc_type_advisory_html}
 
 <!-- Result -->
 <table border="0" cellspacing="0" cellpadding="0" width="100%" style="margin-bottom:10px;{P}"><tr>

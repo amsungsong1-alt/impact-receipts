@@ -959,20 +959,51 @@ def check_data_quality_flags(submission: dict) -> list:
                 "severity": "WARNING",
             })
 
-    t_num = _extract_leading_number(target)
-    a_num = _extract_leading_number(achievement)
-    if t_num and a_num and t_num > 0 and a_num > 0:
-        ratio = a_num / t_num
-        if ratio >= 10 or ratio <= 0.1:
-            flags.append({
-                "issue": (
-                    f"Target ({target}) and achievement ({achievement}) differ by more than "
-                    "10x — verify the units and figures match before submitting."
-                ),
-                "severity": "WARNING",
-            })
+    # A Baseline report has no target to compare against by design -- that's
+    # what a baseline establishes, not something it reports progress toward.
+    # Applying the magnitude-mismatch check to one would flag the report for
+    # correctly having no target/achievement relationship, not for an actual
+    # data-entry error.
+    if submission.get("submission_type") != "Baseline report":
+        t_num = _extract_leading_number(target)
+        a_num = _extract_leading_number(achievement)
+        if t_num and a_num and t_num > 0 and a_num > 0:
+            ratio = a_num / t_num
+            if ratio >= 10 or ratio <= 0.1:
+                flags.append({
+                    "issue": (
+                        f"Target ({target}) and achievement ({achievement}) differ by more than "
+                        "10x — verify the units and figures match before submitting."
+                    ),
+                    "severity": "WARNING",
+                })
 
     return flags
+
+
+# Document types this rubric isn't built to score -- it evaluates evidence
+# for an ACHIEVED result, which none of these are making a claim about.
+# Deliberately a small, explicit set (not "everything except progress
+# reports") so a new/ambiguous submission_type value defaults to being
+# scored normally rather than silently suppressed.
+NON_RESULTS_SUBMISSION_TYPES = {"Project proposal", "Financial report", "MEL plan"}
+
+
+def get_document_type_advisory(submission_type: str) -> str:
+    """Returns a non-empty advisory string when submission_type names a
+    document that isn't a results report -- e.g. a proposal describes a
+    PLANNED result, not an achieved one, so a Confidence/Clarity score
+    computed from its text doesn't mean what it means for a progress
+    report. Never changes confidence_score/clarity_score; purely advisory,
+    same contract as check_data_quality_flags()."""
+    if submission_type not in NON_RESULTS_SUBMISSION_TYPES:
+        return ""
+    return (
+        f"This rubric is calibrated for reports of an ACHIEVED result — a "
+        f"\"{submission_type}\" doesn't typically make that kind of claim, so the "
+        f"scores below may not mean what they mean for a progress report. Treat "
+        f"them as a rough guide, not a readiness determination, for this document type."
+    )
 
 
 def _level_from_verifier(text: str) -> int:
@@ -2100,6 +2131,8 @@ def evaluate_submission(submission: dict) -> dict:
     # additive, informational; never touches confidence_score/clarity_score.
     data_quality_flags = check_data_quality_flags(submission)
 
+    document_type_advisory = get_document_type_advisory(submission.get("submission_type", "") or "")
+
     # Laudon Ch.6, C6 -- hedge-language detection. Same contract: additive,
     # informational, no score impact.
     hedge_language = detect_hedge_language(result_stmt, ev_desc)
@@ -2134,6 +2167,7 @@ def evaluate_submission(submission: dict) -> dict:
         "track_label":           _track_label,
         "data_quality_flags":    data_quality_flags,
         "hedge_language":        hedge_language,
+        "document_type_advisory": document_type_advisory,
         # backward-compat keys
         "scores": {
             "overall":     {"score": confidence_score, "label": confidence_label, "meaning": confidence_meaning},
