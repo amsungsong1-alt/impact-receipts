@@ -7088,6 +7088,88 @@ def render_screen_1():
                                             return ""
                                         return str(val)
 
+                                    # Defined here (before the multi-result branch below) rather
+                                    # than after it, so BOTH the multi-result and single-result
+                                    # paths can use them -- previously these only existed after
+                                    # the multi-result branch, so a multi-result extraction (2-3
+                                    # results requested) filled every per-slot field but silently
+                                    # never touched sector/donor_selected/donor_framework/
+                                    # submission_type at all, regardless of what the document said.
+                                    _irc_filled = 0
+                                    _skipped = []
+
+                                    def _irc_set(key, val):
+                                        nonlocal _irc_filled
+                                        try:
+                                            sval = _irc_to_str(val)
+                                            if sval and sval != "Not found":
+                                                st.session_state[key] = sval; _irc_filled += 1
+                                            else:
+                                                _skipped.append(key)
+                                        except Exception:
+                                            _skipped.append(key)
+
+                                    def _irc_set_global(key, val, count=True):
+                                        """Like _irc_set, but for fields whose widget binds
+                                        directly to `key` (sector, donor_selected, submission_type,
+                                        governance status, beneficiary_voice, checklist items) --
+                                        those widgets have already rendered earlier in this same
+                                        script run, so writing to st.session_state[key] here would
+                                        raise StreamlitAPIException. Stage it instead; render_screen_1()
+                                        applies staged values at the top of the NEXT run, before any
+                                        widget in this screen has instantiated. count=False preserves
+                                        call sites that originally didn't increment _irc_filled
+                                        (e.g. donor_framework, a bonus derived field)."""
+                                        nonlocal _irc_filled
+                                        st.session_state.setdefault("_irc_pending_global", {})[key] = val
+                                        if count:
+                                            _irc_filled += 1
+
+                                    def _irc_fill_context_fields(rb: dict) -> None:
+                                        """Sector/donor/submission_type inference from a
+                                        result_basics-shaped dict -- shared by the single-result
+                                        and multi-result paths so both actually fill the Context
+                                        (donor & project) fields, not just the single-result one."""
+                                        try:
+                                            _sec_raw = _irc_to_str(rb.get("sector",""))
+                                            if _sec_raw and _sec_raw != "Not found":
+                                                _sec_mt = _irc_match_option(_sec_raw, SECTOR_OPTIONS)
+                                                if _sec_mt and _sec_mt != SECTOR_OPTIONS[0]:
+                                                    _irc_set_global("sector", _sec_mt)
+                                                else:
+                                                    _irc_set_global("sector", "Other", count=False)
+                                                    _irc_set_global("sector_other", _sec_raw)
+                                        except Exception:
+                                            pass
+
+                                        try:
+                                            _donor_raw = _irc_to_str(rb.get("primary_donor",""))
+                                            if _donor_raw and _donor_raw != "Not found":
+                                                _don_mt = _irc_match_option(_donor_raw, ["USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "EU / EuropeAid"])
+                                                if _don_mt:
+                                                    _irc_set_global("donor_selected", _don_mt)
+                                                    try:
+                                                        _df_mt = _irc_match_option(_don_mt, list(DONOR_PROFILES.keys()))
+                                                        if _df_mt: _irc_set_global("donor_framework", _df_mt, count=False)
+                                                    except Exception:
+                                                        pass
+                                                else:
+                                                    _irc_set_global("donor_selected", "Other", count=False)
+                                                    _irc_set_global("donor_other", _donor_raw)
+                                        except Exception:
+                                            pass
+
+                                        try:
+                                            _sub_raw = _irc_to_str(rb.get("submission_type",""))
+                                            if _sub_raw and _sub_raw != "Not found":
+                                                _matched_sub_type = _irc_match_option(_sub_raw, list(SUBMISSION_CHECKLIST.keys()))
+                                                if _matched_sub_type:
+                                                    _irc_set_global("submission_type", _matched_sub_type)
+                                                    return _matched_sub_type
+                                        except Exception:
+                                            pass
+                                        return None
+
                                     import json as _ijson3
                                     _irc_raw = (_irc_resp.content[0].text if _irc_resp.content else "").strip()
                                     if _irc_raw.startswith("```"):
@@ -7136,6 +7218,10 @@ def render_screen_1():
                                         # Multi-result path: set active_slots, fill each slot
                                         _n_extracted = min(len(_irc_results_arr), 6)
                                         st.session_state["active_slots"] = _n_extracted
+                                        # Sector/donor/submission_type are document-level facts, not
+                                        # per-result -- infer them once from the first result rather
+                                        # than per-slot (or never, as before this fix).
+                                        _irc_fill_context_fields(_irc_results_arr[0].get("result_basics", _irc_results_arr[0]))
                                         _total_filled = 0
                                         for _ri, _ritem in enumerate(_irc_results_arr[:_n_extracted]):
                                             _rs = _slot_suffix(_ri + 1)
@@ -7200,35 +7286,6 @@ def render_screen_1():
                                     _ll  = _irc_data.get("logframe_linkage", {})
                                     _ev3 = _irc_data.get("evidence_verification", {})
                                     _em  = _irc_data.get("extraction_metadata", {})
-                                    _irc_filled = 0
-                                    _skipped = []
-
-                                    def _irc_set(key, val):
-                                        nonlocal _irc_filled
-                                        try:
-                                            sval = _irc_to_str(val)
-                                            if sval and sval != "Not found":
-                                                st.session_state[key] = sval; _irc_filled += 1
-                                            else:
-                                                _skipped.append(key)
-                                        except Exception:
-                                            _skipped.append(key)
-
-                                    def _irc_set_global(key, val, count=True):
-                                        """Like _irc_set, but for fields whose widget binds
-                                        directly to `key` (sector, donor_selected, submission_type,
-                                        governance status, beneficiary_voice, checklist items) --
-                                        those widgets have already rendered earlier in this same
-                                        script run, so writing to st.session_state[key] here would
-                                        raise StreamlitAPIException. Stage it instead; render_screen_1()
-                                        applies staged values at the top of the NEXT run, before any
-                                        widget in this screen has instantiated. count=False preserves
-                                        call sites that originally didn't increment _irc_filled
-                                        (e.g. donor_framework, a bonus derived field)."""
-                                        nonlocal _irc_filled
-                                        st.session_state.setdefault("_irc_pending_global", {})[key] = val
-                                        if count:
-                                            _irc_filled += 1
 
                                     # --- Result Basics ---
                                     _irc_set("result_statement", _rb.get("result_statement"))
@@ -7306,47 +7363,8 @@ def render_screen_1():
                                         _ver3 = ""
                                     _irc_set("verifier", _ver3)
 
-                                    # --- Sector ---
-                                    try:
-                                        _sec_raw = _irc_to_str(_rb.get("sector",""))
-                                        if _sec_raw and _sec_raw != "Not found":
-                                            _sec_mt = _irc_match_option(_sec_raw, SECTOR_OPTIONS)
-                                            if _sec_mt and _sec_mt != SECTOR_OPTIONS[0]:
-                                                _irc_set_global("sector", _sec_mt)
-                                            else:
-                                                _irc_set_global("sector", "Other", count=False)
-                                                _irc_set_global("sector_other", _sec_raw)
-                                    except Exception:
-                                        pass
-
-                                    # --- Primary donor ---
-                                    try:
-                                        _donor_raw = _irc_to_str(_rb.get("primary_donor",""))
-                                        if _donor_raw and _donor_raw != "Not found":
-                                            _don_mt = _irc_match_option(_donor_raw, ["USAID", "FCDO", "GIZ", "RVO", "World Bank", "AfDB", "EU / EuropeAid"])
-                                            if _don_mt:
-                                                _irc_set_global("donor_selected", _don_mt)
-                                                try:
-                                                    _df_mt = _irc_match_option(_don_mt, list(DONOR_PROFILES.keys()))
-                                                    if _df_mt: _irc_set_global("donor_framework", _df_mt, count=False)
-                                                except Exception:
-                                                    pass
-                                            else:
-                                                _irc_set_global("donor_selected", "Other", count=False)
-                                                _irc_set_global("donor_other", _donor_raw)
-                                    except Exception:
-                                        pass
-
-                                    # --- Submission type ---
-                                    _matched_sub_type = None
-                                    try:
-                                        _sub_raw = _irc_to_str(_rb.get("submission_type",""))
-                                        if _sub_raw and _sub_raw != "Not found":
-                                            _matched_sub_type = _irc_match_option(_sub_raw, list(SUBMISSION_CHECKLIST.keys()))
-                                            if _matched_sub_type:
-                                                _irc_set_global("submission_type", _matched_sub_type)
-                                    except Exception:
-                                        pass
+                                    # --- Sector / donor / submission type ---
+                                    _matched_sub_type = _irc_fill_context_fields(_rb)
 
                                     # --- Documents referenced -> tick required checklist items ---
                                     try:
