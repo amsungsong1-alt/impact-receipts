@@ -127,12 +127,18 @@ WA_CONTEXTS: dict[str, dict[str, str]] = {
     },
 }
 
-# Generic auto-reply fallback when context keyword matching fails
-_GENERIC_USER_ACK = (
-    "Hi! Thanks for reaching out to ImpactProof. "
-    "We'll get back to you on WhatsApp within 24 hours. "
-    "In the meantime, visit impact-proof.streamlit.app"
-)
+def _generic_user_ack() -> str:
+    """Generic auto-reply fallback when context keyword matching fails.
+    A function (not a module-level constant) so it reads APP_BASE_URL at
+    call time rather than baking in a stale domain -- this literally told
+    users to visit impact-proof.streamlit.app, a pre-rebrand Streamlit URL,
+    long after the app moved to app.impact-receipts.com."""
+    _app_url = _get_secret("APP_BASE_URL", "https://app.impact-receipts.com").rstrip("/")
+    return (
+        "Hi! Thanks for reaching out to ImpactProof. "
+        "We'll get back to you on WhatsApp within 24 hours. "
+        f"In the meantime, visit {_app_url.replace('https://', '')}"
+    )
 
 # Keywords for context detection in inbound messages (used by webhook)
 INBOUND_KEYWORDS: dict[str, list[str]] = {
@@ -332,7 +338,7 @@ def get_user_ack_message(context_id: str, result_data: dict[str, Any] | None = N
     template. Used by the Supabase Edge Function webhook auto-reply.
     """
     ctx = WA_CONTEXTS.get(context_id, {})
-    ack = ctx.get("user_ack", _GENERIC_USER_ACK)
+    ack = ctx.get("user_ack", _generic_user_ack())
     rd  = result_data or {}
     return ack.format(
         conf    = rd.get("conf", "?"),

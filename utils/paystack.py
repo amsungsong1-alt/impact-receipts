@@ -59,7 +59,7 @@ def _base_url() -> str:
             return env_val.rstrip("/")
 
     # Final fallback — set APP_BASE_URL in Streamlit secrets to fix payment callbacks
-    return "https://impact-integrity-diagnostic.streamlit.app"
+    return "https://app.impact-receipts.com"
 
 
 _last_payment_error: str = ""

@@ -22,6 +22,12 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 
 const WA_API_BASE   = "https://graph.facebook.com/v20.0";
 const WA_NUMBER     = "233503648195";
+// Same env-var-with-fallback pattern as onboarding-drip/customer-profile-refresh --
+// these four template strings previously hardcoded the pre-rebrand
+// impact-proof.streamlit.app domain directly, sending real WhatsApp users to a
+// stale URL.
+const APP_HOST = (Deno.env.get("APP_BASE_URL") ?? "https://app.impact-receipts.com")
+  .replace(/^https?:\/\//, "").replace(/\/$/, "");
 
 // ---------------------------------------------------------------------------
 // Context keyword detection (mirrors utils/whatsapp.py)
@@ -41,12 +47,12 @@ const ACK_MESSAGES: Record<string, string> = {
     "Your result review request is received! 📊\n\n" +
     "We'll look at your scores and reply here within 24 hours. " +
     "Feel free to share your result details if you haven't already.\n\n" +
-    "👉 impact-proof.streamlit.app"
+    "👉 " + APP_HOST
   ),
   agency_plan: (
     "Thanks for your interest in the ImpactProof Agency plan! 🏢\n\n" +
     "We'll be in touch about multi-seat pricing within 24 hours.\n\n" +
-    "👉 impact-proof.streamlit.app"
+    "👉 " + APP_HOST
   ),
   payment_support: (
     "Payment support acknowledged! 💳\n\n" +
@@ -60,7 +66,7 @@ const ACK_MESSAGES: Record<string, string> = {
   pricing_questions: (
     "Thanks for your question! 💬\n\n" +
     "We'll reply here with pricing details within 24 hours.\n\n" +
-    "👉 impact-proof.streamlit.app"
+    "👉 " + APP_HOST
   ),
   landing_review: (
     "Your free review request is received! 👋\n\n" +
@@ -69,7 +75,7 @@ const ACK_MESSAGES: Record<string, string> = {
   _generic: (
     "Hi! Thanks for reaching out to ImpactProof. 👋\n\n" +
     "We'll get back to you on WhatsApp within 24 hours.\n\n" +
-    "In the meantime: impact-proof.streamlit.app"
+    "In the meantime: " + APP_HOST
   ),
 };
 

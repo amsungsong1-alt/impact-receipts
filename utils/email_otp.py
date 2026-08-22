@@ -169,7 +169,7 @@ def send_results_email(
     if not api_key:
         return False, "Email not configured."
     from_address = _from_address()
-    _app_url = _get_secret("APP_BASE_URL", "https://impact-integrity-diagnostic.streamlit.app").rstrip("/")
+    _app_url = _get_secret("APP_BASE_URL", "https://app.impact-receipts.com").rstrip("/")
     conf_pct = round(conf_score / 5 * 100)
     clar_pct = round(clar_score / 5 * 100)
     fixes_html = "".join(
@@ -229,6 +229,8 @@ def send_results_email(
         )
         if resp.status_code in (200, 201):
             return True, ""
+        if resp.status_code == 403 and "domain" in resp.text.lower():
+            return False, "DOMAIN_NOT_VERIFIED:" + resp.text[:200]
         return False, f"Email service returned {resp.status_code}"
     except Exception as e:
         return False, str(e)
@@ -261,7 +263,7 @@ def send_case_study_email(to_email: str, unsubscribe_token: str = "") -> tuple[b
     if not api_key:
         return False, "Email not configured."
     from_address = _from_address()
-    _app_url = _get_secret("APP_BASE_URL", "https://impact-integrity-diagnostic.streamlit.app").rstrip("/")
+    _app_url = _get_secret("APP_BASE_URL", "https://app.impact-receipts.com").rstrip("/")
     try:
         import requests
         resp = requests.post(
@@ -315,7 +317,7 @@ def send_upgrade_offer_email(to_email: str, unsubscribe_token: str = "") -> tupl
     if not api_key:
         return False, "Email not configured."
     from_address = _from_address()
-    _app_url = _get_secret("APP_BASE_URL", "https://impact-integrity-diagnostic.streamlit.app").rstrip("/")
+    _app_url = _get_secret("APP_BASE_URL", "https://app.impact-receipts.com").rstrip("/")
     try:
         import requests
         resp = requests.post(
@@ -368,7 +370,7 @@ def send_welcome_email(to_email: str) -> tuple[bool, str]:
     if not api_key:
         return False, "Email not configured."
     from_address = _from_address()
-    _app_url = _get_secret("APP_BASE_URL", "https://impact-integrity-diagnostic.streamlit.app").rstrip("/")
+    _app_url = _get_secret("APP_BASE_URL", "https://app.impact-receipts.com").rstrip("/")
     try:
         import requests
         resp = requests.post(

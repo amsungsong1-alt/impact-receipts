@@ -274,7 +274,7 @@ def _get_app_url() -> str:
     except Exception:
         if _env:
             return _env.rstrip("/")
-    return "https://impact-integrity-diagnostic.streamlit.app"
+    return "https://app.impact-receipts.com"
 
 APP_URL = _get_app_url()
 
@@ -9715,6 +9715,13 @@ def render_screen_2():
                 if _ok_re:
                     st.toast(f"Results emailed to {_re_email}", icon="📧")
                     st.session_state["_results_email_sent"] = True
+                elif _err_re.startswith("DOMAIN_NOT_VERIFIED:"):
+                    # Same known, non-actionable Resend sandbox restriction as
+                    # the login-email path (app.py's DOMAIN_NOT_VERIFIED
+                    # handling) -- the check itself already succeeded, this
+                    # is a courtesy copy, so stay silent rather than show
+                    # every real user a raw HTTP status they can't act on.
+                    st.session_state["_results_email_sent"] = True
                 else:
                     st.caption(f"📧 Results email could not send: {_err_re}")
             except Exception as _re_exc:
@@ -9838,6 +9845,43 @@ def render_screen_2():
     # Generate a reproducible reference ID for the card — based on timestamp
     _ref_id = f"IMP-{timestamp}"
 
+    # Record the verification row as soon as the card exists, not on the
+    # download click. The "Ref: ... · Verify at ..." caption below prints
+    # unconditionally the moment this tab renders -- a user who copies that
+    # URL without ever clicking "Download" (exactly what a page-reading
+    # tester/bot does) previously got a URL that would always 404, even
+    # though the UI never distinguished "printed" from "actually
+    # downloaded." _ref_id is derived from the session-cached timestamp
+    # (see the comment above), so it's stable across reruns -- dedup on it
+    # so a rerun from an unrelated widget interaction doesn't insert a new
+    # row every time this section re-executes.
+    _recorded_refs = st.session_state.setdefault("_recorded_export_ref_ids", set())
+    if _card_pdf and _ref_id not in _recorded_refs:
+        try:
+            from utils.verification import record_export, compute_content_hash, verify_ref_id
+            _card_ev0 = (subs[0].get("evidence") or [{}])[0]
+            _card_hash = compute_content_hash(
+                subs[0].get("result_statement", ""), _card_ev0.get("description", ""),
+                _card_ev0.get("type", ""), evs[0].get("confidence_score"), evs[0].get("clarity_score"),
+            )
+            record_export(
+                _ref_id, "readiness_card", _card_hash,
+                confidence_score=evs[0].get("confidence_score"),
+                clarity_score=evs[0].get("clarity_score"),
+                score_band=evs[0].get("confidence_label", ""),
+            )
+            _recorded_refs.add(_ref_id)
+            if verify_ref_id(_ref_id):
+                st.session_state["_last_export_verif_status"] = (_ref_id, True, "")
+            else:
+                st.session_state["_last_export_verif_status"] = (
+                    _ref_id, False, "verify_ref_id() returned no row immediately after a successful-looking write"
+                )
+        except Exception as _verif_exc:
+            st.session_state["_last_export_verif_status"] = (
+                _ref_id, False, f"{type(_verif_exc).__name__}: {_verif_exc}"
+            )
+
     if _report_allowed:
         if _card_pdf:
             _card_downloaded = st.download_button(
@@ -9875,41 +9919,9 @@ def render_screen_2():
                 )
             except Exception:
                 pass
-            try:
-                from utils.verification import record_export, compute_content_hash, verify_ref_id
-                _card_ev0 = (subs[0].get("evidence") or [{}])[0]
-                _card_hash = compute_content_hash(
-                    subs[0].get("result_statement", ""), _card_ev0.get("description", ""),
-                    _card_ev0.get("type", ""), evs[0].get("confidence_score"), evs[0].get("clarity_score"),
-                )
-                record_export(
-                    _ref_id, "readiness_card", _card_hash,
-                    confidence_score=evs[0].get("confidence_score"),
-                    clarity_score=evs[0].get("clarity_score"),
-                    score_band=evs[0].get("confidence_label", ""),
-                )
-                # record_export() is best-effort/never-raises by design (a DB hiccup must
-                # never block the download that's happening right now) -- which also means
-                # a silent failure here was previously invisible, surfacing later only as
-                # "?verify= says no record found" with no way to tell why. Self-check via a
-                # real round-trip read immediately after the write, same session, so a
-                # persistent failure (missing SUPABASE_DB_URL on this deployment, a schema
-                # mismatch, etc.) is visible right where the export just happened.
-                #
-                # Stashed into session_state, not just st.caption()'d inline, because
-                # st.download_button()'s return value is only True on the exact rerun
-                # triggered by the click -- a bare inline caption here would flash for one
-                # rerun and vanish on the next, easy to miss entirely.
-                if verify_ref_id(_ref_id):
-                    st.session_state["_last_export_verif_status"] = (_ref_id, True, "")
-                else:
-                    st.session_state["_last_export_verif_status"] = (
-                        _ref_id, False, "verify_ref_id() returned no row immediately after a successful-looking write"
-                    )
-            except Exception as _verif_exc:
-                st.session_state["_last_export_verif_status"] = (
-                    _ref_id, False, f"{type(_verif_exc).__name__}: {_verif_exc}"
-                )
+            # record_export()/verify_ref_id() now run unconditionally as soon as the
+            # card exists (see above), not gated on this click -- _last_export_verif_status
+            # is already populated by the time we get here.
         _last_verif = st.session_state.get("_last_export_verif_status")
         if _last_verif and _last_verif[0] == _ref_id and not _last_verif[1]:
             st.warning(
@@ -10066,7 +10078,7 @@ def render_screen_2():
             f"Confidence: {_wa_cf}/5.0 {_wa_icon(_wa_cf)}  ·  Clarity: {_wa_cl}/5.0 {_wa_icon(_wa_cl)}\n"
             f"Verdict: {_wa_state}\n"
             f"Top action: {_wa_tf}\n"
-            f"Check your report: https://impact-proof.streamlit.app"
+            f"Check your report: {APP_URL}"
         )
         _wa_url = "https://wa.me/?text=" + _urlparse.quote(_wa_text)
         st.markdown(

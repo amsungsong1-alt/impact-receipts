@@ -176,7 +176,7 @@ serve(async (req: Request) => {
   let reengagementSent = 0;
   const currentMonth = new Date().getUTCMonth() + 1;
   if (REPORTING_MONTHS.includes(currentMonth)) {
-    const appUrl = (Deno.env.get("APP_BASE_URL") ?? "https://impact-integrity-diagnostic.streamlit.app")
+    const appUrl = (Deno.env.get("APP_BASE_URL") ?? "https://app.impact-receipts.com")
       .replace(/\/$/, "");
     const [candidates, alreadyTriggered] = await Promise.all([
       fetchAtRiskCandidates(url, key),

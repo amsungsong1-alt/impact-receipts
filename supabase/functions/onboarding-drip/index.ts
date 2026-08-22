@@ -203,7 +203,7 @@ serve(async (req: Request) => {
     return new Response("Forbidden", { status: 401 });
   }
 
-  const appUrl = (Deno.env.get("APP_BASE_URL") ?? "https://impact-integrity-diagnostic.streamlit.app")
+  const appUrl = (Deno.env.get("APP_BASE_URL") ?? "https://app.impact-receipts.com")
     .replace(/\/$/, "");
 
   let day3Sent = 0, day7Sent = 0;
