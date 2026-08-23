@@ -7736,6 +7736,11 @@ def render_screen_1():
             "evidence fields are instead flagged on the Review tab before you run your "
             "determination, so you can see everything that needs attention in one place."
         )
+        st.caption(
+            "💡 After your score, the Review tab also has a short optional section for what you "
+            "learned and adapted, and any known limitations — donors specifically look for this, "
+            "even though it doesn't change your Confidence/Clarity numbers."
+        )
         _nb3, _pb3 = st.columns([3, 1])
         with _nb3:
             if st.button("Next: Review & Submit →", key="tab3_next_btn", type="primary", use_container_width=True):
