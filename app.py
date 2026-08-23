@@ -12961,10 +12961,24 @@ def _render_warehouse_slice_dice() -> None:
     no data yet, so it never implies a broken feature on an environment
     where migration 0055 hasn't been applied/populated."""
     try:
-        from utils.warehouse import slice_by
+        from utils.warehouse import slice_by, MIN_SLICE_SAMPLE
     except Exception:
         return
     _dim_label = {"donor": "Donor", "sector": "Sector", "org_type": "Org type", "quarter": "Quarter"}
+
+    # Same near-empty-sample gate as the admin behavioral CRM dashboard: if
+    # NO dimension has a single qualifying bucket yet, don't even show the
+    # selectbox -- an interactive control that resolves to "not enough
+    # data" for every choice is premature surface, not a working feature,
+    # for a paid-tier panel with no real usage behind it yet.
+    if not any(slice_by(_d) for _d in _dim_label):
+        st.caption(
+            f"📊 Portfolio-wide warehouse slicing activates automatically once any donor/sector/"
+            f"org type/quarter reaches {MIN_SLICE_SAMPLE}+ scored assessments across all accounts."
+        )
+        if not st.checkbox("Show anyway", key="_dss_warehouse_slice_force_show"):
+            return
+
     _slice_choice = st.selectbox(
         "Slice the portfolio-wide warehouse by", list(_dim_label.keys()),
         format_func=lambda k: _dim_label[k], key="dss_warehouse_slice_dim",
